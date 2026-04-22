@@ -107,12 +107,14 @@ class SnapshotTask : Work {
         toolchains.createBuildSession()
       }
 
-    val operation = toolchains.jvm.createClasspathSnapshottingOperation(inputJar)
-    operation.set(
-      JvmClasspathSnapshottingOperation.GRANULARITY,
-      ClassSnapshotGranularity.CLASS_MEMBER_LEVEL,
-    )
-    operation.set(PARSE_INLINED_LOCAL_CLASSES, true)
+    val operation =
+      toolchains.jvm
+        .classpathSnapshottingOperationBuilder(inputJar)
+        .apply {
+          this[JvmClasspathSnapshottingOperation.GRANULARITY] =
+            ClassSnapshotGranularity.CLASS_MEMBER_LEVEL
+          this[PARSE_INLINED_LOCAL_CLASSES] = true
+        }.build()
 
     val snapshot = buildSession.executeOperation(operation)
 

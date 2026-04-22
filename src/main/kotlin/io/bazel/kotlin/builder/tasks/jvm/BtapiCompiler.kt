@@ -17,6 +17,10 @@ package io.bazel.kotlin.builder.tasks.jvm
 
 import com.google.devtools.build.lib.view.proto.Deps
 import io.bazel.kotlin.model.JvmCompilationTask
+import org.jetbrains.kotlin.buildtools.api.BaseIncrementalCompilationConfiguration.Companion.FORCE_RECOMPILATION
+import org.jetbrains.kotlin.buildtools.api.BaseIncrementalCompilationConfiguration.Companion.MODULE_BUILD_DIR
+import org.jetbrains.kotlin.buildtools.api.BaseIncrementalCompilationConfiguration.Companion.OUTPUT_DIRS
+import org.jetbrains.kotlin.buildtools.api.BaseIncrementalCompilationConfiguration.Companion.ROOT_PROJECT_DIR
 import org.jetbrains.kotlin.buildtools.api.CompilationResult
 import org.jetbrains.kotlin.buildtools.api.CompilerArgumentsParseException
 import org.jetbrains.kotlin.buildtools.api.ExperimentalBuildToolsApi
@@ -30,11 +34,6 @@ import org.jetbrains.kotlin.buildtools.api.arguments.ExperimentalCompilerArgumen
 import org.jetbrains.kotlin.buildtools.api.arguments.JvmCompilerArguments
 import org.jetbrains.kotlin.buildtools.api.arguments.enums.JvmTarget
 import org.jetbrains.kotlin.buildtools.api.jvm.JvmPlatformToolchain.Companion.jvm
-import org.jetbrains.kotlin.buildtools.api.jvm.JvmSnapshotBasedIncrementalCompilationConfiguration
-import org.jetbrains.kotlin.buildtools.api.jvm.JvmSnapshotBasedIncrementalCompilationOptions.Companion.FORCE_RECOMPILATION
-import org.jetbrains.kotlin.buildtools.api.jvm.JvmSnapshotBasedIncrementalCompilationOptions.Companion.MODULE_BUILD_DIR
-import org.jetbrains.kotlin.buildtools.api.jvm.JvmSnapshotBasedIncrementalCompilationOptions.Companion.OUTPUT_DIRS
-import org.jetbrains.kotlin.buildtools.api.jvm.JvmSnapshotBasedIncrementalCompilationOptions.Companion.ROOT_PROJECT_DIR
 import org.jetbrains.kotlin.buildtools.api.jvm.operations.JvmCompilationOperation
 import org.jetbrains.kotlin.buildtools.api.jvm.operations.JvmCompilationOperation.Companion.INCREMENTAL_COMPILATION
 import java.io.BufferedInputStream
@@ -111,8 +110,8 @@ class BtapiCompiler(
     compilerPlugins: List<CompilerPlugin>,
     logger: KotlinLogger,
     additionalConfiguration: (
-      JvmCompilationOperation,
-      JvmCompilerArguments,
+      JvmCompilationOperation.Builder,
+      JvmCompilerArguments.Builder,
     ) -> Unit = { _, _ -> },
   ): CompilationResult {
     System.setProperty("zip.handler.uses.crc.instead.of.timestamp", "true")
@@ -122,8 +121,8 @@ class BtapiCompiler(
       (task.inputs.kotlinSourcesList + task.inputs.javaSourcesList)
         .map { Path.of(it) }
 
-    // Create BTAPI compilation operation
-    val operation = toolchains.jvm.createJvmCompilationOperation(sources, outputDir)
+    // Create BTAPI compilation operation builder
+    val operation = toolchains.jvm.jvmCompilationOperationBuilder(sources, outputDir)
     val compilerArgs = operation.compilerArguments
 
     // Configure compiler arguments directly from protobuf
@@ -138,7 +137,7 @@ class BtapiCompiler(
     additionalConfiguration(operation, compilerArgs)
 
     // Execute the compilation
-    return buildSession.executeOperation(operation, logger = logger)
+    return buildSession.executeOperation(operation.build(), logger = logger)
   }
 
   /**
@@ -146,7 +145,7 @@ class BtapiCompiler(
    */
   @OptIn(ExperimentalCompilerArgument::class)
   private fun configureCompilerArguments(
-    args: JvmCompilerArguments,
+    args: JvmCompilerArguments.Builder,
     task: JvmCompilationTask,
   ) {
     // Apply passthrough flags FIRST, before other settings.
@@ -185,17 +184,16 @@ class BtapiCompiler(
       )
 
     // Classpath - convert to absolute paths
-    val classpath = computeClasspath(task).map { File(it).absolutePath }
+    val classpath = computeClasspath(task).map { Path.of(File(it).absolutePath) }
     if (classpath.isNotEmpty()) {
-      args[JvmCompilerArguments.CLASSPATH] = classpath.joinToString(File.pathSeparator)
+      args[JvmCompilerArguments.CLASSPATH] = classpath
     }
 
     // Friend paths (for internal visibility)
     if (task.info.friendPathsList.isNotEmpty()) {
       args[JvmCompilerArguments.X_FRIEND_PATHS] =
         task.info.friendPathsList
-          .map { File(it).absolutePath }
-          .toTypedArray()
+          .map { Path.of(File(it).absolutePath) }
     }
   }
 
@@ -354,12 +352,11 @@ class BtapiCompiler(
    * BTAPI automatically forces full recompilation when the shrunk snapshot is missing.
    */
   private fun configureIncrementalCompilation(
-    operation: JvmCompilationOperation,
+    operation: JvmCompilationOperation.Builder,
     task: JvmCompilationTask,
   ): IncrementalArgsHashUpdate {
     val icBaseDir = Path.of(task.directories.incrementalBaseDir)
     val icWorkingDir = icBaseDir.resolve("ic-caches")
-    val shrunkSnapshot = icBaseDir.resolve("shrunk-classpath-snapshot.bin")
 
     // Compute force recompilation based on args hash
     val currentArgsHash = computeArgsHash(task)
@@ -373,23 +370,21 @@ class BtapiCompiler(
     // Use explicit classpath snapshots from proto (passed by Starlark action)
     val classpathSnapshots = task.inputs.classpathSnapshotsList.map { Path.of(it) }
 
-    val icOptions =
-      operation.createSnapshotBasedIcOptions().apply {
-        this[ROOT_PROJECT_DIR] = Path.of(ROOT)
-        this[MODULE_BUILD_DIR] =
-          Path.of(task.directories.classes).parent ?: Path.of(task.directories.classes)
-        this[FORCE_RECOMPILATION] = forceRecompilation
-        this[OUTPUT_DIRS] = setOf(Path.of(task.directories.classes), icWorkingDir)
-      }
+    val icConfig =
+      operation
+        .snapshotBasedIcConfigurationBuilder(
+          workingDirectory = icWorkingDir,
+          sourcesChanges = SourcesChanges.ToBeCalculated,
+          dependenciesSnapshotFiles = classpathSnapshots,
+        ).apply {
+          this[ROOT_PROJECT_DIR] = Path.of(ROOT)
+          this[MODULE_BUILD_DIR] =
+            Path.of(task.directories.classes).parent ?: Path.of(task.directories.classes)
+          this[FORCE_RECOMPILATION] = forceRecompilation
+          this[OUTPUT_DIRS] = setOf(Path.of(task.directories.classes), icWorkingDir)
+        }.build()
 
-    operation[INCREMENTAL_COMPILATION] =
-      JvmSnapshotBasedIncrementalCompilationConfiguration(
-        workingDirectory = icWorkingDir,
-        sourcesChanges = SourcesChanges.ToBeCalculated,
-        dependenciesSnapshotFiles = classpathSnapshots,
-        shrunkClasspathSnapshot = shrunkSnapshot,
-        options = icOptions,
-      )
+    operation[INCREMENTAL_COMPILATION] = icConfig
 
     return IncrementalArgsHashUpdate(icBaseDir = icBaseDir, currentHash = currentArgsHash)
   }

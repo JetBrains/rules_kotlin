@@ -9,7 +9,7 @@ module(
 # Variables
 # =============================================================================
 
-kotlin_version = "2.3.20-RC"
+kotlin_version = "2.4.0-Beta2"
 
 # =============================================================================
 # Production Dependencies
@@ -23,7 +23,7 @@ bazel_dep(name = "rules_cc", version = "0.2.14")
 bazel_dep(name = "rules_java", version = "9.3.0")
 bazel_dep(name = "bazel_worker_api", version = "0.0.9")
 bazel_dep(name = "bazel_worker_java", version = "0.0.9")
-bazel_dep(name = "protobuf", version = "34.0", repo_name = "com_google_protobuf")
+bazel_dep(name = "protobuf", version = "34.1", repo_name = "com_google_protobuf")
 bazel_dep(name = "rules_android", version = "0.7.1")
 
 # =============================================================================
@@ -97,8 +97,8 @@ maven.install(
         "com.google.dagger:dagger:2.57.2",
         "com.google.errorprone:error_prone_annotations:2.23.0",
         "com.google.guava:guava:33.0.0-jre",
-        "com.google.protobuf:protobuf-java-util:4.33.4",
-        "com.google.protobuf:protobuf-java:4.33.4",
+        "com.google.protobuf:protobuf-java-util:4.34.1",
+        "com.google.protobuf:protobuf-java:4.34.1",
         "com.google.truth:truth:0.45",
         "com.squareup.moshi:moshi-kotlin-codegen:1.15.2",
         "com.squareup.moshi:moshi-kotlin:1.15.2",

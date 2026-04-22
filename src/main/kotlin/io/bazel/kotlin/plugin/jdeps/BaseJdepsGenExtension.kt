@@ -14,7 +14,7 @@ abstract class BaseJdepsGenExtension(
     explicitClassesCanonicalPaths: Set<String>,
     implicitClassesCanonicalPaths: Set<String>,
   ) {
-    val directDeps = configuration.getList(JdepsGenConfigurationKeys.DIRECT_DEPENDENCIES)
+    val directDeps = configuration.getList(JdepsGenConfigurationKeys.DIRECT_DEPENDENCIES).toMutableList()
     val targetLabel = configuration.getNotNull(JdepsGenConfigurationKeys.TARGET_LABEL)
     val fullClasspath = configuration.getList(JdepsGenConfigurationKeys.FULL_CLASSPATH)
 
