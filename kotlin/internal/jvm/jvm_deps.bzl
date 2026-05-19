@@ -61,13 +61,22 @@ def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], 
     compile_depset_list = depset(direct = associates.jars.to_list(), transitive = transitive).to_list()
     compile_depset_list_filtered = [jar for jar in compile_depset_list if not _sets.contains(associates.abi_jar_set, jar)]
 
-    # Note: We intentionally do NOT prune deps for Java compilation.
-    # While Kotlin can compile with a pruned classpath, javac needs to resolve all types
-    # referenced in class file signatures and annotations from dependencies.
-    # When javac reads an ABI jar containing a method like `foo(SomeType param)`,
-    # it needs SomeType on the classpath even if the source code doesn't use it directly.
-    # This differs from rules_jvm which uses jvm-inc-builder for Java compilation.
-    pruned_deps_for_java = None
+    # When experimental_prune_transitive_deps is enabled, the project asserts a
+    # completeness invariant: every type javac may need to resolve -- including
+    # types referenced in class-file signatures of direct deps -- is itself declared as a direct dep on the consuming target.
+    # Under that invariant, pruning the Java compile classpath to direct ABI jars is sound:
+    # javac never reaches for types in transitive deps because they are already present as direct entries.
+    #
+    # We expose one synthetic JavaInfo per direct ABI jar so that
+    # java_common.compile() sees a transitive_compile_time_jars equal to the
+    # pruned direct set (deps=[] prevents the depset from compounding).
+    if prune_transitive_deps:
+        pruned_deps_for_java = [
+            JavaInfo(output_jar = jar, compile_jar = jar, deps = [])
+            for jar in compile_depset_list_filtered
+        ]
+    else:
+        pruned_deps_for_java = None
 
     # Collect classpath snapshots from the dependency graph that contributes snapshots.
     # This includes deps, associates, and exports because exported jars participate in downstream
