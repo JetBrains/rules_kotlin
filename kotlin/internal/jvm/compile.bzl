@@ -32,6 +32,7 @@ load(
 load(
     "//kotlin/internal:opts.bzl",
     "JavacOptions",
+    "KotlincExtraOptions",
     "KotlincOptions",
     "javac_options_to_flags",
     "kotlinc_options_to_flags",
@@ -642,6 +643,11 @@ def _run_kt_builder_action(
         fail("Error: A `mnemonic` must be provided for every invocation of `_run_kt_builder_action`!")
 
     kotlinc_options = ctx.attr.kotlinc_opts[KotlincOptions] if ctx.attr.kotlinc_opts else toolchains.kt.kotlinc_options
+    kotlinc_extra_options = (
+        ctx.attr.kotlinc_opts[KotlincExtraOptions]
+        if ctx.attr.kotlinc_opts and KotlincExtraOptions in ctx.attr.kotlinc_opts
+        else None
+    )
     javac_options = ctx.attr.javac_opts[JavacOptions] if ctx.attr.javac_opts else toolchains.kt.javac_options
     runtime_inputs = _btapi_runtime_inputs(toolchains)
     internal_plugin_inputs = [
@@ -651,7 +657,7 @@ def _run_kt_builder_action(
         toolchains.kt.internal_jdeps_gen,
     ]
 
-    args = _utils.init_args(ctx, rule_kind, compile_deps.module_name, kotlinc_options)
+    args = _utils.init_args(ctx, rule_kind, compile_deps.module_name, kotlinc_options, kotlinc_extra_options)
 
     for f, path in outputs.items():
         args.add("--" + f, path)
