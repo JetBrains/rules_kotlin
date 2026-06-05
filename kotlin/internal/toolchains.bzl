@@ -38,8 +38,8 @@ load("@rules_kotlin//kotlin:toolchains.bzl", "define_kt_toolchain")
 
 define_kt_toolchain(
     name= "custom_toolchain",
-    api_version = "2.3",
-    language_version = "2.3",
+    api_version = "2.4",
+    language_version = "2.4",
 )
 ```
 and then register it in the `WORKSPACE`:
@@ -125,12 +125,13 @@ _kt_toolchain = rule(
     attrs = {
         "api_version": attr.string(
             doc = "this is the -api_version flag [see](https://kotlinlang.org/docs/reference/compatibility.html).",
-            default = "2.3",
+            default = "2.4",
             values = [
                 "2.0",
                 "2.1",
                 "2.2",
                 "2.3",
+                "2.4"
             ],
         ),
         "btapi_annotations": attr.label(
@@ -344,12 +345,13 @@ _kt_toolchain = rule(
         ),
         "language_version": attr.string(
             doc = "this is the -language_version flag [see](https://kotlinlang.org/docs/reference/compatibility.html)",
-            default = "2.3",
+            default = "2.4",
             values = [
                 "2.0",
                 "2.1",
                 "2.2",
                 "2.3",
+                "2.4",
             ],
         ),
         "snapshot_worker": attr.label(

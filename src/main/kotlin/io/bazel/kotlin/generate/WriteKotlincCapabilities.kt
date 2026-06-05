@@ -448,6 +448,7 @@ object WriteKotlincCapabilities {
     KotlinReleaseVersion.v2_1_0,
     KotlinReleaseVersion.v2_2_0,
     KotlinReleaseVersion.v2_3_0,
+    KotlinReleaseVersion.v2_4_0,
   )
 
   /**
