@@ -178,8 +178,6 @@ object WriteKotlincCapabilities {
       "-classpath",              // Set by compilation action
       "-d",                      // Output directory set by rules
       "-module-name",            // Set by rules from target name
-      "-api-version",            // Set by toolchain/configuration
-      "-language-version",       // Set by toolchain/configuration
       "-Xfriend-paths",          // Use `associates` attribute instead
       "-no-jdk",                 // JDK management is rules' job
       "-no-stdlib",              // Part of include_stdlibs abstraction
@@ -405,6 +403,9 @@ object WriteKotlincCapabilities {
 
     /** String flags (free-form values) */
     private val STRING_FLAGS = setOf(
+      // Version compatibility. When a target leaves these unset, the value is supplied from the toolchain
+      "-api-version",
+      "-language-version",
       "-jvm-target",
       "-Xjdk-release",
       "-Xmetadata-version",

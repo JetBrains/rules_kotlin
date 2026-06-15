@@ -986,6 +986,16 @@ GENERATED_KOPTS = {
         type = attr.bool,
         value_to_flag = {True: ["-Xwhen-guards"]},
     ),
+    "api_version":     struct(
+        flag = "-api-version",
+        args = dict(
+            doc = "Allow using declarations from only the specified version of bundled libraries.",
+                default = "",
+        ),
+        type = attr.string,
+        value_to_flag = None,
+        map_value_to_flag = _map_string_flag("-api-version"),
+    ),
     "java_parameters":     struct(
         flag = "-java-parameters",
         args = dict(
@@ -1018,6 +1028,16 @@ GENERATED_KOPTS = {
         type = attr.string,
         value_to_flag = None,
         map_value_to_flag = _map_string_flag("-jvm-target"),
+    ),
+    "language_version":     struct(
+        flag = "-language-version",
+        args = dict(
+            doc = "Provide source compatibility with the specified version of Kotlin.",
+                default = "",
+        ),
+        type = attr.string,
+        value_to_flag = None,
+        map_value_to_flag = _map_string_flag("-language-version"),
     ),
     "opt_in":     struct(
         flag = "-opt-in",
