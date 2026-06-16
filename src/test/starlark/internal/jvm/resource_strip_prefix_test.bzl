@@ -2,30 +2,58 @@ load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("//kotlin:jvm.bzl", "kt_jvm_library")
 
+# Resource jars are built with singlejar (mnemonic "KotlinResourceJar"), not Bazel's zipper.
+# Rationale for that switch, which this test reflects:
+#   - Filename correctness: zipper's args-file format is "<jar_entry>=<fs_path>", split on the FIRST
+#     "=" with no escaping, so it cannot represent a resource whose name contains "=". singlejar's
+#     "<fs_path>:<jar_entry>" descriptors split on the LAST ":" (with Windows drive-letter awareness),
+#     covering the full range of valid filenames.
+#   - Pipeline consistency: rules_java packs resources via singlejar/JavaBuilder, so this aligns the
+#     rules_kotlin resource pipeline with rules_java and reuses a jar-aware tool that
+#     normalizes output for the downstream jar fold.
+# Accordingly this test inspects the KotlinResourceJar action's "<fs_path>:<jar_entry>" descriptors
+# rather than the legacy zipper "<jar_entry>=<fs_path>" args file.
+
 def _strip_resource_prefix_test_impl(ctx):
     env = analysistest.begin(ctx)
 
     actions = analysistest.target_actions(env)
 
-    # Find the only FileWrite action (it's the one responsible for writing the arguments to the resource zipper)
-    file_write_actions = [
+    # singlejar (mnemonic "KotlinResourceJar") takes one "<fs_path>:<jar_entry>" descriptor per
+    # resource after the --resources flag, splitting on the LAST ":".
+    resource_jar_actions = [
         action
         for action in actions
-        if action.mnemonic == "FileWrite"
+        if action.mnemonic == "KotlinResourceJar"
     ]
-    asserts.equals(env, expected = 1, actual = len(file_write_actions))
+    asserts.equals(env, expected = 1, actual = len(resource_jar_actions))
 
-    arguments = file_write_actions[0].content
+    # Collect the descriptors that follow --resources (up to the next flag). action.argv is fully
+    # expanded even though singlejar reads these from a params file.
+    descriptors = []
+    collecting = False
+    for arg in resource_jar_actions[0].argv:
+        if arg == "--resources":
+            collecting = True
+        elif arg.startswith("--"):
+            collecting = False
+        elif collecting:
+            descriptors.append(arg)
+    asserts.equals(env, expected = 1, actual = len(descriptors))
+
+    # Split on the last ":" (test paths carry no Windows drive-letter volume).
+    descriptor = descriptors[0]
+    separator_index = descriptor.rfind(":")
+    asserts.true(
+        env,
+        separator_index != -1,
+        msg = "resource descriptor " + descriptor + " has no ':' separator",
+    )
+    source_path = descriptor[:separator_index]
+    destination_path = descriptor[separator_index + 1:]
 
     pkg = ctx.attr.pkg
 
-    # The only line should be of the form:
-    # data.txt=<some prefix>/<pkg>/resourcez/data.txt
-    lines = arguments.splitlines()
-    asserts.equals(env, expected = 1, actual = len(lines))
-    line_parts = lines[0].split("=", 1)
-    asserts.equals(env, expected = 2, actual = len(line_parts))
-    source_path = line_parts[1]
     expected_suffix = pkg + "/" + ctx.attr.resource_strip_prefix + "/" + ctx.attr.resource_path
     asserts.true(
         env,
@@ -33,10 +61,13 @@ def _strip_resource_prefix_test_impl(ctx):
         msg = "source path " + source_path + " does not have expected suffix " + expected_suffix,
     )
 
-    destination_path = line_parts[0]
-
-    # The destination path should have the resource_strip_prefix removed
-    asserts.equals(env, expected = ctx.attr.resource_path, actual = destination_path, msg = "resource_strip_prefix was not applied correctly")
+    # The destination (jar entry) path should have the resource_strip_prefix removed.
+    asserts.equals(
+        env,
+        expected = ctx.attr.resource_path,
+        actual = destination_path,
+        msg = "resource_strip_prefix was not applied correctly",
+    )
 
     return analysistest.end(env)
 

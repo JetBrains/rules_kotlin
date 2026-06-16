@@ -183,11 +183,18 @@ _CONVENTIONAL_RESOURCE_PATHS = [
 ]
 
 def _adjust_resources_path_by_strip_prefix(path, resource_strip_prefix):
-    if not path.startswith(resource_strip_prefix):
-        fail("Resource file %s is not under the specified prefix to strip %s" % (path, resource_strip_prefix))
+    strip_prefix = resource_strip_prefix.rstrip("/")
+    if path.startswith(strip_prefix):
+        clean_path = path[len(strip_prefix):]
+        return clean_path.lstrip("/")
 
-    clean_path = path[len(resource_strip_prefix):]
-    return clean_path
+    prefix = strip_prefix if strip_prefix.startswith("/") else "/" + strip_prefix
+    idx = path.find(prefix)
+    if idx != -1:
+        clean_path = path[idx + len(prefix):]
+        return clean_path.lstrip("/")
+
+    fail("Resource file %s is not under the specified prefix to strip %s" % (path, resource_strip_prefix))
 
 def _adjust_resources_path_by_default_prefixes(path):
     for cp in _CONVENTIONAL_RESOURCE_PATHS:
@@ -202,11 +209,8 @@ def _adjust_resources_path(path, resource_strip_prefix):
     else:
         return _adjust_resources_path_by_default_prefixes(path)
 
-def _format_compile_plugin_options(o):
-    """Format compiler option into id:value for cmd line."""
-    return [
-        "%s:%s" % (o.id, o.value),
-    ]
+def adjust_resources_path_by_strip_prefix_for_testing(path, resource_strip_prefix):
+    return _adjust_resources_path_by_strip_prefix(path, resource_strip_prefix)
 
 def _new_plugins_from(targets):
     """Returns a struct containing the plugin metadata for the given targets.
@@ -308,8 +312,17 @@ def _fold_jars_action(ctx, rule_kind, toolchains, output_jar, input_jars, action
         toolchain = _TOOLCHAIN_TYPE,
     )
 
-def _resourcejar_args_action(ctx, extra_resources = {}):
-    res_cmd = []
+def _resourcejar_resource_specs(ctx, extra_resources = {}):
+    """Build the list of `<fs_path>:<jar_entry>` resource descriptors that
+    singlejar's `--resources` flag accepts.
+
+    Replaces the legacy zipper.exe args-file format (`<jar_entry>=<fs_path>`,
+    split on the first `=`), which could not represent resource files whose
+    names contained `=`. singlejar splits resource descriptors on the LAST `:`
+    (see `singlejar/output_jar.cc:295-312`, with Windows-volume awareness), so
+    filenames containing `=` are unaffected.
+    """
+    res_specs = []
 
     # Get the strip prefix from the File object if provided
     strip_prefix = None
@@ -337,44 +350,74 @@ def _resourcejar_args_action(ctx, extra_resources = {}):
         target_path = _adjust_resources_path(f.path, strip_prefix)
         if target_path[0] == "/":
             target_path = target_path[1:]
-        line = "{target_path}={f_path}\n".format(
+        # singlejar resource descriptor: <fs_path>:<jar_entry_path>
+        res_specs.append("{f_path}:{target_path}".format(
             target_path = target_path,
             f_path = f.path,
-        )
-        res_cmd.extend([line])
+        ))
 
     for key, value in extra_resources.items():
         target_path = _adjust_resources_path(value.short_path, ctx.label.package)
         if target_path[0] == "/":
             target_path = target_path[1:]
-        line = "{target_path}={res_path}\n".format(
+        res_specs.append("{res_path}:{target_path}".format(
             res_path = value.path,
             target_path = key,
-        )
-        res_cmd.extend([line])
+        ))
 
-    zipper_args_file = ctx.actions.declare_file("%s_resources_zipper_args" % ctx.label.name)
-    ctx.actions.write(zipper_args_file, "".join(res_cmd))
-    return zipper_args_file
+    return res_specs
 
-def _build_resourcejar_action(ctx, extra_resources = {}):
-    """sets up an action to build a resource jar for the target being compiled.
+def _build_resourcejar_action(ctx, toolchains, extra_resources = {}):
+    """Sets up an action to build a resource jar for the target being compiled.
+
+    Uses singlejar rather than Bazel's `zipper.exe`. zipper's args-file format
+    (one `<jar_entry>=<fs_path>` line per resource, split on the first `=` by
+    `strchr` in zipper's `zip_main.cc:317`) has no escape mechanism and cannot
+    represent any resource whose name contains `=`. singlejar's `--resources`
+    descriptor format (`<fs_path>:<jar_entry_path>`, split on the LAST `:`
+    with Windows-volume awareness) supports the full range of valid filenames
+    in practice. This brings the rules_kotlin resource pipeline in line with
+    rules_java, which also packs resources via singlejar / JavaBuilder rather
+    than zipper.
+
     Returns:
         The file resource jar file.
     """
     resources_jar_output = ctx.actions.declare_file(ctx.label.name + "-resources.jar")
-    zipper_args = _resourcejar_args_action(ctx, extra_resources)
+    res_specs = _resourcejar_resource_specs(ctx, extra_resources)
+
+    args = ctx.actions.args()
+    args.add_all([
+        "--normalize",
+        "--compression",
+        "--exclude_build_data",
+        "--add_missing_directories",
+    ])
+    args.add("--output", resources_jar_output)
+    # `--resources` is a list-valued flag: singlejar consumes subsequent tokens
+    # until the next `--<flag>`. The descriptor list can be large (thousands
+    # of files for test-data heavy targets) -- use_param_file forces singlejar
+    # to read args from a params file so we don't hit OS command-line length
+    # limits (~32k on Windows).
+    args.add("--resources")
+    args.add_all(res_specs)
+    args.use_param_file("@%s", use_always = True)
+    # `shell` format quotes args containing whitespace; `multiline` does not.
+    # singlejar's params-file tokenizer (token_stream.h:104) splits on any
+    # whitespace, including spaces within a line, so a resource descriptor
+    # like "path/Eclipse (Mac OS X).xml:keymaps/Eclipse (Mac OS X).xml" would
+    # be shredded into 7 broken tokens. `shell` format wraps such args in
+    # quotes, which singlejar's tokenizer (token_stream.h:123-148) handles.
+    args.set_param_file_format("shell")
+
     ctx.actions.run(
-        mnemonic = "KotlinZipResourceJar",
-        executable = ctx.executable._zipper,
-        inputs = ctx.files.resources + extra_resources.values() + [zipper_args],
+        mnemonic = "KotlinResourceJar",
+        executable = toolchains.java.single_jar,
+        inputs = ctx.files.resources + extra_resources.values(),
         outputs = [resources_jar_output],
-        arguments = [
-            "c",
-            resources_jar_output.path,
-            "@" + zipper_args.path,
-        ],
+        arguments = [args],
         progress_message = "Creating intermediate resource jar %{label}",
+        toolchain = _TOOLCHAIN_TYPE,
     )
     return resources_jar_output
 
@@ -841,7 +884,7 @@ def _kt_jvm_produce_output_jar_actions(
 
     # If this rule has any resources declared setup a zipper action to turn them into a jar.
     if len(ctx.files.resources) + len(extra_resources) > 0:
-        output_jars.append(_build_resourcejar_action(ctx, extra_resources))
+        output_jars.append(_build_resourcejar_action(ctx, toolchains, extra_resources))
     output_jars.extend(ctx.files.resource_jars)
 
     # Merge outputs into final runtime jar.
