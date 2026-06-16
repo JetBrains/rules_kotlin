@@ -35,9 +35,11 @@ def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], 
         [toolchains.kt.jvm_stdlibs]
     )
 
+    prune_transitive_deps = (toolchains.kt.experimental_prune_transitive_deps and
+                             not "kt_experimental_prune_transitive_deps_incompatible" in ctx.attr.tags)
+
     # Reduced classpath, exclude transitive deps from compilation
-    if (toolchains.kt.experimental_prune_transitive_deps and
-        not "kt_experimental_prune_transitive_deps_incompatible" in ctx.attr.tags):
+    if prune_transitive_deps:
         transitive = [
             d.compile_jars
             for d in dep_infos
@@ -58,9 +60,28 @@ def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], 
     compile_depset_list = depset(direct = associates.jars.to_list(), transitive = transitive).to_list()
     compile_depset_list_filtered = [jar for jar in compile_depset_list if not _sets.contains(associates.abi_jar_set, jar)]
 
+    # When experimental_prune_transitive_deps is enabled, the project asserts a
+    # completeness invariant: every type javac may need to resolve -- including
+    # types referenced in class-file signatures of direct deps -- is itself declared as a direct dep on the consuming target.
+    # Under that invariant, pruning the Java compile classpath to direct ABI jars is sound:
+    # javac never reaches for types in transitive deps because they are already present as direct entries.
+    #
+    # We expose one synthetic JavaInfo per direct ABI jar so that
+    # java_common.compile() sees a transitive_compile_time_jars equal to the
+    # pruned direct set (deps=[] prevents the depset from compounding).
+    if prune_transitive_deps:
+        # neverlink: these synthetic deps exist only to narrow javac's *compile* classpath to the pruned direct ABI set
+        pruned_deps_for_java = [
+            JavaInfo(output_jar = jar, compile_jar = jar, deps = [], neverlink = True)
+            for jar in compile_depset_list_filtered
+        ]
+    else:
+        pruned_deps_for_java = None
+
     return struct(
         module_name = associates.module_name,
         deps = dep_infos,
+        pruned_deps_for_java = pruned_deps_for_java,
         exports = [_java_info(d) for d in exports],
         associate_jars = associates.jars,
         compile_jars = depset(direct = compile_depset_list_filtered),

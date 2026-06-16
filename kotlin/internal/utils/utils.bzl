@@ -49,8 +49,34 @@ def _init_builder_args(ctx, rule_kind, module_name, kotlinc_options = None):
 
     return args
 
+def _javac_jvm_target_flags(jvm_target, compiler_version):
+    """Derive the javac platform-target flags from a kotlinc `jvm_target`.
+
+    The Kotlin and Java halves of a mixed target must compile against the same JVM
+    platform, so when `jvm_target` is set we drive the Java half from it. Returns exactly
+    one mutually-exclusive flag group (`--release` is incompatible with `-source`/`-target`):
+
+      * `["--release", N]`             -- genuine cross-compilation: the running compiler is
+                                          JDK 9+ and newer than the target.
+      * `["-source", N, "-target", N]` -- when compiler and target match (or a pre-9 compiler).
+
+    '1.8'-style targets are normalized to '8'. `jvm_target` is one of the enumerated values of
+    the generated `jvm_target` attribute, so it is numeric after normalization; a non-numeric
+    value is rejected defensively rather than passed through unvalidated.
+    """
+    stripped = jvm_target.strip()
+    dot = stripped.rfind(".")
+    target_version = stripped if dot < 0 else stripped[dot + 1:]
+    if not target_version.isdigit():
+        fail("kotlinc jvm_target '{}' is not a valid JVM target version (expected a number like '8', '11', '17', or the legacy '1.8' form)".format(jvm_target))
+    target_version_int = int(target_version)
+    if compiler_version >= 9 and target_version_int > 0 and compiler_version != target_version_int:
+        return ["--release", target_version]
+    return ["-source", target_version, "-target", target_version]
+
 utils = struct(
     add_dicts = dicts.add,
     init_args = _init_builder_args,
     derive_module_name = _derive_module_name,
+    javac_jvm_target_flags = _javac_jvm_target_flags,
 )

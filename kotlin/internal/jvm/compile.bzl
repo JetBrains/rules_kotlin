@@ -1004,12 +1004,28 @@ def _run_kt_java_builder_actions(
         # annotation processors in `deps` also.
         if len(srcs.kt) > 0:
             javac_opts.append("-proc:none")
+
+        # When kotlinc_options.jvm_target is set, drive the Java half's platform target from
+        # it so the Kotlin and Java halves compile against the same JVM platform. These flags
+        # override any toolchain/per-target defaults via javac's last-wins parsing. See
+        # _utils.javac_jvm_target_flags for the --release vs -source/-target choice.
+        kotlinc_options = ctx.attr.kotlinc_opts[KotlincOptions] if ctx.attr.kotlinc_opts else toolchains.kt.kotlinc_options
+        jvm_target = kotlinc_options.jvm_target if (kotlinc_options and kotlinc_options.jvm_target) else None
+        if jvm_target:
+            javac_opts.extend(_utils.javac_jvm_target_flags(jvm_target, toolchains.java.java_runtime.version))
+
+        # Use pruned deps for Java compilation when experimental_prune_transitive_deps is enabled
+        # This ensures java_common.compile() doesn't see transitive deps
+        java_compile_deps = compile_deps.deps
+        if compile_deps.pruned_deps_for_java != None:
+            java_compile_deps = compile_deps.pruned_deps_for_java
+
         java_info = java_common.compile(
             ctx,
             source_files = srcs.java,
             source_jars = generated_kapt_src_jars + srcs.src_jars + generated_ksp_src_jars,
             output = ctx.actions.declare_file(ctx.label.name + "-java.jar"),
-            deps = compile_deps.deps + kt_stubs_for_java + [p[JavaInfo] for p in ctx.attr.plugins if JavaInfo in p],
+            deps = java_compile_deps + kt_stubs_for_java + [p[JavaInfo] for p in ctx.attr.plugins if JavaInfo in p],
             java_toolchain = toolchains.java,
             plugins = _plugin_mappers.targets_to_annotation_processors_java_plugin_info(ctx.attr.plugins),
             javac_opts = javac_opts,
