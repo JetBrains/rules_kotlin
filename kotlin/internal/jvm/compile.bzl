@@ -41,6 +41,10 @@ load(
     _jvm_deps_utils = "jvm_deps_utils",
 )
 load(
+    "//kotlin/internal/jvm:associates.bzl",
+    _associate_utils = "associate_utils",
+)
+load(
     "//kotlin/internal/jvm:plugins.bzl",
     "is_ksp_processor_generating_java",
     _plugin_mappers = "mappers",
@@ -1299,7 +1303,9 @@ def _export_only_providers(ctx, actions, attr, outputs):
     return struct(
         java = java,
         kt = _KtJvmInfo(
-            module_name = _utils.derive_module_name(ctx),
+            # When `associates` is non-empty, inherit `module_name` from the first associate
+            # (mirrors the non-empty-srcs path's use of `_jvm_deps_utils.jvm_deps()`).
+            module_name = _associate_utils.get_associates(ctx, toolchains, getattr(attr, "associates", [])).module_name,
             module_jars = [],
             language_version = toolchains.kt.api_version,
             exported_compiler_plugins = _collect_plugins_for_export(

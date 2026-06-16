@@ -20,10 +20,7 @@ load(
     "//kotlin/internal:defs.bzl",
     _KtJvmInfo = "KtJvmInfo",
 )
-load(
-    "//kotlin/internal/utils:utils.bzl",
-    _utils = "utils",
-)
+load("//kotlin/internal/utils:utils.bzl", _utils = "utils")
 
 def _collect_associates(ctx, toolchains, associate):
     """Collects the associate jars from the provided dependency and returns

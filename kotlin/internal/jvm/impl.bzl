@@ -26,10 +26,6 @@ load(
     _compile = "compile",
 )
 load(
-    "//kotlin/internal/utils:utils.bzl",
-    _utils = "utils",
-)
-load(
     "//src/main/starlark/core/compile:common.bzl",
     "find_launcher_maker",
     "get_executable",
@@ -37,6 +33,7 @@ load(
     "is_windows",
 )
 load("//src/main/starlark/core/plugin:common.bzl", "plugin_common")
+load("//kotlin/internal/utils:utils.bzl", _utils = "utils")
 
 def _artifact_short_path(artifact):
     return artifact.short_path
@@ -252,11 +249,6 @@ def _write_launcher_action(ctx, rjars, main_class, jvm_flags, is_test = False):
     )
     return struct(coverage_metadata = [], executable = None)
 
-# buildifier: disable=unused-variable
-def _is_source_jar_stub(jar):
-    """Workaround for intellij plugin expecting a source jar"""
-    return jar.path.endswith("third_party/empty.jar")
-
 def _unify_jars(ctx):
     if bool(ctx.attr.jar):
         return struct(class_jar = ctx.file.jar, source_jar = ctx.file.srcjar, ijar = None)
@@ -301,6 +293,8 @@ def kt_jvm_import_impl(ctx):
         module_name = _utils.derive_module_name(ctx),
         module_jars = [],
         exported_compiler_plugins = depset(getattr(ctx.attr, "exported_compiler_plugins", [])),
+        classpath_snapshot = None,
+        transitive_classpath_snapshots = depset(),
         outputs = struct(
             jars = [artifact],
         ),
@@ -330,13 +324,6 @@ def kt_jvm_library_impl(ctx):
     if ctx.attr.neverlink and ctx.attr.runtime_deps:
         fail("runtime_deps and neverlink is nonsensical.", attr = "runtime_deps")
 
-    if not ctx.attr.srcs and len(ctx.attr.deps) > 0:
-        fail(
-            "deps without srcs is invalid." +
-            "\nTo add runtime dependencies use runtime_deps." +
-            "\nTo export libraries use exports.",
-            attr = "deps",
-        )
     return _make_providers(
         ctx,
         providers = _compile.kt_jvm_produce_jar_actions(ctx, "kt_jvm_library") if ctx.attr.srcs or ctx.attr.resources else _compile.export_only_providers(
