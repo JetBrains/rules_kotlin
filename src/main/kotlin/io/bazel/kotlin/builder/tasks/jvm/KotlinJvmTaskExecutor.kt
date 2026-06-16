@@ -23,7 +23,6 @@ import io.bazel.kotlin.builder.toolchain.CompilationTaskContext
 import io.bazel.kotlin.model.JvmCompilationTask
 import org.jetbrains.kotlin.buildtools.api.CompilationResult
 import org.jetbrains.kotlin.buildtools.api.ExperimentalBuildToolsApi
-import java.util.concurrent.ConcurrentHashMap
 
 @OptIn(ExperimentalBuildToolsApi::class)
 class KotlinJvmTaskExecutor
@@ -33,8 +32,6 @@ class KotlinJvmTaskExecutor
     private val defaultPlugins: InternalCompilerPlugins? = null,
     private val btapiToolchainsCache: BtapiToolchainsCache = BtapiToolchainsCache(),
   ) {
-    private val compilers = ConcurrentHashMap<BtapiRuntimeSpec, BtapiCompiler>()
-
     fun execute(
       context: CompilationTaskContext,
       task: JvmCompilationTask,
@@ -58,10 +55,9 @@ class KotlinJvmTaskExecutor
       runtimeSpec: BtapiRuntimeSpec,
       plugins: InternalCompilerPlugins,
     ) {
-      val btapiCompiler =
-        compilers.computeIfAbsent(runtimeSpec) {
-          BtapiCompiler(btapiToolchainsCache.get(it))
-        }
+      // Each Bazel action compiles exactly one target (== one project build), so we create a
+      // per-target BtapiCompiler/BuildSession here and close it when the target is done.
+      BtapiCompiler(btapiToolchainsCache.get(runtimeSpec)).use { btapiCompiler ->
 
       val preprocessedTask =
         task
@@ -114,6 +110,7 @@ class KotlinJvmTaskExecutor
             context.execute("creating KSP generated classes jar", ::createdGeneratedKspClassesJar)
           }
         }
+       }
       }
     }
   }
