@@ -17,9 +17,21 @@ load(
     "JavaInfo",
 )
 load("//kotlin/internal/jvm:associates.bzl", _associate_utils = "associate_utils")
+load("//src/main/starlark/core/compile:common.bzl", "KtJvmInfo")
 
 def _java_info(target):
     return target[JavaInfo] if JavaInfo in target else None
+
+def _non_kotlin_classpath_snapshot_jars(snapshot_sources):
+    # Java-only dependencies (JavaInfo but no KtJvmInfo) publish no classpath snapshot of their own,
+    # so return their compile (ABI) jars for the caller to snapshot locally.
+    return depset(
+        transitive = [
+            d[JavaInfo].compile_jars
+            for d in snapshot_sources
+            if JavaInfo in d and KtJvmInfo not in d
+        ],
+    ).to_list()
 
 def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], exports = [], runtime_deps = []):
     """Encapsulates jvm dependency metadata."""
@@ -78,6 +90,32 @@ def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], 
     else:
         pruned_deps_for_java = None
 
+    # Collect classpath snapshots from the dependency graph that contributes snapshots.
+    # This includes deps, associates, and exports because exported jars participate in downstream
+    # compile classpaths and must invalidate incremental compilation when their ABI changes.
+    snapshot_sources = deps + associate_deps + exports
+    # Mirror the compile-classpath pruning above so the IC snapshot set tracks the (possibly pruned)
+    # compile classpath. Under prune_transitive_deps the project asserts that every type the consumer
+    # resolves is declared as a direct dep, so each direct dep's own snapshot is already a complete IC
+    # input; pull each dep's full transitive snapshot closure only when the classpath itself is unpruned.
+    snapshot_transitive = [] if prune_transitive_deps else [
+        getattr(d[KtJvmInfo], "transitive_classpath_snapshots", None)
+        for d in snapshot_sources
+        if KtJvmInfo in d and getattr(d[KtJvmInfo], "transitive_classpath_snapshots", None) != None
+    ]
+    classpath_snapshots = depset(
+        direct = [
+            getattr(d[KtJvmInfo], "classpath_snapshot", None)
+            for d in snapshot_sources
+            if KtJvmInfo in d and getattr(d[KtJvmInfo], "classpath_snapshot", None) != None
+        ],
+        transitive = snapshot_transitive,
+    ).to_list()
+
+    # Non-Kotlin Java dependencies don't publish classpath snapshots via KtJvmInfo.
+    # Return their compile jars so snapshot actions can be generated locally by compile.bzl.
+    non_kotlin_classpath_snapshot_jars = _non_kotlin_classpath_snapshot_jars(snapshot_sources)
+
     return struct(
         module_name = associates.module_name,
         deps = dep_infos,
@@ -86,8 +124,11 @@ def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], 
         associate_jars = associates.jars,
         compile_jars = depset(direct = compile_depset_list_filtered),
         runtime_deps = [_java_info(d) for d in runtime_deps],
+        classpath_snapshots = classpath_snapshots,
+        non_kotlin_classpath_snapshot_jars = non_kotlin_classpath_snapshot_jars,
     )
 
 jvm_deps_utils = struct(
     jvm_deps = _jvm_deps,
+    non_kotlin_classpath_snapshot_jars = _non_kotlin_classpath_snapshot_jars,
 )

@@ -17,11 +17,16 @@ package io.bazel.kotlin.builder.tasks.jvm
 
 import com.google.devtools.build.lib.view.proto.Deps
 import io.bazel.kotlin.model.JvmCompilationTask
+import org.jetbrains.kotlin.buildtools.api.BaseIncrementalCompilationConfiguration.Companion.FORCE_RECOMPILATION
+import org.jetbrains.kotlin.buildtools.api.BaseIncrementalCompilationConfiguration.Companion.MODULE_BUILD_DIR
+import org.jetbrains.kotlin.buildtools.api.BaseIncrementalCompilationConfiguration.Companion.OUTPUT_DIRS
+import org.jetbrains.kotlin.buildtools.api.BaseIncrementalCompilationConfiguration.Companion.ROOT_PROJECT_DIR
 import org.jetbrains.kotlin.buildtools.api.CompilationResult
 import org.jetbrains.kotlin.buildtools.api.CompilerArgumentsParseException
 import org.jetbrains.kotlin.buildtools.api.ExperimentalBuildToolsApi
 import org.jetbrains.kotlin.buildtools.api.KotlinLogger
 import org.jetbrains.kotlin.buildtools.api.KotlinToolchains
+import org.jetbrains.kotlin.buildtools.api.SourcesChanges
 import org.jetbrains.kotlin.buildtools.api.arguments.CommonCompilerArguments
 import org.jetbrains.kotlin.buildtools.api.arguments.CompilerPlugin
 import org.jetbrains.kotlin.buildtools.api.arguments.CompilerPluginOption
@@ -31,14 +36,17 @@ import org.jetbrains.kotlin.buildtools.api.arguments.enums.JdkRelease
 import org.jetbrains.kotlin.buildtools.api.arguments.enums.JvmTarget
 import org.jetbrains.kotlin.buildtools.api.jvm.JvmPlatformToolchain.Companion.jvm
 import org.jetbrains.kotlin.buildtools.api.jvm.operations.JvmCompilationOperation
+import org.jetbrains.kotlin.buildtools.api.jvm.operations.JvmCompilationOperation.Companion.INCREMENTAL_COMPILATION
 import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.ObjectOutputStream
 import java.io.PrintStream
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.security.MessageDigest
 import java.util.Base64
 import org.jetbrains.kotlin.buildtools.api.arguments.enums.KotlinVersion as BtapiKotlinVersion
 
@@ -73,14 +81,27 @@ class BtapiCompiler(
     out: PrintStream,
   ): CompilationResult {
     val compilerPlugins = buildCompilerPlugins(task, plugins)
-    val logger = createCompilerLogger(out, verbose = false)
+    val logger = createCompilerLogger(out, verbose = task.info.icEnableLogging)
+    var hashUpdate: IncrementalArgsHashUpdate? = null
 
-    return executeCompilation(
-      task = task,
-      outputDir = Paths.get(task.directories.classes),
-      compilerPlugins = compilerPlugins,
-      logger = logger,
-    )
+    val result =
+      executeCompilation(
+        task = task,
+        outputDir = Paths.get(task.directories.classes),
+        compilerPlugins = compilerPlugins,
+        logger = logger,
+      ) { operation, _, classpathStructure ->
+        // Configure incremental compilation if enabled
+        if (task.info.incrementalCompilation && task.directories.incrementalBaseDir.isNotEmpty()) {
+          hashUpdate = configureIncrementalCompilation(operation, task, compilerPlugins, classpathStructure)
+        }
+      }
+
+    if (result == CompilationResult.COMPILATION_SUCCESS) {
+      hashUpdate?.also { storeArgsHash(it.icBaseDir, it.currentHash) }
+    }
+
+    return result
   }
 
   /**
@@ -94,7 +115,8 @@ class BtapiCompiler(
     additionalConfiguration: (
       JvmCompilationOperation.Builder,
       JvmCompilerArguments.Builder,
-    ) -> Unit = { _, _ -> },
+      List<String>,
+    ) -> Unit = { _, _, _ -> },
   ): CompilationResult {
     // Collect sources from protobuf
     val sources =
@@ -105,8 +127,13 @@ class BtapiCompiler(
     val operation = toolchains.jvm.jvmCompilationOperationBuilder(sources, outputDir)
     val compilerArgs = operation.compilerArguments
 
+    // Compute the compile classpath once, then use it two ways from this single list: hashed as-is
+    // (relative paths) for incremental invalidation, and absolutized for the compiler invocation.
+    val classpathEntries = computeClasspath(task)
+    val compilerClasspath = classpathEntries.map { Paths.get(File(it).absolutePath) }
+
     // Configure compiler arguments directly from protobuf
-    configureCompilerArguments(compilerArgs, task)
+    configureCompilerArguments(compilerArgs, task, compilerClasspath)
 
     // Configure compiler plugins
     if (compilerPlugins.isNotEmpty()) {
@@ -114,7 +141,7 @@ class BtapiCompiler(
     }
 
     // Allow caller to do additional configuration
-    additionalConfiguration(operation, compilerArgs)
+    additionalConfiguration(operation, compilerArgs, classpathEntries)
 
     // Execute the compilation
     return buildSession.executeOperation(operation.build(), logger = logger)
@@ -127,6 +154,7 @@ class BtapiCompiler(
   private fun configureCompilerArguments(
     args: JvmCompilerArguments.Builder,
     task: JvmCompilationTask,
+    classpath: List<Path>,
   ) {
     // Precedence by application order: user options (passthrough) first, then toolchain defaults
     // fill only what the user did not set, then rules-managed settings are forced last.
@@ -185,8 +213,8 @@ class BtapiCompiler(
     args[JvmCompilerArguments.NO_STDLIB] = true
     args[JvmCompilerArguments.NO_REFLECT] = true
 
-    // Classpath - convert to absolute paths
-    val classpath = computeClasspath(task).map { Paths.get(File(it).absolutePath) }
+    // Classpath (already resolved to absolute paths by the caller, computed once and shared with
+    // the incremental args-hash).
     if (classpath.isNotEmpty()) {
       args[JvmCompilerArguments.CLASSPATH] = classpath
     }
@@ -358,6 +386,127 @@ class BtapiCompiler(
     )
   }
 
+  /**
+   * Configures incremental compilation for the operation.
+   *
+   * Dependency classpath snapshots are now explicit inputs (from the proto),
+   * passed from Starlark as declared Bazel outputs of upstream snapshot actions.
+   * BTAPI automatically forces full recompilation when the shrunk snapshot is missing.
+   */
+  private fun configureIncrementalCompilation(
+    operation: JvmCompilationOperation.Builder,
+    task: JvmCompilationTask,
+    compilerPlugins: List<CompilerPlugin>,
+    classpathStructure: List<String>,
+  ): IncrementalArgsHashUpdate {
+    val icBaseDir = Paths.get(task.directories.incrementalBaseDir)
+    val icWorkingDir = icBaseDir.resolve("ic-caches")
+
+    // Compute force recompilation based on args hash
+    val currentArgsHash = computeArgsHash(task, compilerPlugins, classpathStructure)
+    val previousArgsHash = loadArgsHash(icBaseDir)
+    val argsChanged = previousArgsHash != null && previousArgsHash != currentArgsHash
+    val forceRecompilation = argsChanged
+
+    // Ensure IC directories exist before executing BTAPI operation.
+    Files.createDirectories(icBaseDir)
+
+    // Use explicit classpath snapshots from proto (passed by Starlark action)
+    val classpathSnapshots = task.inputs.classpathSnapshotsList.map { Paths.get(it) }
+
+    val icConfig =
+      operation
+        .snapshotBasedIcConfigurationBuilder(
+          workingDirectory = icWorkingDir,
+          sourcesChanges = SourcesChanges.ToBeCalculated,
+          dependenciesSnapshotFiles = classpathSnapshots,
+        ).apply {
+          this[ROOT_PROJECT_DIR] = Paths.get(ROOT)
+          this[MODULE_BUILD_DIR] =
+            Paths.get(task.directories.classes).parent ?: Paths.get(task.directories.classes)
+          this[FORCE_RECOMPILATION] = forceRecompilation
+          this[OUTPUT_DIRS] = setOf(Paths.get(task.directories.classes), icWorkingDir)
+        }.build()
+
+    operation[INCREMENTAL_COMPILATION] = icConfig
+
+    return IncrementalArgsHashUpdate(icBaseDir = icBaseDir, currentHash = currentArgsHash)
+  }
+
+  /**
+   * Computes a hash of the effective compiler-flag set, used to force a full recompilation when it
+   * changes. Sources and the dependency classpath *content* are handled separately (by IC source
+   * diffing and by dependency classpath snapshots), so they are intentionally not hashed here. The
+   * classpath *structure* (entry count and order) IS hashed, since reordering can change which
+   * class wins on a split package and therefore the output.
+   *
+   * SHA-256 is used (rather than a 32-bit hashCode accumulation) so that a collision -- which would
+   * silently reuse a stale IC cache -- is negligibly unlikely. Each field and each list length is
+   * length-prefixed so the fed byte stream is unambiguous.
+   */
+  private fun computeArgsHash(
+    task: JvmCompilationTask,
+    compilerPlugins: List<CompilerPlugin>,
+    classpathStructure: List<String>,
+  ): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    fun putInt(n: Int) =
+      digest.update(
+        byteArrayOf((n ushr 24).toByte(), (n ushr 16).toByte(), (n ushr 8).toByte(), n.toByte()),
+      )
+    fun put(value: String) {
+      val bytes = value.toByteArray(StandardCharsets.UTF_8)
+      putInt(bytes.size)
+      digest.update(bytes)
+    }
+    fun putAll(values: List<String>) {
+      putInt(values.size)
+      values.forEach(::put)
+    }
+
+    // The Kotlin compiler version: codegen, ABI-gen output, and the IC cache format are all
+    // version-specific, and the on-disk IC cache persists across a compiler bump (it is keyed on
+    // the output path, not the compiler), so a change here must force a full recompile.
+    put(toolchains.getCompilerVersion())
+    put(task.info.moduleName)
+    put(task.info.toolchainInfo.jvm.jvmTarget)
+    put(task.info.toolchainInfo.common.apiVersion)
+    put(task.info.toolchainInfo.common.languageVersion)
+    putAll(task.info.passthroughFlagsList.sorted())
+    // The compile-classpath structure: the exact ordered entry list handed to the compiler (friend
+    // paths first, deduped, normalized + relative). Fed in order -- NOT sorted -- because order is
+    // itself significant (it decides which class wins on a split package). Entry *content* is left
+    // to the dependency snapshots; only the structure forces a full recompile here.
+    putAll(classpathStructure)
+    // Fingerprint the full effective compiler-plugin set (internal jdeps / jvm-abi-gen /
+    // skip-code-gen + user plugins) uniformly by their option lists, so e.g. the jvm-abi-gen
+    // options take part in IC invalidation. This list is already phase-filtered to the compile
+    // operation, so a plugin entering or leaving the compile phase changes the fingerprint via
+    // membership; the plugin phase itself is therefore not part of the per-plugin fingerprint
+    // (stubs-phase changes are reflected through the KAPT-generated sources, handled by
+    // source-change detection).
+    putAll(compilerPlugins.map(::compilerPluginFingerprint).sorted())
+
+    return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+  }
+
+  /** Uniform fingerprint of an effective compiler plugin, regardless of how it was assembled. */
+  private fun compilerPluginFingerprint(plugin: CompilerPlugin): String {
+    // Stable sort by key: distinct options become order-insensitive (no spurious invalidation if
+    // their emission order changes), while repeated same-key options keep their relative order.
+    // The jdeps plugin passes the compile classpath as repeated, ordered `full_classpath` options,
+    // so a change in classpath order or entry count still changes this fingerprint.
+    val options =
+      plugin.rawArguments
+        .sortedBy { it.key }
+        .joinToString("\u0001") { "${it.key}\u0000${it.value}" }
+    val classpath =
+      plugin.classpath
+        .map { it.toString() }
+        .joinToString("\u0001")
+    return "${plugin.pluginId}\u0002${classpath}\u0002$options"
+  }
+
   private fun hasPhase(
     plugin: JvmCompilationTask.Inputs.Plugin,
     phase: JvmCompilationTask.Inputs.PluginPhase,
@@ -373,6 +522,28 @@ class BtapiCompiler(
         },
       orderingRequirements = emptySet(),
     )
+
+  private fun storeArgsHash(
+    icBaseDir: Path,
+    hash: String,
+  ) {
+    val hashFile = icBaseDir.resolve("args-hash.txt")
+    Files.write(hashFile, hash.toByteArray())
+  }
+
+  private fun loadArgsHash(icBaseDir: Path): String? {
+    val hashFile = icBaseDir.resolve("args-hash.txt")
+    return if (Files.exists(hashFile)) {
+      String(Files.readAllBytes(hashFile), StandardCharsets.UTF_8).trim().ifEmpty { null }
+    } else {
+      null
+    }
+  }
+
+  private data class IncrementalArgsHashUpdate(
+    val icBaseDir: Path,
+    val currentHash: String,
+  )
 
   /**
    * Parse JVM target string to BTAPI enum and fail fast for unsupported values.
@@ -418,7 +589,12 @@ class BtapiCompiler(
 
   /**
    * Creates a logger for compiler diagnostics.
-   * Errors and warnings are always emitted; info/debug logs are emitted in verbose mode.
+   *
+   * Errors and warnings are general compiler diagnostics (e.g. a user's syntax or type error), never
+   * IC-specific, so they are emitted verbatim with no marker prefix regardless of verbosity. The
+   * info/debug/lifecycle channels carry the verbose IC diagnostics that the IC integration-test
+   * harness scrapes; they are emitted only in verbose mode and carry an "[IC ...]" marker per
+   * severity. Non-verbose builds suppress them entirely, so default output stays clean and unprefixed.
    */
   private fun createCompilerLogger(
     out: PrintStream,

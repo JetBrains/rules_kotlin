@@ -237,8 +237,30 @@ internal fun JvmCompilationTask.createdGeneratedKspClassesJar() {
 }
 
 /**
- * Ensures the jdeps file exists. If the compiler did not create one (for example when there
- * were no Kotlin sources to compile), writes an empty jdeps so the declared output is present.
+ * Caches the jdeps file to IC directory for future incremental builds.
+ * This is called after successful compilation so the jdeps can be restored
+ * when IC skips compilation in future builds.
+ */
+internal fun JvmCompilationTask.cacheJdepsToIcDir() {
+  if (!info.incrementalCompilation || directories.incrementalBaseDir.isEmpty()) {
+    return
+  }
+  if (outputs.jdeps.isEmpty()) {
+    return
+  }
+  val jdepsPath = Paths.get(outputs.jdeps)
+  if (!jdepsPath.exists()) {
+    return
+  }
+  val icDir = Paths.get(directories.incrementalBaseDir)
+  Files.createDirectories(icDir)
+  val cachedJdepsPath = icDir.resolve("cached.jdeps")
+  Files.copy(jdepsPath, cachedJdepsPath, StandardCopyOption.REPLACE_EXISTING)
+}
+
+/**
+ * Ensures the jdeps file exists. If IC skipped compilation and jdeps wasn't created,
+ * this restores the cached jdeps from IC directory or writes an empty jdeps.
  */
 internal fun JvmCompilationTask.ensureJdepsExists() {
   if (outputs.jdeps.isEmpty()) {
@@ -246,8 +268,20 @@ internal fun JvmCompilationTask.ensureJdepsExists() {
   }
   val jdepsPath = Paths.get(outputs.jdeps)
   if (jdepsPath.exists()) {
+    // jdeps was created by the compiler, cache it for future IC builds
+    cacheJdepsToIcDir()
     return
   }
+  // jdeps wasn't created (IC skipped compilation), try to restore from cache
+  if (info.incrementalCompilation && directories.incrementalBaseDir.isNotEmpty()) {
+    val icDir = Paths.get(directories.incrementalBaseDir)
+    val cachedJdepsPath = icDir.resolve("cached.jdeps")
+    if (cachedJdepsPath.exists()) {
+      Files.copy(cachedJdepsPath, jdepsPath, StandardCopyOption.REPLACE_EXISTING)
+      return
+    }
+  }
+  // No cached jdeps, write an empty one
   writeJdeps(outputs.jdeps, emptyJdeps(info.label))
 }
 

@@ -28,12 +28,14 @@ def _setup(env, target):
             JavaInfo: associate_deps_java_info,
             _KtJvmInfo: _KtJvmInfo(
                 module_name = "associate_name",
+                classpath_snapshot = None,
             ),
         },
         {
             JavaInfo: associate_deps_java_info2,
             _KtJvmInfo: _KtJvmInfo(
                 module_name = "associate_name",
+                classpath_snapshot = None,
             ),
         },
     ]
@@ -210,6 +212,7 @@ def _transitive_from_associates_test_impl(env, target):
             ),
             _KtJvmInfo: _KtJvmInfo(
                 module_name = "associate_name",
+                classpath_snapshot = None,
             ),
         },
     ]
@@ -315,6 +318,7 @@ def _dep_infos_ordering_test_impl(env, target):
             JavaInfo: associate_java_info,
             _KtJvmInfo: _KtJvmInfo(
                 module_name = "associate_name",
+                classpath_snapshot = None,
             ),
         },
     ]
@@ -425,7 +429,6 @@ def _sourceless_dep_propagation_test(name):
         kt_compiler_plugin,
         name = name + "_subject",
         id = "test.sourceless_propagation",
-        target_embedded_compiler = True,
         deps = [":" + name + "_sourceless_wrapper"],
     )
 
@@ -433,6 +436,223 @@ def _sourceless_dep_propagation_test(name):
         name = name,
         impl = _sourceless_dep_propagation_test_impl,
         target = name + "_subject",
+    )
+
+def _classpath_snapshots_transitive_test_impl(env, target):
+    direct_dep_java_info = JavaInfo(
+        compile_jar = _file(env.ctx.attr.direct_dep_abi_jar),
+        output_jar = _file(env.ctx.attr.direct_dep_abi_jar),
+    )
+
+    direct_snapshot = _file(env.ctx.attr.direct_snapshot)
+    transitive_snapshot = _file(env.ctx.attr.transitive_snapshot)
+
+    direct_deps = [
+        {
+            JavaInfo: direct_dep_java_info,
+            _KtJvmInfo: _KtJvmInfo(
+                module_name = "direct_dep",
+                classpath_snapshot = direct_snapshot,
+                transitive_classpath_snapshots = depset([transitive_snapshot]),
+            ),
+        },
+    ]
+
+    fake_ctx = struct(
+        label = target.label,
+        attr = struct(
+            module_name = "",
+            tags = [],
+        ),
+    )
+
+    toolchains = struct(
+        kt = struct(
+            experimental_remove_private_classes_in_abi_jars = False,
+            experimental_prune_transitive_deps = False,
+            experimental_strict_associate_dependencies = False,
+            jvm_stdlibs = JavaInfo(
+                compile_jar = _file(env.ctx.attr.jvm_jar),
+                output_jar = _file(env.ctx.attr.jvm_jar),
+            ),
+        ),
+    )
+
+    result = _jvm_deps_utils.jvm_deps(
+        ctx = fake_ctx,
+        toolchains = toolchains,
+        associate_deps = [],
+        deps = direct_deps,
+    )
+
+    classpath_snapshot_paths = [f.short_path for f in result.classpath_snapshots]
+    env.expect.that_bool(direct_snapshot.short_path in classpath_snapshot_paths).equals(True)
+    env.expect.that_bool(transitive_snapshot.short_path in classpath_snapshot_paths).equals(True)
+
+def _classpath_snapshots_transitive_test(name):
+    util.helper_target(
+        native.filegroup,
+        name = name + "_subject",
+        srcs = [],
+    )
+    analysis_test(
+        name = name,
+        impl = _classpath_snapshots_transitive_test_impl,
+        target = name + "_subject",
+        attr_values = {
+            "direct_dep_abi_jar": util.empty_file(name + "direct_dep_abi.jar"),
+            "direct_snapshot": util.empty_file(name + "direct.snapshot"),
+            "jvm_jar": util.empty_file(name + "jvm.jar"),
+            "transitive_snapshot": util.empty_file(name + "transitive.snapshot"),
+        },
+        attrs = {
+            "direct_dep_abi_jar": attr.label(allow_files = True),
+            "direct_snapshot": attr.label(allow_files = True),
+            "jvm_jar": attr.label(allow_files = True),
+            "transitive_snapshot": attr.label(allow_files = True),
+        },
+    )
+
+def _classpath_snapshots_pruned_test_impl(env, target):
+    direct_dep_java_info = JavaInfo(
+        compile_jar = _file(env.ctx.attr.direct_dep_abi_jar),
+        output_jar = _file(env.ctx.attr.direct_dep_abi_jar),
+    )
+
+    direct_snapshot = _file(env.ctx.attr.direct_snapshot)
+    transitive_snapshot = _file(env.ctx.attr.transitive_snapshot)
+
+    direct_deps = [
+        {
+            JavaInfo: direct_dep_java_info,
+            _KtJvmInfo: _KtJvmInfo(
+                module_name = "direct_dep",
+                classpath_snapshot = direct_snapshot,
+                transitive_classpath_snapshots = depset([transitive_snapshot]),
+            ),
+        },
+    ]
+
+    fake_ctx = struct(
+        label = target.label,
+        attr = struct(
+            module_name = "",
+            tags = [],
+        ),
+    )
+
+    toolchains = struct(
+        kt = struct(
+            experimental_remove_private_classes_in_abi_jars = False,
+            experimental_prune_transitive_deps = True,
+            experimental_strict_associate_dependencies = False,
+            jvm_stdlibs = JavaInfo(
+                compile_jar = _file(env.ctx.attr.jvm_jar),
+                output_jar = _file(env.ctx.attr.jvm_jar),
+            ),
+        ),
+    )
+
+    result = _jvm_deps_utils.jvm_deps(
+        ctx = fake_ctx,
+        toolchains = toolchains,
+        associate_deps = [],
+        deps = direct_deps,
+    )
+
+    # Under prune_transitive_deps the snapshot set mirrors the pruned compile classpath: the direct
+    # dep's own snapshot is kept, but its transitive snapshot closure is dropped (the project asserts
+    # every type the consumer resolves is a direct dep, so direct snapshots are a complete IC input).
+    classpath_snapshot_paths = [f.short_path for f in result.classpath_snapshots]
+    env.expect.that_bool(direct_snapshot.short_path in classpath_snapshot_paths).equals(True)
+    env.expect.that_bool(transitive_snapshot.short_path in classpath_snapshot_paths).equals(False)
+
+def _classpath_snapshots_pruned_test(name):
+    util.helper_target(
+        native.filegroup,
+        name = name + "_subject",
+        srcs = [],
+    )
+    analysis_test(
+        name = name,
+        impl = _classpath_snapshots_pruned_test_impl,
+        target = name + "_subject",
+        attr_values = {
+            "direct_dep_abi_jar": util.empty_file(name + "direct_dep_abi.jar"),
+            "direct_snapshot": util.empty_file(name + "direct.snapshot"),
+            "jvm_jar": util.empty_file(name + "jvm.jar"),
+            "transitive_snapshot": util.empty_file(name + "transitive.snapshot"),
+        },
+        attrs = {
+            "direct_dep_abi_jar": attr.label(allow_files = True),
+            "direct_snapshot": attr.label(allow_files = True),
+            "jvm_jar": attr.label(allow_files = True),
+            "transitive_snapshot": attr.label(allow_files = True),
+        },
+    )
+
+def _pruned_java_deps_are_neverlink_test_impl(env, target):
+    direct_dep_java_info = JavaInfo(
+        compile_jar = _file(env.ctx.attr.direct_dep_abi_jar),
+        output_jar = _file(env.ctx.attr.direct_dep_abi_jar),
+    )
+
+    direct_deps = [{JavaInfo: direct_dep_java_info}]
+
+    fake_ctx = struct(
+        label = target.label,
+        attr = struct(
+            module_name = "",
+            tags = [],
+        ),
+    )
+
+    toolchains = struct(
+        kt = struct(
+            experimental_remove_private_classes_in_abi_jars = False,
+            experimental_prune_transitive_deps = True,
+            experimental_strict_associate_dependencies = False,
+            jvm_stdlibs = JavaInfo(
+                compile_jar = _file(env.ctx.attr.jvm_jar),
+                output_jar = _file(env.ctx.attr.jvm_jar),
+            ),
+        ),
+    )
+
+    result = _jvm_deps_utils.jvm_deps(
+        ctx = fake_ctx,
+        toolchains = toolchains,
+        associate_deps = [],
+        deps = direct_deps,
+    )
+
+    # Under prune, the synthetic Java compile deps narrow javac's compile classpath, but they must be
+    # neverlink: their stripped, body-less ABI jars must NOT leak onto the runtime classpath. A
+    # neverlink JavaInfo contributes no transitive_runtime_jars.
+    env.expect.that_bool(result.pruned_deps_for_java != None).equals(True)
+    leaked_runtime_jars = []
+    for java_info in result.pruned_deps_for_java:
+        leaked_runtime_jars.extend([f.basename for f in java_info.transitive_runtime_jars.to_list()])
+    env.expect.that_bool(len(leaked_runtime_jars) == 0).equals(True)
+
+def _pruned_java_deps_are_neverlink_test(name):
+    util.helper_target(
+        native.filegroup,
+        name = name + "_subject",
+        srcs = [],
+    )
+    analysis_test(
+        name = name,
+        impl = _pruned_java_deps_are_neverlink_test_impl,
+        target = name + "_subject",
+        attr_values = {
+            "direct_dep_abi_jar": util.empty_file(name + "direct_dep_abi.jar"),
+            "jvm_jar": util.empty_file(name + "jvm.jar"),
+        },
+        attrs = {
+            "direct_dep_abi_jar": attr.label(allow_files = True),
+            "jvm_jar": attr.label(allow_files = True),
+        },
     )
 
 def jvm_deps_test_suite(name):
@@ -445,5 +665,8 @@ def jvm_deps_test_suite(name):
             _transitive_from_associates_test,
             _dep_infos_ordering_test,
             _sourceless_dep_propagation_test,
+            _classpath_snapshots_transitive_test,
+            _classpath_snapshots_pruned_test,
+            _pruned_java_deps_are_neverlink_test,
         ],
     )

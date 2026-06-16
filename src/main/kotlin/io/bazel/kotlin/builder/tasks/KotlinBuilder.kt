@@ -82,6 +82,9 @@ class KotlinBuilder(
       STRICT_KOTLIN_DEPS("--strict_kotlin_deps"),
       REDUCED_CLASSPATH_MODE("--reduced_classpath_mode"),
       INSTRUMENT_COVERAGE("--instrument_coverage"),
+      INCREMENTAL_COMPILATION("--incremental_compilation"),
+      IC_ENABLE_LOGGING("--ic_enable_logging"),
+      CLASSPATH_SNAPSHOTS("--classpath_snapshots"),
       BTAPI_BUILD_TOOLS_IMPL("--btapi_build_tools_impl"),
       BTAPI_KOTLIN_COMPILER_EMBEDDABLE("--btapi_kotlin_compiler_embeddable"),
       BTAPI_KOTLIN_DAEMON_CLIENT("--btapi_kotlin_daemon_client"),
@@ -175,6 +178,12 @@ class KotlinBuilder(
       }
       argMap.optionalSingle(KotlinBuilderFlags.ABI_JAR_REMOVE_DEBUG_INFO)?.let {
         removeDebugInfo = it == "true"
+      }
+      argMap.optionalSingle(KotlinBuilderFlags.INCREMENTAL_COMPILATION)?.let {
+        incrementalCompilation = it.equals("true", ignoreCase = true)
+      }
+      argMap.optionalSingle(KotlinBuilderFlags.IC_ENABLE_LOGGING)?.let {
+        icEnableLogging = it.equals("true", ignoreCase = true)
       }
       this
     }
@@ -274,6 +283,13 @@ class KotlinBuilder(
         coverageMetadataClasses =
           getOutputDirPath(info, workingDir, moduleName, "coverage-metadata", outputJar)
             .toString()
+        // Derive IC base directory from output JAR path: <output_jar>-ic/
+        // This is a worker-local side-effect, not a Bazel-tracked output.
+        if (info.incrementalCompilation && outputJar != null) {
+          val outputPath = Paths.get(outputJar).toAbsolutePath()
+          val jarName = outputPath.fileName.toString().removeSuffix(".jar")
+          incrementalBaseDir = outputPath.resolveSibling("$jarName-ic").toString()
+        }
       }
 
       with(root.inputsBuilder) {
@@ -290,9 +306,24 @@ class KotlinBuilder(
           ?.let(PluginsPayloadParser::parse)
           ?.also(::addAllPlugins)
 
+        // Kotlin compiler always requires absolute path for source input in incremental mode
+        val useAbsolutePath =
+          argMap
+            .optionalSingle(KotlinBuilderFlags.INCREMENTAL_COMPILATION)
+            ?.equals("true", ignoreCase = true) == true
         argMap
           .optional(KotlinBuilderFlags.SOURCES)
-          ?.iterator()
+          ?.map {
+            if (useAbsolutePath) {
+              FileSystems
+                .getDefault()
+                .getPath(it)
+                .toAbsolutePath()
+                .toString()
+            } else {
+              it
+            }
+          }?.iterator()
           ?.partitionJvmSources(
             { addKotlinSources(it) },
             { addJavaSources(it) },
@@ -302,6 +333,9 @@ class KotlinBuilder(
           ?.also {
             addAllSourceJars(it)
           }
+        addAllClasspathSnapshots(
+          argMap.optional(KotlinBuilderFlags.CLASSPATH_SNAPSHOTS) ?: emptyList(),
+        )
       }
 
       with(root.infoBuilder) {
@@ -318,6 +352,17 @@ class KotlinBuilder(
     dirName: String,
     outputJar: String?,
   ): Path {
+    if (info.incrementalCompilation && outputJar != null) {
+      // Derive incremental directory from output jar path to keep it inside Bazel's output tree.
+      // This ensures the cache is cleaned with `bazel clean` and is configuration-specific.
+      val outputPath = Paths.get(outputJar).toAbsolutePath()
+      val outputDir = outputPath.parent
+      val jarName = outputPath.fileName.toString().removeSuffix(".jar")
+      val path = outputDir.resolve("_kotlin_incremental/$jarName/$dirName")
+      Files.createDirectories(path)
+      return path
+    }
+
     return workingDir.resolveNewDirectories("_kotlinc/${moduleName}_jvm/$dirName")
   }
 }
