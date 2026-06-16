@@ -50,6 +50,17 @@ load(
     _utils = "utils",
 )
 
+# Keep BTAPI runtime artifact wiring in a single place for all worker actions.
+_BTAPI_RUNTIME_ARG_SPECS = (
+    ("--btapi_build_tools_impl", "btapi_build_tools_impl"),
+    ("--btapi_kotlin_compiler_embeddable", "btapi_kotlin_compiler_embeddable"),
+    ("--btapi_kotlin_daemon_client", "btapi_kotlin_daemon_client"),
+    ("--btapi_kotlin_stdlib", "btapi_kotlin_stdlib"),
+    ("--btapi_kotlin_reflect", "btapi_kotlin_reflect"),
+    ("--btapi_kotlin_coroutines", "btapi_kotlin_coroutines"),
+    ("--btapi_annotations", "btapi_annotations"),
+)
+
 # UTILITY ##############################################################################################################
 def find_java_toolchain(ctx, target):
     if _JAVA_TOOLCHAIN_TYPE in ctx.toolchains:
@@ -116,6 +127,13 @@ def _fail_if_invalid_associate_deps(associate_deps, deps):
 
 def _java_infos_to_compile_jars(java_infos):
     return depset(transitive = [j.compile_jars for j in java_infos])
+
+def _btapi_runtime_inputs(toolchains):
+    return [getattr(toolchains.kt, attr_name) for _, attr_name in _BTAPI_RUNTIME_ARG_SPECS]
+
+def _add_btapi_runtime_args(args, toolchains):
+    for flag, attr_name in _BTAPI_RUNTIME_ARG_SPECS:
+        args.add(flag, getattr(toolchains.kt, attr_name))
 
 def _exported_plugins(deps):
     """Encapsulates compiler dependency metadata."""
@@ -548,6 +566,13 @@ def _run_kt_builder_action(
 
     kotlinc_options = ctx.attr.kotlinc_opts[KotlincOptions] if ctx.attr.kotlinc_opts else toolchains.kt.kotlinc_options
     javac_options = ctx.attr.javac_opts[JavacOptions] if ctx.attr.javac_opts else toolchains.kt.javac_options
+    runtime_inputs = _btapi_runtime_inputs(toolchains)
+    internal_plugin_inputs = [
+        toolchains.kt.internal_jvm_abi_gen,
+        toolchains.kt.internal_skip_code_gen,
+        toolchains.kt.internal_kapt,
+        toolchains.kt.internal_jdeps_gen,
+    ]
 
     args = _utils.init_args(ctx, rule_kind, compile_deps.module_name, kotlinc_options)
 
@@ -561,7 +586,11 @@ def _run_kt_builder_action(
     args.add("--strict_kotlin_deps", toolchains.kt.experimental_strict_kotlin_deps)
     args.add_all("--classpath", compile_deps.compile_jars)
     args.add("--reduced_classpath_mode", toolchains.kt.experimental_reduce_classpath_mode)
-    args.add("--build_tools_api", toolchains.kt.experimental_build_tools_api)
+    _add_btapi_runtime_args(args, toolchains)
+    args.add("--internal_jvm_abi_gen", toolchains.kt.internal_jvm_abi_gen)
+    args.add("--internal_skip_code_gen", toolchains.kt.internal_skip_code_gen)
+    args.add("--internal_kapt", toolchains.kt.internal_kapt)
+    args.add("--internal_jdeps", toolchains.kt.internal_jdeps_gen)
     args.add_all("--sources", srcs.all_srcs, omit_if_empty = True)
     args.add_all("--source_jars", srcs.src_jars + generated_src_jars, omit_if_empty = True)
     args.add_all("--deps_artifacts", deps_artifacts, omit_if_empty = True)
@@ -653,7 +682,6 @@ def _run_kt_builder_action(
         ),
         tools = [
             toolchains.kt.kotlinbuilder.files_to_run,
-            toolchains.kt.kotlin_home.files_to_run,
         ],
         outputs = [f for f in outputs.values()],
         executable = toolchains.kt.kotlinbuilder.files_to_run.executable,

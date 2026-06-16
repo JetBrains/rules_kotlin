@@ -2,26 +2,15 @@
 Defines kotlin compiler repositories.
 """
 
-load("@bazel_tools//tools/build_defs/repo:utils.bzl", "get_auth")
 load("//src/main/starlark/core/repositories/kotlin:templates.bzl", "TEMPLATES")
 
-def _kotlin_compiler_impl(repository_ctx):
-    attr = repository_ctx.attr
-    repository_ctx.download_and_extract(
-        attr.urls,
-        sha256 = attr.sha256,
-        stripPrefix = "kotlinc",
-        auth = get_auth(repository_ctx, attr.urls),
-    )
-    repository_ctx.template(
-        "BUILD.bazel",
-        attr._template,
-        executable = False,
-    )
-
 def _kotlin_capabilities_impl(repository_ctx):
-    """Creates the kotlinc repository."""
+    """Creates the kotlinc capabilities repository."""
     attr = repository_ctx.attr
+    compiler_version = _version(attr.compiler_version)
+    if not compiler_version or compiler_version[0] < 2:
+        fail("rules_kotlin 2.x supports Kotlin compiler >= 2.0, got '{}'".format(attr.compiler_version))
+
     repository_ctx.file(
         "WORKSPACE",
         content = """workspace(name = "%s")""" % attr.name,
@@ -115,36 +104,3 @@ kotlin_capabilities_repository = repository_rule(
         ),
     },
 )
-
-kotlin_compiler_git_repository = repository_rule(
-    implementation = _kotlin_compiler_impl,
-    attrs = {
-        "sha256": attr.string(
-            doc = "sha256 of the compiler archive",
-        ),
-        "urls": attr.string_list(
-            doc = "A list of urls for the kotlin compiler",
-            mandatory = True,
-        ),
-        "_template": attr.label(
-            doc = "repository build file template",
-            default = ":BUILD.com_github_jetbrains_kotlin.bazel",
-        ),
-    },
-)
-
-def kotlin_compiler_repository(name, urls, sha256, compiler_version):
-    """
-    Creates two repositories, necessary for lazily loading the kotlin compiler binaries for git.
-    """
-    git_repo = name + "_git"
-    kotlin_compiler_git_repository(
-        name = git_repo,
-        urls = urls,
-        sha256 = sha256,
-    )
-    kotlin_capabilities_repository(
-        name = name,
-        git_repository_name = git_repo,
-        compiler_version = compiler_version,
-    )
