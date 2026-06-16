@@ -37,7 +37,6 @@ load(
     "is_windows",
 )
 load("//src/main/starlark/core/plugin:common.bzl", "plugin_common")
-load("//third_party:jarjar.bzl", "jarjar_action")
 
 def _artifact_short_path(artifact):
     return artifact.short_path
@@ -448,13 +447,12 @@ def kt_jvm_junit_test_impl(ctx):
 _KtCompilerPluginClasspathInfo = provider(
     fields = {
         "infos": "list JavaInfos of a compiler library",
-        "reshaded_infos": "list reshaded JavaInfos of a compiler library",
     },
 )
 
 def kt_compiler_deps_aspect_impl(target, ctx):
     """
-    Collects and reshades (if necessary) all jars in the plugin transitive closure.
+    Collects all jars in the plugin transitive closure.
 
     Args:
         target: Target of the rule being inspected
@@ -468,60 +466,19 @@ def kt_compiler_deps_aspect_impl(target, ctx):
         for t in getattr(ctx.rule.attr, d, [])
         if _KtCompilerPluginClasspathInfo in t
     ]
-    reshaded_infos = []
     infos = [
         i
         for t in transitive_infos
         for i in t.infos
     ]
     if JavaInfo in target:
-        ji = target[JavaInfo]
-        infos.append(ji)
-        reshaded_infos.append(
-            _reshade_embedded_kotlinc_jars(
-                target = target,
-                ctx = ctx,
-                jars = ji.runtime_output_jars,
-                deps = [
-                    i
-                    for t in transitive_infos
-                    for i in t.reshaded_infos
-                ],
-            ),
-        )
+        infos.append(target[JavaInfo])
 
     return [
         _KtCompilerPluginClasspathInfo(
-            reshaded_infos = reshaded_infos,
             infos = [java_common.merge(infos)],
         ),
     ]
-
-def _reshade_embedded_kotlinc_jars(target, ctx, jars, deps):
-    # No jars to reshade — just propagate transitive deps (e.g. sourceless libraries).
-    if not jars:
-        return java_common.merge(deps) if deps else java_common.merge([])
-
-    reshaded = [
-        jarjar_action(
-            actions = ctx.actions,
-            jarjar = ctx.executable._jarjar,
-            rules = ctx.file._kotlin_compiler_reshade_rules,
-            input = jar,
-            output = ctx.actions.declare_file(
-                "%s_reshaded_%s" % (target.label.name, jar.basename),
-            ),
-        )
-        for jar in jars
-    ]
-
-    # JavaInfo only takes a single jar, so create many and merge them.
-    return java_common.merge(
-        [
-            JavaInfo(output_jar = jar, compile_jar = jar, deps = deps)
-            for jar in reshaded
-        ],
-    )
 
 def _expand_location_with_data_deps(ctx):
     return lambda targets: ctx.expand_location(targets, ctx.attr.data)
@@ -530,24 +487,15 @@ def kt_compiler_plugin_impl(ctx):
     plugin_id = ctx.attr.id
 
     deps = ctx.attr.deps
-    info = None
-    if ctx.attr.target_embedded_compiler:
-        info = java_common.merge([
-            i
-            for d in deps
-            for i in d[_KtCompilerPluginClasspathInfo].reshaded_infos
-        ])
-    else:
-        info = java_common.merge([
-            i
-            for d in deps
-            for i in d[_KtCompilerPluginClasspathInfo].infos
-        ])
+    info = java_common.merge([
+        i
+        for d in deps
+        for i in d[_KtCompilerPluginClasspathInfo].infos
+    ])
 
     classpath = depset(info.runtime_output_jars, transitive = [info.transitive_runtime_jars])
 
-    # TODO(1035): Migrate kt_compiler_plugin.options to string_list_dict
-    options = plugin_common.resolve_plugin_options(plugin_id, {k: [v] for (k, v) in ctx.attr.options.items()}, _expand_location_with_data_deps(ctx))
+    options = plugin_common.resolve_plugin_options(ctx.attr.options, _expand_location_with_data_deps(ctx))
 
     return [
         DefaultInfo(files = classpath),
@@ -570,14 +518,11 @@ def kt_plugin_cfg_impl(ctx):
 
 def kt_ksp_plugin_impl(ctx):
     deps = ctx.attr.deps
-    if ctx.attr.target_embedded_compiler:
-        info = java_common.merge([
-            i
-            for d in deps
-            for i in d[_KtCompilerPluginClasspathInfo].reshaded_infos
-        ])
-    else:
-        info = java_common.merge([dep[JavaInfo] for dep in deps])
+    info = java_common.merge([
+        i
+        for d in deps
+        for i in d[_KtCompilerPluginClasspathInfo].infos
+    ])
 
     classpath = depset(info.runtime_output_jars, transitive = [info.transitive_runtime_jars])
 
