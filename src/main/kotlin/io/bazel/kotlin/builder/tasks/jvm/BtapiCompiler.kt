@@ -150,9 +150,24 @@ class BtapiCompiler(
     args: JvmCompilerArguments.Builder,
     task: JvmCompilationTask,
   ) {
-    // Apply passthrough flags FIRST, before other settings.
-    // This ensures that explicit typed settings below take precedence over passthrough flags,
-    // preventing passthrough flags from accidentally clobbering required settings.
+    // Precedence is encoded by application order: toolchain defaults < user options < rules-managed.
+
+    // 1. Toolchain defaults -- applied first so user-specified options below can override them.
+    args[JvmCompilerArguments.JVM_TARGET] =
+      requireJvmTarget(task.info.toolchainInfo.jvm.jvmTarget)
+    args[CommonCompilerArguments.API_VERSION] =
+      requireKotlinVersion(
+        version = task.info.toolchainInfo.common.apiVersion,
+        fieldName = "kotlin_api_version",
+      )
+    args[CommonCompilerArguments.LANGUAGE_VERSION] =
+      requireKotlinVersion(
+        version = task.info.toolchainInfo.common.languageVersion,
+        fieldName = "kotlin_language_version",
+      )
+
+    // 2. User-specified options (kt_kotlinc_options + kotlin_passthrough_flags) -- may override the
+    //    toolchain defaults above; the rules-managed settings below still win.
     if (task.info.passthroughFlagsList.isNotEmpty()) {
       try {
         args.applyArgumentStrings(task.info.passthroughFlagsList)
@@ -164,26 +179,10 @@ class BtapiCompiler(
       }
     }
 
-    // Module name
+    // 3. Rules-managed settings -- applied last so user options cannot clobber them.
     args[JvmCompilerArguments.MODULE_NAME] = task.info.moduleName
     args[JvmCompilerArguments.NO_STDLIB] = true
     args[JvmCompilerArguments.NO_REFLECT] = true
-
-    // JVM target
-    args[JvmCompilerArguments.JVM_TARGET] =
-      requireJvmTarget(task.info.toolchainInfo.jvm.jvmTarget)
-
-    // Language/API versions
-    args[CommonCompilerArguments.API_VERSION] =
-      requireKotlinVersion(
-        version = task.info.toolchainInfo.common.apiVersion,
-        fieldName = "kotlin_api_version",
-      )
-    args[CommonCompilerArguments.LANGUAGE_VERSION] =
-      requireKotlinVersion(
-        version = task.info.toolchainInfo.common.languageVersion,
-        fieldName = "kotlin_language_version",
-      )
 
     // Classpath - convert to absolute paths
     val classpath = computeClasspath(task).map { Path.of(File(it).absolutePath) }
