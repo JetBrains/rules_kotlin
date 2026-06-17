@@ -893,14 +893,17 @@ def _kt_jvm_produce_output_jar_actions(
         input_jars = output_jars,
     )
 
-    # Generate classpath snapshot for incremental compilation (separate Bazel action)
+    # Generate the classpath snapshot for incremental compilation from the assembled ABI jar
+    # (Kotlin + Java ABI classes), not the runtime output_jar: a snapshot only needs the
+    # compile-time API, and using the ABI jar avoids re-snapshotting (and churning downstream IC)
+    # on non-ABI changes -- method bodies, debug info, resources. Produced by a separate Bazel action.
     classpath_snapshot = None
     if toolchains.kt.experimental_incremental_compilation:
         classpath_snapshot = ctx.actions.declare_file(ctx.label.name + ".classpath-snapshot")
         _run_snapshot_action(
             ctx = ctx,
             toolchains = toolchains,
-            input_jar = output_jar,
+            input_jar = compile_jar,
             output_snapshot = classpath_snapshot,
         )
 
