@@ -41,9 +41,11 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.ObjectOutputStream
 import java.io.PrintStream
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.security.MessageDigest
 import java.util.Base64
 import org.jetbrains.kotlin.buildtools.api.arguments.enums.KotlinVersion as BtapiKotlinVersion
 
@@ -90,7 +92,7 @@ class BtapiCompiler(
       ) { operation, _ ->
         // Configure incremental compilation if enabled
         if (task.info.incrementalCompilation && task.directories.incrementalBaseDir.isNotEmpty()) {
-          hashUpdate = configureIncrementalCompilation(operation, task)
+          hashUpdate = configureIncrementalCompilation(operation, task, compilerPlugins)
         }
       }
 
@@ -360,12 +362,13 @@ class BtapiCompiler(
   private fun configureIncrementalCompilation(
     operation: JvmCompilationOperation.Builder,
     task: JvmCompilationTask,
+    compilerPlugins: List<CompilerPlugin>,
   ): IncrementalArgsHashUpdate {
     val icBaseDir = Path.of(task.directories.incrementalBaseDir)
     val icWorkingDir = icBaseDir.resolve("ic-caches")
 
     // Compute force recompilation based on args hash
-    val currentArgsHash = computeArgsHash(task)
+    val currentArgsHash = computeArgsHash(task, compilerPlugins)
     val previousArgsHash = loadArgsHash(icBaseDir)
     val argsChanged = previousArgsHash != null && previousArgsHash != currentArgsHash
     val forceRecompilation = argsChanged
@@ -396,49 +399,70 @@ class BtapiCompiler(
   }
 
   /**
-   * Computes a hash of compiler configuration for detecting changes.
+   * Computes a hash of the effective compiler-flag set, used to force a full recompilation when it
+   * changes. Sources and the dependency classpath content are handled separately (by IC source
+   * diffing and by dependency classpath snapshots), so they are intentionally not hashed here.
+   *
+   * SHA-256 is used (rather than a 32-bit hashCode accumulation) so that a collision -- which would
+   * silently reuse a stale IC cache -- is negligibly unlikely. Each field and each list length is
+   * length-prefixed so the fed byte stream is unambiguous.
    */
-  private fun computeArgsHash(task: JvmCompilationTask): Long {
-    // Hash relevant settings that would require recompilation if changed
-    var hash = 0L
-    hash = hash * 31 + task.info.moduleName.hashCode()
-    hash = hash * 31 +
-      task.info.toolchainInfo.jvm.jvmTarget
-        .hashCode()
-    hash = hash * 31 +
-      task.info.toolchainInfo.common.apiVersion
-        .hashCode()
-    hash = hash * 31 +
-      task.info.toolchainInfo.common.languageVersion
-        .hashCode()
-    hash = hash * 31 +
-      task.info.passthroughFlagsList
-        .sorted()
-        .hashCode()
-    hash = hash * 31 +
-      task.inputs.pluginsList
-        .map(::pluginFingerprint)
-        .sorted()
-        .hashCode()
-    return hash
+  private fun computeArgsHash(
+    task: JvmCompilationTask,
+    compilerPlugins: List<CompilerPlugin>,
+  ): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    fun putInt(n: Int) =
+      digest.update(
+        byteArrayOf((n ushr 24).toByte(), (n ushr 16).toByte(), (n ushr 8).toByte(), n.toByte()),
+      )
+    fun put(value: String) {
+      val bytes = value.toByteArray(StandardCharsets.UTF_8)
+      putInt(bytes.size)
+      digest.update(bytes)
+    }
+    fun putAll(values: List<String>) {
+      putInt(values.size)
+      values.forEach(::put)
+    }
+
+    // The Kotlin compiler version: codegen, ABI-gen output, and the IC cache format are all
+    // version-specific, and the on-disk IC cache persists across a compiler bump (it is keyed on
+    // the output path, not the compiler), so a change here must force a full recompile.
+    put(toolchains.getCompilerVersion())
+    put(task.info.moduleName)
+    put(task.info.toolchainInfo.jvm.jvmTarget)
+    put(task.info.toolchainInfo.common.apiVersion)
+    put(task.info.toolchainInfo.common.languageVersion)
+    putAll(task.info.passthroughFlagsList.sorted())
+    // Fingerprint the full effective compiler-plugin set (internal jdeps / jvm-abi-gen /
+    // skip-code-gen + user plugins) uniformly by their option lists, so e.g. the jvm-abi-gen
+    // options take part in IC invalidation. The jdeps plugin encodes the compile classpath as
+    // ordered options, so a change in classpath entries or order also forces a full recompile.
+    // This list is already phase-filtered to the compile operation, so a plugin entering or
+    // leaving the compile phase changes the fingerprint via membership; the plugin phase itself
+    // is therefore not part of the per-plugin fingerprint (stubs-phase changes are reflected
+    // through the KAPT-generated sources, handled by source-change detection).
+    putAll(compilerPlugins.map(::compilerPluginFingerprint).sorted())
+
+    return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
   }
 
-  private fun pluginFingerprint(plugin: JvmCompilationTask.Inputs.Plugin): String {
+  /** Uniform fingerprint of an effective compiler plugin, regardless of how it was assembled. */
+  private fun compilerPluginFingerprint(plugin: CompilerPlugin): String {
+    // Stable sort by key: distinct options become order-insensitive (no spurious invalidation if
+    // their emission order changes), while repeated same-key options keep their relative order.
+    // The jdeps plugin passes the compile classpath as repeated, ordered `full_classpath` options,
+    // so a change in classpath order or entry count still changes this fingerprint.
     val options =
-      plugin.optionsList
-        .map { "${it.key}\u0000${it.value}" }
-        .sorted()
-        .joinToString("\u0001")
+      plugin.rawArguments
+        .sortedBy { it.key }
+        .joinToString("\u0001") { "${it.key}\u0000${it.value}" }
     val classpath =
-      plugin.classpathList
-        .sorted()
+      plugin.classpath
+        .map { it.toString() }
         .joinToString("\u0001")
-    val phases =
-      plugin.phasesList
-        .map { it.name }
-        .sorted()
-        .joinToString("\u0001")
-    return "${plugin.id}\u0002${classpath}\u0002$options\u0002$phases"
+    return "${plugin.pluginId}\u0002${classpath}\u0002$options"
   }
 
   private fun hasPhase(
@@ -459,16 +483,16 @@ class BtapiCompiler(
 
   private fun storeArgsHash(
     icBaseDir: Path,
-    hash: Long,
+    hash: String,
   ) {
     val hashFile = icBaseDir.resolve("args-hash.txt")
-    Files.writeString(hashFile, hash.toString())
+    Files.writeString(hashFile, hash)
   }
 
-  private fun loadArgsHash(icBaseDir: Path): Long? {
+  private fun loadArgsHash(icBaseDir: Path): String? {
     val hashFile = icBaseDir.resolve("args-hash.txt")
     return if (Files.exists(hashFile)) {
-      Files.readString(hashFile).trim().toLongOrNull()
+      Files.readString(hashFile).trim().ifEmpty { null }
     } else {
       null
     }
@@ -476,7 +500,7 @@ class BtapiCompiler(
 
   private data class IncrementalArgsHashUpdate(
     val icBaseDir: Path,
-    val currentHash: Long,
+    val currentHash: String,
   )
 
   /**
