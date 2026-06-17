@@ -22,6 +22,17 @@ load("//src/main/starlark/core/compile:common.bzl", "KtJvmInfo")
 def _java_info(target):
     return target[JavaInfo] if JavaInfo in target else None
 
+def _non_kotlin_classpath_snapshot_jars(snapshot_sources):
+    # Java-only dependencies (JavaInfo but no KtJvmInfo) publish no classpath snapshot of their own,
+    # so return their compile (ABI) jars for the caller to snapshot locally.
+    return depset(
+        transitive = [
+            d[JavaInfo].compile_jars
+            for d in snapshot_sources
+            if JavaInfo in d and KtJvmInfo not in d
+        ],
+    ).to_list()
+
 def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], exports = [], runtime_deps = []):
     """Encapsulates jvm dependency metadata."""
     associates = _associate_utils.get_associates(
@@ -102,13 +113,7 @@ def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], 
 
     # Non-Kotlin Java dependencies don't publish classpath snapshots via KtJvmInfo.
     # Return their compile jars so snapshot actions can be generated locally by compile.bzl.
-    non_kotlin_classpath_snapshot_jars = depset(
-        transitive = [
-            d[JavaInfo].compile_jars
-            for d in snapshot_sources
-            if JavaInfo in d and KtJvmInfo not in d
-        ],
-    ).to_list()
+    non_kotlin_classpath_snapshot_jars = _non_kotlin_classpath_snapshot_jars(snapshot_sources)
 
     return struct(
         module_name = associates.module_name,
@@ -124,4 +129,5 @@ def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], 
 
 jvm_deps_utils = struct(
     jvm_deps = _jvm_deps,
+    non_kotlin_classpath_snapshot_jars = _non_kotlin_classpath_snapshot_jars,
 )

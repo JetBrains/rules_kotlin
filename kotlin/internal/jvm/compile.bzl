@@ -1305,9 +1305,17 @@ def _export_only_providers(ctx, actions, attr, outputs):
         neverlink = getattr(attr, "neverlink", False),
         jdeps = output_jdeps,
     )
-    transitive_classpath_snapshots = _collect_transitive_classpath_snapshots(
-        attr.deps + getattr(attr, "associates", []) + getattr(attr, "exports", []),
+    # Java-only deps/exports carry no KtJvmInfo, so _collect_transitive_classpath_snapshots cannot
+    # propagate their snapshots -- and this sourceless path runs no compile action to generate them.
+    # Snapshot them here, otherwise an export-only shim silently breaks the IC snapshot chain for the
+    # Java-only jars it (re-)exports onto its consumers' classpaths.
+    snapshot_sources = attr.deps + getattr(attr, "associates", []) + getattr(attr, "exports", [])
+    non_kotlin_classpath_snapshots = _run_non_kotlin_dep_snapshot_actions(
+        ctx = ctx,
+        toolchains = toolchains,
+        non_kotlin_classpath_snapshot_jars = _jvm_deps_utils.non_kotlin_classpath_snapshot_jars(snapshot_sources),
     )
+    transitive_classpath_snapshots = _collect_transitive_classpath_snapshots(snapshot_sources)
 
     return struct(
         java = java,
@@ -1322,7 +1330,10 @@ def _export_only_providers(ctx, actions, attr, outputs):
                 getattr(attr, "exports", []),
             ),
             classpath_snapshot = None,
-            transitive_classpath_snapshots = transitive_classpath_snapshots,
+            transitive_classpath_snapshots = depset(
+                direct = non_kotlin_classpath_snapshots,
+                transitive = [transitive_classpath_snapshots],
+            ),
         ),
         instrumented_files = coverage_common.instrumented_files_info(
             ctx,
