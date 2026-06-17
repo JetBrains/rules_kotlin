@@ -82,17 +82,22 @@ def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], 
     # This includes deps, associates, and exports because exported jars participate in downstream
     # compile classpaths and must invalidate incremental compilation when their ABI changes.
     snapshot_sources = deps + associate_deps + exports
+    # Mirror the compile-classpath pruning above so the IC snapshot set tracks the (possibly pruned)
+    # compile classpath. Under prune_transitive_deps the project asserts that every type the consumer
+    # resolves is declared as a direct dep, so each direct dep's own snapshot is already a complete IC
+    # input; pull each dep's full transitive snapshot closure only when the classpath itself is unpruned.
+    snapshot_transitive = [] if prune_transitive_deps else [
+        getattr(d[KtJvmInfo], "transitive_classpath_snapshots", None)
+        for d in snapshot_sources
+        if KtJvmInfo in d and getattr(d[KtJvmInfo], "transitive_classpath_snapshots", None) != None
+    ]
     classpath_snapshots = depset(
         direct = [
             getattr(d[KtJvmInfo], "classpath_snapshot", None)
             for d in snapshot_sources
             if KtJvmInfo in d and getattr(d[KtJvmInfo], "classpath_snapshot", None) != None
         ],
-        transitive = [
-            getattr(d[KtJvmInfo], "transitive_classpath_snapshots", None)
-            for d in snapshot_sources
-            if KtJvmInfo in d and getattr(d[KtJvmInfo], "transitive_classpath_snapshots", None) != None
-        ],
+        transitive = snapshot_transitive,
     ).to_list()
 
     # Non-Kotlin Java dependencies don't publish classpath snapshots via KtJvmInfo.
