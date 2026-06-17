@@ -210,6 +210,61 @@ def _snapshot_flag_wiring_exports_transitive_test(name):
         },
     )
 
+def _snapshot_flag_wiring_transitive_java_only_dep_test_impl(env, target):
+    def _has_snapshot_suffix(values, suffix):
+        for value in values:
+            if value.endswith(suffix):
+                return True
+        return False
+
+    compile_action = env.expect.that_target(target).action_named("KotlinCompile")
+    parsed_flags = flags_and_values_of(compile_action)
+    parsed_flags.transform(
+        desc = "transitive java-only dependency snapshot flag wiring",
+        map_each = lambda item: (
+            item[0] == "--classpath_snapshots" and
+            _has_snapshot_suffix(item[1], env.ctx.attr.want_java_snapshot_suffix)
+        ),
+    ).contains(True)
+
+def _snapshot_flag_wiring_transitive_java_only_dep_test(name):
+    # kt subject -> kt middle -> java-only leaf. The leaf carries no KtJvmInfo, so its snapshot is
+    # generated locally by the middle target; the subject sees it only if the middle publishes it
+    # transitively. Guards the 2-hop Java-only IC gap (otherwise a silent miscompile).
+    java_dep_name = name + "_java_dep"
+    middle_dep_name = name + "_middle_dep"
+    subject_name = name + "_subject"
+
+    java_import(
+        name = java_dep_name,
+        jars = [util.empty_file(java_dep_name + ".jar")],
+        tags = ["manual"],
+    )
+    kt_jvm_library(
+        name = middle_dep_name,
+        srcs = [util.empty_file(middle_dep_name + ".kt")],
+        deps = [java_dep_name],
+        tags = ["manual"],
+    )
+    kt_jvm_library(
+        name = subject_name,
+        srcs = [util.empty_file(subject_name + ".kt")],
+        deps = [middle_dep_name],
+        tags = ["manual"],
+    )
+
+    analysis_test(
+        name = name,
+        impl = _snapshot_flag_wiring_transitive_java_only_dep_test_impl,
+        target = subject_name,
+        attr_values = {
+            "want_java_snapshot_suffix": middle_dep_name + ".non-kotlin-dep-0.classpath-snapshot",
+        },
+        attrs = {
+            "want_java_snapshot_suffix": attr.string(),
+        },
+    )
+
 def snapshot_action_test_suite(name):
     test_suite(
         name = name,
@@ -219,5 +274,6 @@ def snapshot_action_test_suite(name):
             _snapshot_flag_wiring_transitive_test,
             _snapshot_flag_wiring_java_only_dep_test,
             _snapshot_flag_wiring_exports_transitive_test,
+            _snapshot_flag_wiring_transitive_java_only_dep_test,
         ],
     )

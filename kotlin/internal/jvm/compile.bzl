@@ -641,6 +641,14 @@ def _run_snapshot_action(ctx, toolchains, input_jar, output_snapshot):
     )
 
 def _run_non_kotlin_dep_snapshot_actions(ctx, toolchains, non_kotlin_classpath_snapshot_jars):
+    # Snapshots Java-only dependencies (which carry no KtJvmInfo, hence no published snapshot) for
+    # this target's incremental compilation. The snapshot is declared here, in the *consumer's*
+    # action, so a Java dependency shared by N Kotlin targets is snapshotted N times -- unlike a
+    # Kotlin dependency, whose snapshot is built once and shared via KtJvmInfo.
+    #
+    # TODO (separate issue): replace this consumer-local snapshotting with an aspect over the
+    # dependency graph that snapshots each dependency once (keyed to the dependency) and propagates
+    # it transitively, deduplicating the work across consumers.
     if not toolchains.kt.experimental_incremental_compilation:
         return []
 
@@ -876,6 +884,7 @@ def _kt_jvm_produce_output_jar_actions(
     output_jars = outputs_struct.output_jars
     generated_src_jars = outputs_struct.generated_src_jars
     annotation_processing = outputs_struct.annotation_processing
+    non_kotlin_classpath_snapshots = outputs_struct.non_kotlin_classpath_snapshots
 
     # If this rule has any resources declared setup a zipper action to turn them into a jar.
     if len(ctx.files.resources) + len(extra_resources) > 0:
@@ -962,8 +971,12 @@ def _kt_jvm_produce_output_jar_actions(
                 getattr(ctx.attr, "exports", []),
             ),
             classpath_snapshot = classpath_snapshot,
+            # Publish this target's own ABI snapshot together with the locally-generated snapshots of
+            # its direct Java-only deps. A Java-only dep carries no KtJvmInfo, so it cannot publish a
+            # snapshot itself; folding them in here is what lets a 2-hop-downstream consumer detect a
+            # Java-only (or exported Java-only) dependency's ABI change.
             transitive_classpath_snapshots = depset(
-                direct = [classpath_snapshot] if classpath_snapshot != None else [],
+                direct = ([classpath_snapshot] if classpath_snapshot != None else []) + non_kotlin_classpath_snapshots,
                 transitive = [transitive_classpath_snapshots],
             ),
             # intellij aspect needs this.
@@ -1230,6 +1243,9 @@ def _run_kt_java_builder_actions(
         output_jars = output_jars,
         generated_src_jars = generated_kapt_src_jars + generated_ksp_src_jars,
         annotation_processing = annotation_processing,
+        # Snapshots of this target's direct Java-only deps, generated locally above. Returned so the
+        # caller can publish them transitively (a Java-only dep carries no KtJvmInfo of its own).
+        non_kotlin_classpath_snapshots = non_kotlin_classpath_snapshots,
     )
 
 def _create_annotation_processing(annotation_processors, ap_class_jar, ap_source_jar):
