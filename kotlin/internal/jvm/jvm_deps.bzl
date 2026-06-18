@@ -82,8 +82,9 @@ def _jvm_deps(ctx, toolchains, associate_deps, deps = [], deps_java_infos = [], 
     # java_common.compile() sees a transitive_compile_time_jars equal to the
     # pruned direct set (deps=[] prevents the depset from compounding).
     if prune_transitive_deps:
+        # neverlink: these synthetic deps exist only to narrow javac's *compile* classpath to the pruned direct ABI set
         pruned_deps_for_java = [
-            JavaInfo(output_jar = jar, compile_jar = jar, deps = [])
+            JavaInfo(output_jar = jar, compile_jar = jar, deps = [], neverlink = True)
             for jar in compile_depset_list_filtered
         ]
     else:

@@ -591,6 +591,70 @@ def _classpath_snapshots_pruned_test(name):
         },
     )
 
+def _pruned_java_deps_are_neverlink_test_impl(env, target):
+    direct_dep_java_info = JavaInfo(
+        compile_jar = _file(env.ctx.attr.direct_dep_abi_jar),
+        output_jar = _file(env.ctx.attr.direct_dep_abi_jar),
+    )
+
+    direct_deps = [{JavaInfo: direct_dep_java_info}]
+
+    fake_ctx = struct(
+        label = target.label,
+        attr = struct(
+            module_name = "",
+            tags = [],
+        ),
+    )
+
+    toolchains = struct(
+        kt = struct(
+            experimental_remove_private_classes_in_abi_jars = False,
+            experimental_prune_transitive_deps = True,
+            experimental_strict_associate_dependencies = False,
+            jvm_stdlibs = JavaInfo(
+                compile_jar = _file(env.ctx.attr.jvm_jar),
+                output_jar = _file(env.ctx.attr.jvm_jar),
+            ),
+        ),
+    )
+
+    result = _jvm_deps_utils.jvm_deps(
+        ctx = fake_ctx,
+        toolchains = toolchains,
+        associate_deps = [],
+        deps = direct_deps,
+    )
+
+    # Under prune, the synthetic Java compile deps narrow javac's compile classpath, but they must be
+    # neverlink: their stripped, body-less ABI jars must NOT leak onto the runtime classpath. A
+    # neverlink JavaInfo contributes no transitive_runtime_jars.
+    env.expect.that_bool(result.pruned_deps_for_java != None).equals(True)
+    leaked_runtime_jars = []
+    for java_info in result.pruned_deps_for_java:
+        leaked_runtime_jars.extend([f.basename for f in java_info.transitive_runtime_jars.to_list()])
+    env.expect.that_bool(len(leaked_runtime_jars) == 0).equals(True)
+
+def _pruned_java_deps_are_neverlink_test(name):
+    util.helper_target(
+        native.filegroup,
+        name = name + "_subject",
+        srcs = [],
+    )
+    analysis_test(
+        name = name,
+        impl = _pruned_java_deps_are_neverlink_test_impl,
+        target = name + "_subject",
+        attr_values = {
+            "direct_dep_abi_jar": util.empty_file(name + "direct_dep_abi.jar"),
+            "jvm_jar": util.empty_file(name + "jvm.jar"),
+        },
+        attrs = {
+            "direct_dep_abi_jar": attr.label(allow_files = True),
+            "jvm_jar": attr.label(allow_files = True),
+        },
+    )
+
 def jvm_deps_test_suite(name):
     test_suite(
         name,
@@ -603,5 +667,6 @@ def jvm_deps_test_suite(name):
             _sourceless_dep_propagation_test,
             _classpath_snapshots_transitive_test,
             _classpath_snapshots_pruned_test,
+            _pruned_java_deps_are_neverlink_test,
         ],
     )
