@@ -116,8 +116,6 @@ class BtapiCompiler(
       JvmCompilerArguments.Builder,
     ) -> Unit = { _, _ -> },
   ): CompilationResult {
-    System.setProperty("zip.handler.uses.crc.instead.of.timestamp", "true")
-
     // Collect sources from protobuf
     val sources =
       (task.inputs.kotlinSourcesList + task.inputs.javaSourcesList)

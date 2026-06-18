@@ -37,6 +37,13 @@ class BtapiToolchainsCache {
     toolchainsByRuntime.computeIfAbsent(runtime, ::loadToolchains)
 
   private fun loadToolchains(runtime: BtapiRuntimeSpec): KotlinToolchains {
+    // The BTA compiler reads classpath jars through IntelliJ's ZipHandlerBase (bundled in
+    // kotlin-compiler-embeddable). Bazel normalizes jar timestamps to a constant, so the handler's
+    // default timestamp-based staleness check would serve stale entries from its process-global cache
+    // when a jar's content changes between compilations in a persistent worker. Force CRC-based
+    // detection.
+    System.setProperty("zip.handler.uses.crc.instead.of.timestamp", "true")
+
     validateFilesExist(runtime)
 
     val urls = runtime.classpath.map { it.toUri().toURL() }.toTypedArray()
