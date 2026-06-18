@@ -54,4 +54,5 @@ def _init_builder_args(ctx, rule_kind, module_name = None, kotlinc_options = Non
 utils = struct(
     add_dicts = dicts.add,
     init_args = _init_builder_args,
+    derive_module_name = _derive_module_name,
 )
