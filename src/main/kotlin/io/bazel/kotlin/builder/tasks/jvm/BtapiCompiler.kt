@@ -534,7 +534,12 @@ class BtapiCompiler(
 
   /**
    * Creates a logger for compiler diagnostics.
-   * Errors and warnings are always emitted; info/debug logs are emitted in verbose mode.
+   *
+   * Errors and warnings are general compiler diagnostics (e.g. a user's syntax or type error), never
+   * IC-specific, so they are emitted verbatim with no marker prefix regardless of verbosity. The
+   * info/debug/lifecycle channels carry the verbose IC diagnostics that the IC integration-test
+   * harness scrapes; they are emitted only in verbose mode and carry an "[IC ...]" marker per
+   * severity. Non-verbose builds suppress them entirely, so default output stays clean and unprefixed.
    */
   private fun createCompilerLogger(
     out: PrintStream,
@@ -547,7 +552,7 @@ class BtapiCompiler(
         msg: String,
         throwable: Throwable?,
       ) {
-        out.println("[IC ERROR] $msg")
+        out.println(msg)
         throwable?.printStackTrace(out)
       }
 
@@ -555,7 +560,7 @@ class BtapiCompiler(
         msg: String,
         throwable: Throwable?,
       ) {
-        out.println("[IC WARN] $msg")
+        out.println(msg)
         throwable?.printStackTrace(out)
       }
 
