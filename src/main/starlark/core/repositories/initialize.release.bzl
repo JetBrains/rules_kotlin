@@ -38,7 +38,7 @@ def kotlin_repositories(
 
     Args:
         compiler_repository_name: for the kotlinc compiler repository.
-        compiler_version: Kotlin compiler version string (e.g. "2.4.0-Beta2").
+        compiler_version: Kotlin compiler version string (e.g. "2.4.0").
     """
 
     kotlin_capabilities_repository(
