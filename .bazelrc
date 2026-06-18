@@ -20,8 +20,6 @@ build:windows --cxxopt=/std:c++17
 build:windows --host_cxxopt=/std:c++17
 build:windows --cxxopt=/Zc:__cplusplus
 build:windows --host_cxxopt=/Zc:__cplusplus
-common:windows --repo_env=COURSIER_NO_TERM=true
-common:windows --repo_env=COURSIER_PROGRESS=false
 
 
 # Avoid
@@ -40,9 +38,6 @@ common --incompatible_enable_proto_toolchain_resolution
 common --@com_google_protobuf//bazel/toolchains:prefer_prebuilt_protoc=true
 
 common --@rules_kotlin//kotlin/settings:experimental_incremental_compilation
-
-common --incompatible_enable_proto_toolchain_resolution
-common --@com_google_protobuf//bazel/toolchains:prefer_prebuilt_protoc=true
 
 # User-specific .bazelrc
 try-import %workspace%/user.bazelrc
