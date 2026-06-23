@@ -32,6 +32,7 @@ import org.jetbrains.kotlin.buildtools.api.arguments.CompilerPlugin
 import org.jetbrains.kotlin.buildtools.api.arguments.CompilerPluginOption
 import org.jetbrains.kotlin.buildtools.api.arguments.ExperimentalCompilerArgument
 import org.jetbrains.kotlin.buildtools.api.arguments.JvmCompilerArguments
+import org.jetbrains.kotlin.buildtools.api.arguments.enums.JdkRelease
 import org.jetbrains.kotlin.buildtools.api.arguments.enums.JvmTarget
 import org.jetbrains.kotlin.buildtools.api.jvm.JvmPlatformToolchain.Companion.jvm
 import org.jetbrains.kotlin.buildtools.api.jvm.operations.JvmCompilationOperation
@@ -148,24 +149,16 @@ class BtapiCompiler(
     args: JvmCompilerArguments.Builder,
     task: JvmCompilationTask,
   ) {
-    // Precedence is encoded by application order: toolchain defaults < user options < rules-managed.
+    // Precedence by application order: user options (passthrough) first, then toolchain defaults
+    // fill only what the user did not set, then rules-managed settings are forced last.
+    //
+    // The passthrough is applied FIRST because applyArgumentStrings RESETS the builder to defaults
+    // and applies only the parsed flags -- it does NOT merge -- so applying it after the typed
+    // toolchain defaults would wipe any of them the passthrough does not re-specify. We instead read
+    // each option back with get() (which returns the user's value, or null when unset) and supply
+    // the toolchain default only when the user left it unset.
 
-    // 1. Toolchain defaults -- applied first so user-specified options below can override them.
-    args[JvmCompilerArguments.JVM_TARGET] =
-      requireJvmTarget(task.info.toolchainInfo.jvm.jvmTarget)
-    args[CommonCompilerArguments.API_VERSION] =
-      requireKotlinVersion(
-        version = task.info.toolchainInfo.common.apiVersion,
-        fieldName = "kotlin_api_version",
-      )
-    args[CommonCompilerArguments.LANGUAGE_VERSION] =
-      requireKotlinVersion(
-        version = task.info.toolchainInfo.common.languageVersion,
-        fieldName = "kotlin_language_version",
-      )
-
-    // 2. User-specified options (kt_kotlinc_options + kotlin_passthrough_flags) -- may override the
-    //    toolchain defaults above; the rules-managed settings below still win.
+    // 1. User-specified options (kt_kotlinc_options + kotlin_passthrough_flags).
     if (task.info.passthroughFlagsList.isNotEmpty()) {
       try {
         args.applyArgumentStrings(task.info.passthroughFlagsList)
@@ -175,6 +168,37 @@ class BtapiCompiler(
           e,
         )
       }
+    }
+
+    // 2. Toolchain defaults -- applied only for options the user did not set, so user options win.
+    var jvmTarget = args[JvmCompilerArguments.JVM_TARGET]
+    if (jvmTarget == null) {
+      jvmTarget = requireJvmTarget(task.info.toolchainInfo.jvm.jvmTarget)
+      args[JvmCompilerArguments.JVM_TARGET] = jvmTarget
+    }
+    // -Xjdk-release defaults to the effective -jvm-target: kotlinc treats the two independently, but
+    // correct cross-compilation needs both set and agreeing. JdkRelease's values are a superset of
+    // JvmTarget's, so this resolves for every valid target; if a future Build Tools API splits them
+    // we omit it (the user can set -Xjdk-release explicitly) rather than failing.
+    if (args[JvmCompilerArguments.X_JDK_RELEASE] == null) {
+      val jdkRelease = jdkReleaseFor(jvmTarget)
+      if (jdkRelease != null) {
+        args[JvmCompilerArguments.X_JDK_RELEASE] = jdkRelease
+      }
+    }
+    if (args[CommonCompilerArguments.API_VERSION] == null) {
+      args[CommonCompilerArguments.API_VERSION] =
+        requireKotlinVersion(
+          version = task.info.toolchainInfo.common.apiVersion,
+          fieldName = "kotlin_api_version",
+        )
+    }
+    if (args[CommonCompilerArguments.LANGUAGE_VERSION] == null) {
+      args[CommonCompilerArguments.LANGUAGE_VERSION] =
+        requireKotlinVersion(
+          version = task.info.toolchainInfo.common.languageVersion,
+          fieldName = "kotlin_language_version",
+        )
     }
 
     // 3. Rules-managed settings -- applied last so user options cannot clobber them.
@@ -511,6 +535,16 @@ class BtapiCompiler(
           JvmTarget.entries.joinToString(", ") { it.stringValue },
       )
   }
+
+  /**
+   * The -Xjdk-release matching the given JVM target -- their string forms coincide (e.g. "1.8" /
+   * "17"), and JdkRelease's values are a superset of JvmTarget's, so this resolves for every valid
+   * target. Returns null only if a future Build Tools API splits the two enums; callers treat that
+   * as "no default" (the user can set -Xjdk-release explicitly) rather than a failure.
+   */
+  @OptIn(ExperimentalCompilerArgument::class)
+  private fun jdkReleaseFor(jvmTarget: JvmTarget): JdkRelease? =
+    JdkRelease.entries.firstOrNull { it.stringValue == jvmTarget.stringValue }
 
   private fun normalizeJvmTarget(target: String): String =
     when (target) {
