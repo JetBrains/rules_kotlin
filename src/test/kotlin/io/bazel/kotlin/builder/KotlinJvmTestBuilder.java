@@ -29,6 +29,7 @@ import io.bazel.kotlin.model.JvmCompilationTask;
 import io.bazel.kotlin.model.KotlinToolchainInfo;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.function.BiConsumer;
@@ -284,7 +285,7 @@ public final class KotlinJvmTestBuilder extends KotlinAbstractTestBuilder<JvmCom
                 taskBuilder.getOutputsBuilder().setJar(outputJar);
             }
 
-            Path outputJarPath = Path.of(outputJar).toAbsolutePath();
+            Path outputJarPath = Paths.get(outputJar).toAbsolutePath();
             String outputJarFileName = outputJarPath.getFileName().toString();
             String jarName = outputJarFileName.endsWith(".jar")
                     ? outputJarFileName.substring(0, outputJarFileName.length() - ".jar".length())

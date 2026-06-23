@@ -87,7 +87,7 @@ class BtapiCompiler(
     val result =
       executeCompilation(
         task = task,
-        outputDir = Path.of(task.directories.classes),
+        outputDir = Paths.get(task.directories.classes),
         compilerPlugins = compilerPlugins,
         logger = logger,
       ) { operation, _ ->
@@ -120,7 +120,7 @@ class BtapiCompiler(
     // Collect sources from protobuf
     val sources =
       (task.inputs.kotlinSourcesList + task.inputs.javaSourcesList)
-        .map { Path.of(it) }
+        .map { Paths.get(it) }
 
     // Create BTAPI compilation operation builder
     val operation = toolchains.jvm.jvmCompilationOperationBuilder(sources, outputDir)
@@ -207,7 +207,7 @@ class BtapiCompiler(
     args[JvmCompilerArguments.NO_REFLECT] = true
 
     // Classpath - convert to absolute paths
-    val classpath = computeClasspath(task).map { Path.of(File(it).absolutePath) }
+    val classpath = computeClasspath(task).map { Paths.get(File(it).absolutePath) }
     if (classpath.isNotEmpty()) {
       args[JvmCompilerArguments.CLASSPATH] = classpath
     }
@@ -216,7 +216,7 @@ class BtapiCompiler(
     if (task.info.friendPathsList.isNotEmpty()) {
       args[JvmCompilerArguments.X_FRIEND_PATHS] =
         task.info.friendPathsList
-          .map { Path.of(File(it).absolutePath) }
+          .map { Paths.get(File(it).absolutePath) }
     }
   }
 
@@ -295,7 +295,7 @@ class BtapiCompiler(
   private fun buildSkipCodeGenPlugin(skipCodeGen: InternalCompilerPlugin): CompilerPlugin =
     CompilerPlugin(
       pluginId = skipCodeGen.id,
-      classpath = listOf(Path.of(skipCodeGen.jarPath)),
+      classpath = listOf(Paths.get(skipCodeGen.jarPath)),
       rawArguments = emptyList(),
       orderingRequirements = emptySet(),
     )
@@ -332,7 +332,7 @@ class BtapiCompiler(
 
     return CompilerPlugin(
       pluginId = jdeps.id,
-      classpath = listOf(Path.of(jdeps.jarPath)),
+      classpath = listOf(Paths.get(jdeps.jarPath)),
       rawArguments = options,
       orderingRequirements = emptySet(),
     )
@@ -367,7 +367,7 @@ class BtapiCompiler(
 
     return CompilerPlugin(
       pluginId = abiGen.id,
-      classpath = listOf(Path.of(abiGen.jarPath)),
+      classpath = listOf(Paths.get(abiGen.jarPath)),
       rawArguments = options,
       orderingRequirements = emptySet(),
     )
@@ -385,7 +385,7 @@ class BtapiCompiler(
     task: JvmCompilationTask,
     compilerPlugins: List<CompilerPlugin>,
   ): IncrementalArgsHashUpdate {
-    val icBaseDir = Path.of(task.directories.incrementalBaseDir)
+    val icBaseDir = Paths.get(task.directories.incrementalBaseDir)
     val icWorkingDir = icBaseDir.resolve("ic-caches")
 
     // Compute force recompilation based on args hash
@@ -398,7 +398,7 @@ class BtapiCompiler(
     Files.createDirectories(icBaseDir)
 
     // Use explicit classpath snapshots from proto (passed by Starlark action)
-    val classpathSnapshots = task.inputs.classpathSnapshotsList.map { Path.of(it) }
+    val classpathSnapshots = task.inputs.classpathSnapshotsList.map { Paths.get(it) }
 
     val icConfig =
       operation
@@ -407,11 +407,11 @@ class BtapiCompiler(
           sourcesChanges = SourcesChanges.ToBeCalculated,
           dependenciesSnapshotFiles = classpathSnapshots,
         ).apply {
-          this[ROOT_PROJECT_DIR] = Path.of(ROOT)
+          this[ROOT_PROJECT_DIR] = Paths.get(ROOT)
           this[MODULE_BUILD_DIR] =
-            Path.of(task.directories.classes).parent ?: Path.of(task.directories.classes)
+            Paths.get(task.directories.classes).parent ?: Paths.get(task.directories.classes)
           this[FORCE_RECOMPILATION] = forceRecompilation
-          this[OUTPUT_DIRS] = setOf(Path.of(task.directories.classes), icWorkingDir)
+          this[OUTPUT_DIRS] = setOf(Paths.get(task.directories.classes), icWorkingDir)
         }.build()
 
     operation[INCREMENTAL_COMPILATION] = icConfig
@@ -494,7 +494,7 @@ class BtapiCompiler(
   private fun toBtapiPlugin(plugin: JvmCompilationTask.Inputs.Plugin): CompilerPlugin =
     CompilerPlugin(
       pluginId = plugin.id,
-      classpath = plugin.classpathList.map { Path.of(it) },
+      classpath = plugin.classpathList.map { Paths.get(it) },
       rawArguments =
         plugin.optionsList.map { option ->
           CompilerPluginOption(option.key, option.value)
@@ -507,13 +507,13 @@ class BtapiCompiler(
     hash: String,
   ) {
     val hashFile = icBaseDir.resolve("args-hash.txt")
-    Files.writeString(hashFile, hash)
+    Files.write(hashFile, hash.toByteArray())
   }
 
   private fun loadArgsHash(icBaseDir: Path): String? {
     val hashFile = icBaseDir.resolve("args-hash.txt")
     return if (Files.exists(hashFile)) {
-      Files.readString(hashFile).trim().ifEmpty { null }
+      String(Files.readAllBytes(hashFile), StandardCharsets.UTF_8).trim().ifEmpty { null }
     } else {
       null
     }
@@ -648,7 +648,7 @@ class BtapiCompiler(
 
     return executeCompilation(
       task = task,
-      outputDir = Path.of(task.directories.generatedClasses),
+      outputDir = Paths.get(task.directories.generatedClasses),
       compilerPlugins = compilerPlugins,
       logger = logger,
     )
@@ -717,7 +717,7 @@ class BtapiCompiler(
 
     return CompilerPlugin(
       pluginId = pluginId,
-      classpath = listOf(Path.of(plugins.kapt.jarPath)),
+      classpath = listOf(Paths.get(plugins.kapt.jarPath)),
       rawArguments = options,
       orderingRequirements = emptySet(),
     )

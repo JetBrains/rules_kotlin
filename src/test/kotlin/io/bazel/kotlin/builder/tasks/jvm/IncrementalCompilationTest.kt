@@ -34,8 +34,10 @@ import java.io.File
 import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.nio.file.attribute.FileTime
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.streams.toList
 import kotlin.test.assertFailsWith
 
 /**
@@ -71,13 +73,13 @@ class IncrementalCompilationTest {
 
     private val jvmTaskExecutor by lazy {
         val runtime = BtapiRuntimeSpec(
-            Path.of(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_build_tools_impl").singleCompileJar()),
-            Path.of(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_compiler_embeddable").singleCompileJar()),
-            Path.of(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_daemon_client").singleCompileJar()),
-            Path.of(Deps.Dep.fromLabel("//kotlin/compiler:kotlin-stdlib").singleCompileJar()),
-            Path.of(Deps.Dep.fromLabel("//kotlin/compiler:kotlin-reflect").singleCompileJar()),
-            Path.of(Deps.Dep.fromLabel("//kotlin/compiler:kotlinx-coroutines-core-jvm").singleCompileJar()),
-            Path.of(Deps.Dep.fromLabel("//kotlin/compiler:annotations").singleCompileJar()),
+            Paths.get(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_build_tools_impl").singleCompileJar()),
+            Paths.get(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_compiler_embeddable").singleCompileJar()),
+            Paths.get(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_daemon_client").singleCompileJar()),
+            Paths.get(Deps.Dep.fromLabel("//kotlin/compiler:kotlin-stdlib").singleCompileJar()),
+            Paths.get(Deps.Dep.fromLabel("//kotlin/compiler:kotlin-reflect").singleCompileJar()),
+            Paths.get(Deps.Dep.fromLabel("//kotlin/compiler:kotlinx-coroutines-core-jvm").singleCompileJar()),
+            Paths.get(Deps.Dep.fromLabel("//kotlin/compiler:annotations").singleCompileJar()),
         )
         val plugins = InternalCompilerPlugins.fromPaths(
             jvmAbiGenJar = Deps.Dep.fromLabel("//kotlin/compiler:jvm-abi-gen").singleCompileJar(),
@@ -90,7 +92,7 @@ class IncrementalCompilationTest {
 
     @Before
     fun setUp() {
-        val bazelTestDir = Path.of(System.getenv("TEST_TMPDIR"))
+        val bazelTestDir = Paths.get(System.getenv("TEST_TMPDIR"))
         testDir = Files.createTempDirectory(bazelTestDir, "ic-test-${counter.incrementAndGet()}")
 
         srcDir = testDir.resolve("src").also { Files.createDirectories(it) }
@@ -117,7 +119,7 @@ class IncrementalCompilationTest {
     private fun writeSource(name: String, content: String): Path {
         val path = srcDir.resolve(name)
         Files.createDirectories(path.parent)
-        Files.writeString(path, content)
+        Files.write(path, content.toByteArray())
         sources[name] = content
         return path
     }
@@ -259,7 +261,7 @@ class IncrementalCompilationTest {
     )
 
     private fun readArgsHash(): String =
-        Files.readString(icCachesDir.resolve("args-hash.txt")).trim()
+        String(Files.readAllBytes(icCachesDir.resolve("args-hash.txt")), Charsets.UTF_8).trim()
 
     // ==================== Test Cases ====================
 

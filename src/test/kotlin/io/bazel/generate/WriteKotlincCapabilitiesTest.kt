@@ -25,6 +25,9 @@ class WriteKotlincCapabilitiesTest {
   private fun countIgnoringWhitespace(content: String, expected: String): Int =
     normalizeWhitespace(content).split(normalizeWhitespace(expected)).size - 1
 
+  // JDK-8-compatible equivalent of readUtf8(path) (UTF-8); these files are always valid UTF-8.
+  private fun readUtf8(path: java.nio.file.Path): String = String(Files.readAllBytes(path), Charsets.UTF_8)
+
   @Test
   fun smokeTest() {
     val tmp = Files.createTempDirectory("WriteKotlincCapabilitiesTest")
@@ -33,7 +36,7 @@ class WriteKotlincCapabilitiesTest {
     // check generated_opts file was created
     val generatedOpts = tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion))
     assertThat(Files.exists(generatedOpts)).isTrue()
-    val content = Files.readString(generatedOpts)
+    val content = readUtf8(generatedOpts)
     assertThat(content).contains("GENERATED_KOPTS")
     // assert stable flag from kotlin-compiler-arguments-description
     assertThat(content).contains("-progressive")
@@ -44,7 +47,7 @@ class WriteKotlincCapabilitiesTest {
     val tmp = Files.createTempDirectory("WriteKotlincCapabilitiesTest")
     WriteKotlincCapabilities.main("--out", tmp.toString())
 
-    val generatedOpts = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion)))
+    val generatedOpts = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion)))
 
     // Boolean options should use attr.bool
     assertMatching(generatedOpts, "type = attr.bool")
@@ -58,7 +61,7 @@ class WriteKotlincCapabilitiesTest {
     val tmp = Files.createTempDirectory("WriteKotlincCapabilitiesTest")
     WriteKotlincCapabilities.main("--out", tmp.toString())
 
-    val generatedOpts = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion)))
+    val generatedOpts = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion)))
 
     // String options should use _map_string_flag helper
     assertMatching(generatedOpts, "map_value_to_flag = _map_string_flag")
@@ -72,7 +75,7 @@ class WriteKotlincCapabilitiesTest {
     val tmp = Files.createTempDirectory("WriteKotlincCapabilitiesTest")
     WriteKotlincCapabilities.main("--out", tmp.toString())
 
-    val generatedOpts = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion)))
+    val generatedOpts = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion)))
 
     // String list options should use _map_string_list_flag helper
     assertMatching(generatedOpts, "map_value_to_flag = _map_string_list_flag")
@@ -103,10 +106,10 @@ class WriteKotlincCapabilitiesTest {
     WriteKotlincCapabilities.main("--out", tmp.toString())
 
     // XXlenient-mode was introduced in v2.2.0 - should be in 2.2 and 2.3 but not in 2.0 and 2.1
-    val opts20 = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_0_0)))
-    val opts21 = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_1_0)))
-    val opts22 = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_2_0)))
-    val opts23 = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_3_0)))
+    val opts20 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_0_0)))
+    val opts21 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_1_0)))
+    val opts22 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_2_0)))
+    val opts23 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_3_0)))
 
     assertThat(opts20).doesNotContain("-XXlenient-mode")
     assertThat(opts21).doesNotContain("-XXlenient-mode")
@@ -123,8 +126,8 @@ class WriteKotlincCapabilitiesTest {
     // In 2.1: only -Xjvm-default exists, no deprecation prefix from us
     // In 2.2+: both exist, -Xjvm-default should have our DEPRECATED prefix
 
-    val opts21 = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_1_0)))
-    val opts22 = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_2_0)))
+    val opts21 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_1_0)))
+    val opts22 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_2_0)))
 
     // In 2.1, -Xjvm-default should NOT have our DEPRECATED prefix (stable version doesn't exist yet)
     assertThat(opts21).contains("-Xjvm-default")
@@ -143,7 +146,7 @@ class WriteKotlincCapabilitiesTest {
     val tmp = Files.createTempDirectory("WriteKotlincCapabilitiesTest")
     WriteKotlincCapabilities.main("--out", tmp.toString())
 
-    val opts23 = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_3_0)))
+    val opts23 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_3_0)))
 
     assertMatching(opts23, "values = [\"\", \"first-only\", \"first-only-warn\", \"param-property\"]")
     assertMatching(opts23, "values = [\"\", \"ignore\", \"strict\", \"warn\"]")
@@ -154,7 +157,7 @@ class WriteKotlincCapabilitiesTest {
     val tmp = Files.createTempDirectory("WriteKotlincCapabilitiesTest")
     WriteKotlincCapabilities.main("--out", tmp.toString())
 
-    val opts21 = Files.readString(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_1_0)))
+    val opts21 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_1_0)))
     val count = countIgnoringWhitespace(opts21, "\"x_ir_inliner\": struct(")
     assertThat(count).isEqualTo(1)
   }

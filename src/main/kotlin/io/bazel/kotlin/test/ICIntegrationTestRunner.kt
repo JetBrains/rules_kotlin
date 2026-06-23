@@ -114,7 +114,7 @@ object ICIntegrationTestRunner {
       appendLine("=== Running incremental build ===")
       appendLine(extractICLog(incrementalResult))
     }
-    val rawExpectedLines = Files.readString(expectedLogPath, UTF_8).trim()
+    val rawExpectedLines = String(Files.readAllBytes(expectedLogPath), UTF_8).trim()
       .lines()
       .map { it.trim() }
       .filter { it.isNotEmpty() }

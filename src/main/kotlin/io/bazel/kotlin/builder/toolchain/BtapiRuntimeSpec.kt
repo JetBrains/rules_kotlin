@@ -17,6 +17,7 @@
 package io.bazel.kotlin.builder.toolchain
 
 import java.nio.file.Path
+import java.nio.file.Paths
 
 /**
  * Runtime configuration needed to load a BTAPI implementation and matching Kotlin compiler.
@@ -53,13 +54,13 @@ data class BtapiRuntimeSpec(
       annotationsJar: String,
     ): BtapiRuntimeSpec =
       BtapiRuntimeSpec(
-        buildToolsImplJar = Path.of(buildToolsImplJar),
-        kotlinCompilerEmbeddableJar = Path.of(kotlinCompilerEmbeddableJar),
-        kotlinDaemonClientJar = Path.of(kotlinDaemonClientJar),
-        kotlinStdlibJar = Path.of(kotlinStdlibJar),
-        kotlinReflectJar = Path.of(kotlinReflectJar),
-        kotlinCoroutinesJar = Path.of(kotlinCoroutinesJar),
-        annotationsJar = Path.of(annotationsJar),
+        buildToolsImplJar = Paths.get(buildToolsImplJar),
+        kotlinCompilerEmbeddableJar = Paths.get(kotlinCompilerEmbeddableJar),
+        kotlinDaemonClientJar = Paths.get(kotlinDaemonClientJar),
+        kotlinStdlibJar = Paths.get(kotlinStdlibJar),
+        kotlinReflectJar = Paths.get(kotlinReflectJar),
+        kotlinCoroutinesJar = Paths.get(kotlinCoroutinesJar),
+        annotationsJar = Paths.get(annotationsJar),
       )
   }
 }

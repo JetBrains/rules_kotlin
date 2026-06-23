@@ -35,6 +35,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Pattern
@@ -84,8 +85,8 @@ class SnapshotTask : Work {
     val argMap = ArgMaps.from(lines)
 
     return try {
-      val inputJar = Path.of(argMap.mandatorySingle(SnapshotFlags.INPUT_JAR))
-      val outputSnapshot = Path.of(argMap.mandatorySingle(SnapshotFlags.OUTPUT_SNAPSHOT))
+      val inputJar = Paths.get(argMap.mandatorySingle(SnapshotFlags.INPUT_JAR))
+      val outputSnapshot = Paths.get(argMap.mandatorySingle(SnapshotFlags.OUTPUT_SNAPSHOT))
       val runtimeSpec = buildBtapiRuntimeSpec(argMap)
 
       generateSnapshot(inputJar, outputSnapshot, runtimeSpec)
