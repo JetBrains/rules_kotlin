@@ -21,7 +21,6 @@ build:windows --host_cxxopt=/std:c++17
 build:windows --cxxopt=/Zc:__cplusplus
 build:windows --host_cxxopt=/Zc:__cplusplus
 
-
 # Avoid
 # Exception in thread "main" java.io.IOException: Error getting terminal size: GetConsoleScreenBufferInfo error 6
 # 	at coursier.jniutils.WindowsAnsiTerminal.terminalSize(WindowsAnsiTerminal.java:10)
