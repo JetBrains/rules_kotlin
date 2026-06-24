@@ -25,7 +25,6 @@ import io.bazel.kotlin.model.Platform
 import io.bazel.kotlin.model.RuleKind
 import org.junit.After
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
@@ -122,11 +121,6 @@ class IncrementalCompilationTest {
         Files.write(path, content.toByteArray())
         sources[name] = content
         return path
-    }
-
-    private fun deleteSource(name: String) {
-        Files.delete(srcDir.resolve(name))
-        sources.remove(name)
     }
 
     private fun getClassTimestamps(): Map<String, FileTime> {

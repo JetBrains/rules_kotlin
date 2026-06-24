@@ -3,9 +3,6 @@ load("@rules_java//java:defs.bzl", "JavaInfo")
 load("//src/main/starlark/core/compile/cli:compile.bzl", "write_windows_jvm_launcher")
 load(":common.bzl", "KtJvmInfo", "LAUNCHER_MAKER_TOOLCHAIN_TYPE", "TYPE", "get_executable", "is_windows")
 
-# Toolchain type for the Windows launcher maker
-_LAUNCHER_MAKER_TOOLCHAIN_TYPE = "@bazel_tools//tools/launcher:launcher_maker_toolchain_type"
-
 _COMMON_ATTRS = {
     "class_jar": attr.output(doc = "jar containing .kt and .java class files"),
     "data": attr.label_list(
