@@ -43,9 +43,13 @@ bool_flag(
     visibility = ["//visibility:public"],
 )
 
+# Incremental compilation via classpath snapshots. Opt-in: the per-target IC cache state lives next to
+# the output jar (<output_jar>-ic) and is worker-local, so it is incompatible with sandboxed or remote
+# execution (the cache is not declared as an action input/output).
+# --@rules_kotlin//kotlin/settings:experimental_incremental_compilation=True
 bool_flag(
     name = "experimental_incremental_compilation",
-    build_setting_default = True,
+    build_setting_default = False,
     visibility = ["//visibility:public"],
 )
 

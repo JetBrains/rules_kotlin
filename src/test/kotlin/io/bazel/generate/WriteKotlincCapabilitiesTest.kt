@@ -11,20 +11,6 @@ class WriteKotlincCapabilitiesTest {
   // Use the latest supported version for testing
   private val testVersion = KotlinReleaseVersion.v2_3_0
 
-  // The generator column-aligns map entries and varies list/dict spacing, so assertions on its output
-  // must not hard-code spacing. Tests state the expected snippet as readable text; matching strips all
-  // whitespace from both sides so layout differences (alignment padding, comma spacing) are ignored.
-  private fun normalizeWhitespace(s: String): String = s.filterNot { it.isWhitespace() }
-
-  private fun assertMatching(content: String, expected: String) {
-    assertWithMessage("expected to find (ignoring whitespace):\n$expected")
-      .that(normalizeWhitespace(content).contains(normalizeWhitespace(expected)))
-      .isTrue()
-  }
-
-  private fun countIgnoringWhitespace(content: String, expected: String): Int =
-    normalizeWhitespace(content).split(normalizeWhitespace(expected)).size - 1
-
   // JDK-8-compatible equivalent of readUtf8(path) (UTF-8); these files are always valid UTF-8.
   private fun readUtf8(path: java.nio.file.Path): String = String(Files.readAllBytes(path), Charsets.UTF_8)
 
@@ -50,10 +36,10 @@ class WriteKotlincCapabilitiesTest {
     val generatedOpts = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion)))
 
     // Boolean options should use attr.bool
-    assertMatching(generatedOpts, "type = attr.bool")
+    assertThat(generatedOpts).contains("type = attr.bool")
 
     // Boolean options should map True to the flag
-    assertMatching(generatedOpts, "value_to_flag = {True:")
+    assertThat(generatedOpts).contains("value_to_flag = {True:")
   }
 
   @Test
@@ -64,7 +50,7 @@ class WriteKotlincCapabilitiesTest {
     val generatedOpts = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion)))
 
     // String options should use _map_string_flag helper
-    assertMatching(generatedOpts, "map_value_to_flag = _map_string_flag")
+    assertThat(generatedOpts).contains("map_value_to_flag = _map_string_flag")
 
     // The helper function should be defined
     assertThat(generatedOpts).contains("def _map_string_flag(flag):")
@@ -78,13 +64,13 @@ class WriteKotlincCapabilitiesTest {
     val generatedOpts = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(testVersion)))
 
     // String list options should use _map_string_list_flag helper
-    assertMatching(generatedOpts, "map_value_to_flag = _map_string_list_flag")
+    assertThat(generatedOpts).contains("map_value_to_flag = _map_string_list_flag")
 
     // The helper function should be defined
     assertThat(generatedOpts).contains("def _map_string_list_flag(flag):")
 
     // String list options should have type = attr.string_list
-    assertMatching(generatedOpts, "type = attr.string_list")
+    assertThat(generatedOpts).contains("type = attr.string_list")
   }
 
   @Test
@@ -148,8 +134,9 @@ class WriteKotlincCapabilitiesTest {
 
     val opts23 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_3_0)))
 
-    assertMatching(opts23, "values = [\"\", \"first-only\", \"first-only-warn\", \"param-property\"]")
-    assertMatching(opts23, "values = [\"\", \"ignore\", \"strict\", \"warn\"]")
+    // Exact output: the generator emits no space after the leading `["",` (see _KOPTS struct emission).
+    assertThat(opts23).contains("values = [\"\",\"first-only\", \"first-only-warn\", \"param-property\"]")
+    assertThat(opts23).contains("values = [\"\",\"ignore\", \"strict\", \"warn\"]")
   }
 
   @Test
@@ -158,7 +145,30 @@ class WriteKotlincCapabilitiesTest {
     WriteKotlincCapabilities.main("--out", tmp.toString())
 
     val opts21 = readUtf8(tmp.resolve(WriteKotlincCapabilities.generatedOptsName(KotlinReleaseVersion.v2_1_0)))
-    val count = countIgnoringWhitespace(opts21, "\"x_ir_inliner\": struct(")
+    // The deduplicated entry must appear exactly once (match the quoted key, which is unambiguous).
+    val count = opts21.split("\"x_ir_inliner\":").size - 1
     assertThat(count).isEqualTo(1)
+  }
+
+  @Test
+  fun `generator output is byte-for-byte idempotent across runs`() {
+    val first = Files.createTempDirectory("WriteKotlincCapabilitiesTest-run1")
+    val second = Files.createTempDirectory("WriteKotlincCapabilitiesTest-run2")
+    WriteKotlincCapabilities.main("--out", first.toString())
+    WriteKotlincCapabilities.main("--out", second.toString())
+
+    // Every generated file must be identical across regenerations. A failure here means the generator
+    // became non-deterministic (e.g. an unsorted collection, a timestamp, or hash-ordered iteration),
+    // which would make the checked-in generated_opts_*.bazel files churn on every regeneration.
+    val names =
+      WriteKotlincCapabilities.SUPPORTED_VERSIONS
+        .filter { it >= KotlinReleaseVersion.v2_0_0 }
+        .map { WriteKotlincCapabilities.generatedOptsName(it) } + "templates.bzl"
+
+    for (name in names) {
+      assertWithMessage("generator output for $name must be byte-for-byte identical across regenerations")
+        .that(readUtf8(second.resolve(name)))
+        .isEqualTo(readUtf8(first.resolve(name)))
+    }
   }
 }

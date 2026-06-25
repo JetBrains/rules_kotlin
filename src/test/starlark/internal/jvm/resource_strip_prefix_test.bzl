@@ -2,7 +2,7 @@ load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("//kotlin:jvm.bzl", "kt_jvm_library")
 
-# Resource jars are built with singlejar (mnemonic "KotlinZipResourceJar"), not Bazel's zipper.
+# Resource jars are built with singlejar (mnemonic "KotlinResourceJar"), not Bazel's zipper.
 # Rationale for that switch, which this test reflects:
 #   - Filename correctness: zipper's args-file format is "<jar_entry>=<fs_path>", split on the FIRST
 #     "=" with no escaping, so it cannot represent a resource whose name contains "=". singlejar's
@@ -11,7 +11,7 @@ load("//kotlin:jvm.bzl", "kt_jvm_library")
 #   - Pipeline consistency: rules_java packs resources via singlejar/JavaBuilder, so this aligns the
 #     rules_kotlin resource pipeline with rules_java and reuses a jar-aware tool that
 #     normalizes output for the downstream jar fold.
-# Accordingly this test inspects the KotlinZipResourceJar action's "<fs_path>:<jar_entry>" descriptors
+# Accordingly this test inspects the KotlinResourceJar action's "<fs_path>:<jar_entry>" descriptors
 # rather than the legacy zipper "<jar_entry>=<fs_path>" args file.
 
 def _strip_resource_prefix_test_impl(ctx):
@@ -19,12 +19,12 @@ def _strip_resource_prefix_test_impl(ctx):
 
     actions = analysistest.target_actions(env)
 
-    # singlejar (mnemonic "KotlinZipResourceJar") takes one "<fs_path>:<jar_entry>" descriptor per
+    # singlejar (mnemonic "KotlinResourceJar") takes one "<fs_path>:<jar_entry>" descriptor per
     # resource after the --resources flag, splitting on the LAST ":".
     resource_jar_actions = [
         action
         for action in actions
-        if action.mnemonic == "KotlinZipResourceJar"
+        if action.mnemonic == "KotlinResourceJar"
     ]
     asserts.equals(env, expected = 1, actual = len(resource_jar_actions))
 

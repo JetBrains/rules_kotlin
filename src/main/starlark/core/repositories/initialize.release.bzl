@@ -64,12 +64,6 @@ def kotlin_repositories(
 
     versions.use_repository(
         http_archive,
-        name = "py_absl",
-        version = versions.PY_ABSL,
-    )
-
-    versions.use_repository(
-        http_archive,
         name = "rules_cc",
         version = versions.RULES_CC,
     )

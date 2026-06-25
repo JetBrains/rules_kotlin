@@ -415,7 +415,7 @@ def _build_resourcejar_action(ctx, toolchains, extra_resources = {}):
     args.set_param_file_format("shell")
 
     ctx.actions.run(
-        mnemonic = "KotlinZipResourceJar",
+        mnemonic = "KotlinResourceJar",
         executable = toolchains.java.single_jar,
         inputs = ctx.files.resources + extra_resources.values(),
         outputs = [resources_jar_output],
@@ -1141,31 +1141,14 @@ def _run_kt_java_builder_actions(
         if len(srcs.kt) > 0:
             javac_opts.append("-proc:none")
 
-        # When kotlinc_options.jvm_target is set, it is the source of truth for
-        # the Java half's platform target: the Kotlin and Java halves of the
-        # same target must compile against the same JVM platform. The flags we
-        # append here override any toolchain or per-target defaults via javac's
-        # last-wins parsing of -source/-target/--release.
-        #
-        # The two flag groups are mutually exclusive: --release is incompatible
-        # with -source, -target, -system, and -bootclasspath. We emit exactly
-        # one of:
-        #   --release N                  -- for genuine cross-compilation
-        #                                   (JDK 9+ and compilerVersion != N).
-        #   -source N -target N          -- when compiler and target match.
+        # When kotlinc_options.jvm_target is set, drive the Java half's platform target from
+        # it so the Kotlin and Java halves compile against the same JVM platform. These flags
+        # override any toolchain/per-target defaults via javac's last-wins parsing. See
+        # _utils.javac_jvm_target_flags for the --release vs -source/-target choice.
         kotlinc_options = ctx.attr.kotlinc_opts[KotlincOptions] if ctx.attr.kotlinc_opts else toolchains.kt.kotlinc_options
         jvm_target = kotlinc_options.jvm_target if (kotlinc_options and kotlinc_options.jvm_target) else None
         if jvm_target:
-            # Normalize: '1.8' -> '8', '11' -> '11'.
-            stripped = jvm_target.strip()
-            dot = stripped.rfind(".")
-            target_version = stripped if dot < 0 else stripped[dot + 1:]
-            target_version_int = int(target_version) if target_version.isdigit() else -1
-            compiler_version = toolchains.java.java_runtime.version
-            if compiler_version >= 9 and target_version_int > 0 and compiler_version != target_version_int:
-                javac_opts.extend(["--release", target_version])
-            else:
-                javac_opts.extend(["-source", target_version, "-target", target_version])
+            javac_opts.extend(_utils.javac_jvm_target_flags(jvm_target, toolchains.java.java_runtime.version))
 
         # Use pruned deps for Java compilation when experimental_prune_transitive_deps is enabled
         # This ensures java_common.compile() doesn't see transitive deps

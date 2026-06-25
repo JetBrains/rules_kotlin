@@ -358,10 +358,16 @@ class BtapiCompiler(
     if (task.info.removeDebugInfo) {
       options.add(CompilerPluginOption("removeDebugInfo", "true"))
     }
-    // Upstream rules_kotlin does not expose these options via toolchain attributes or rule attrs,
-    // so they are hard-coded here. The remaining JvmAbiCommandLineProcessor
-    // options (removePrivateClasses, removeDebugInfo, treatInternalAsPrivate) are configured at the Starlark level
-    // via the corresponding `experimental_*` toolchain attributes.
+    // These two are intentionally fixed (not exposed like the sibling options above) because they are
+    // ABI-determinism settings, not user preferences:
+    //  - preserveDeclarationOrder keeps the ABI jar byte-stable across recompilations, which the
+    //    classpath-snapshot incremental compilation relies on; turning it off would cause spurious
+    //    downstream invalidation and cache misses.
+    //  - removeDataClassCopyIfConstructorIsPrivate drops a synthetic data-class copy() that is never
+    //    callable from outside the module, keeping the ABI minimal.
+    // The sibling options (removePrivateClasses, removeDebugInfo, treatInternalAsPrivate) change ABI
+    // *content* a consumer may need to control, so those are exposed at the Starlark level via the
+    // corresponding `experimental_*` toolchain attributes.
     options.add(CompilerPluginOption("removeDataClassCopyIfConstructorIsPrivate", "true"))
     options.add(CompilerPluginOption("preserveDeclarationOrder", "true"))
 

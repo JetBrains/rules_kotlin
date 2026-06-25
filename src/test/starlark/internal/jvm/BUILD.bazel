@@ -1,7 +1,10 @@
+load(":javac_jvm_target_test.bzl", "javac_jvm_target_test_suite")
 load(":jvm_deps_tests.bzl", "jvm_deps_test_suite")
 load(":kt_jvm_binary_env_test.bzl", "kt_jvm_binary_env_test_suite")
 load(":snapshot_action_test.bzl", "snapshot_action_test_suite")
 load(":toolchain_runtime_override_test.bzl", "toolchain_runtime_override_test_suite")
+
+javac_jvm_target_test_suite(name = "javac_jvm_target_tests")
 
 jvm_deps_test_suite(name = "jvm_tests")
 
