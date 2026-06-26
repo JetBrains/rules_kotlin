@@ -90,10 +90,10 @@ class BtapiCompiler(
         outputDir = Paths.get(task.directories.classes),
         compilerPlugins = compilerPlugins,
         logger = logger,
-      ) { operation, _ ->
+      ) { operation, _, classpathStructure ->
         // Configure incremental compilation if enabled
         if (task.info.incrementalCompilation && task.directories.incrementalBaseDir.isNotEmpty()) {
-          hashUpdate = configureIncrementalCompilation(operation, task, compilerPlugins)
+          hashUpdate = configureIncrementalCompilation(operation, task, compilerPlugins, classpathStructure)
         }
       }
 
@@ -115,7 +115,8 @@ class BtapiCompiler(
     additionalConfiguration: (
       JvmCompilationOperation.Builder,
       JvmCompilerArguments.Builder,
-    ) -> Unit = { _, _ -> },
+      List<String>,
+    ) -> Unit = { _, _, _ -> },
   ): CompilationResult {
     // Collect sources from protobuf
     val sources =
@@ -126,8 +127,13 @@ class BtapiCompiler(
     val operation = toolchains.jvm.jvmCompilationOperationBuilder(sources, outputDir)
     val compilerArgs = operation.compilerArguments
 
+    // Compute the compile classpath once, then use it two ways from this single list: hashed as-is
+    // (relative paths) for incremental invalidation, and absolutized for the compiler invocation.
+    val classpathEntries = computeClasspath(task)
+    val compilerClasspath = classpathEntries.map { Paths.get(File(it).absolutePath) }
+
     // Configure compiler arguments directly from protobuf
-    configureCompilerArguments(compilerArgs, task)
+    configureCompilerArguments(compilerArgs, task, compilerClasspath)
 
     // Configure compiler plugins
     if (compilerPlugins.isNotEmpty()) {
@@ -135,7 +141,7 @@ class BtapiCompiler(
     }
 
     // Allow caller to do additional configuration
-    additionalConfiguration(operation, compilerArgs)
+    additionalConfiguration(operation, compilerArgs, classpathEntries)
 
     // Execute the compilation
     return buildSession.executeOperation(operation.build(), logger = logger)
@@ -148,6 +154,7 @@ class BtapiCompiler(
   private fun configureCompilerArguments(
     args: JvmCompilerArguments.Builder,
     task: JvmCompilationTask,
+    classpath: List<Path>,
   ) {
     // Precedence by application order: user options (passthrough) first, then toolchain defaults
     // fill only what the user did not set, then rules-managed settings are forced last.
@@ -206,8 +213,8 @@ class BtapiCompiler(
     args[JvmCompilerArguments.NO_STDLIB] = true
     args[JvmCompilerArguments.NO_REFLECT] = true
 
-    // Classpath - convert to absolute paths
-    val classpath = computeClasspath(task).map { Paths.get(File(it).absolutePath) }
+    // Classpath (already resolved to absolute paths by the caller, computed once and shared with
+    // the incremental args-hash).
     if (classpath.isNotEmpty()) {
       args[JvmCompilerArguments.CLASSPATH] = classpath
     }
@@ -390,12 +397,13 @@ class BtapiCompiler(
     operation: JvmCompilationOperation.Builder,
     task: JvmCompilationTask,
     compilerPlugins: List<CompilerPlugin>,
+    classpathStructure: List<String>,
   ): IncrementalArgsHashUpdate {
     val icBaseDir = Paths.get(task.directories.incrementalBaseDir)
     val icWorkingDir = icBaseDir.resolve("ic-caches")
 
     // Compute force recompilation based on args hash
-    val currentArgsHash = computeArgsHash(task, compilerPlugins)
+    val currentArgsHash = computeArgsHash(task, compilerPlugins, classpathStructure)
     val previousArgsHash = loadArgsHash(icBaseDir)
     val argsChanged = previousArgsHash != null && previousArgsHash != currentArgsHash
     val forceRecompilation = argsChanged
@@ -427,8 +435,10 @@ class BtapiCompiler(
 
   /**
    * Computes a hash of the effective compiler-flag set, used to force a full recompilation when it
-   * changes. Sources and the dependency classpath content are handled separately (by IC source
-   * diffing and by dependency classpath snapshots), so they are intentionally not hashed here.
+   * changes. Sources and the dependency classpath *content* are handled separately (by IC source
+   * diffing and by dependency classpath snapshots), so they are intentionally not hashed here. The
+   * classpath *structure* (entry count and order) IS hashed, since reordering can change which
+   * class wins on a split package and therefore the output.
    *
    * SHA-256 is used (rather than a 32-bit hashCode accumulation) so that a collision -- which would
    * silently reuse a stale IC cache -- is negligibly unlikely. Each field and each list length is
@@ -437,6 +447,7 @@ class BtapiCompiler(
   private fun computeArgsHash(
     task: JvmCompilationTask,
     compilerPlugins: List<CompilerPlugin>,
+    classpathStructure: List<String>,
   ): String {
     val digest = MessageDigest.getInstance("SHA-256")
     fun putInt(n: Int) =
@@ -462,14 +473,18 @@ class BtapiCompiler(
     put(task.info.toolchainInfo.common.apiVersion)
     put(task.info.toolchainInfo.common.languageVersion)
     putAll(task.info.passthroughFlagsList.sorted())
+    // The compile-classpath structure: the exact ordered entry list handed to the compiler (friend
+    // paths first, deduped, normalized + relative). Fed in order -- NOT sorted -- because order is
+    // itself significant (it decides which class wins on a split package). Entry *content* is left
+    // to the dependency snapshots; only the structure forces a full recompile here.
+    putAll(classpathStructure)
     // Fingerprint the full effective compiler-plugin set (internal jdeps / jvm-abi-gen /
     // skip-code-gen + user plugins) uniformly by their option lists, so e.g. the jvm-abi-gen
-    // options take part in IC invalidation. The jdeps plugin encodes the compile classpath as
-    // ordered options, so a change in classpath entries or order also forces a full recompile.
-    // This list is already phase-filtered to the compile operation, so a plugin entering or
-    // leaving the compile phase changes the fingerprint via membership; the plugin phase itself
-    // is therefore not part of the per-plugin fingerprint (stubs-phase changes are reflected
-    // through the KAPT-generated sources, handled by source-change detection).
+    // options take part in IC invalidation. This list is already phase-filtered to the compile
+    // operation, so a plugin entering or leaving the compile phase changes the fingerprint via
+    // membership; the plugin phase itself is therefore not part of the per-plugin fingerprint
+    // (stubs-phase changes are reflected through the KAPT-generated sources, handled by
+    // source-change detection).
     putAll(compilerPlugins.map(::compilerPluginFingerprint).sorted())
 
     return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
