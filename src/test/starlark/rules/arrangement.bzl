@@ -1,6 +1,6 @@
 load("//kotlin:jvm.bzl", "kt_jvm_import", "kt_jvm_library")
 
-def arrange(test, transitive_dep = None):
+def arrange(test, transitive_dep = None, with_java_main = False):
     dependency_a_trans_dep_jar = transitive_dep
     if dependency_a_trans_dep_jar == None:
         dependency_a_trans_dep_jar = test.artifact(
@@ -29,14 +29,20 @@ def arrange(test, transitive_dep = None):
         ],
     )
 
+    main_srcs = [
+        test.artifact(
+            name = "main_target_library.kt",
+        ),
+    ]
+    if with_java_main:
+        main_srcs.append(test.artifact(
+            name = "MainTargetLibrary.java",
+        ))
+
     main_target_library = test.got(
         kt_jvm_library,
         name = "main_target_library",
-        srcs = [
-            test.artifact(
-                name = "main_target_library.kt",
-            ),
-        ],
+        srcs = main_srcs,
         deps = [
             dependency_a,
         ],
