@@ -17,6 +17,7 @@
 package io.bazel.kotlin.builder.tasks
 
 import com.google.common.truth.Truth.assertThat
+import io.bazel.kotlin.builder.tasks.jvm.Ksp2EntryPoint
 import io.bazel.kotlin.builder.tasks.jvm.Ksp2Task.Companion.Ksp2Flags
 import io.bazel.kotlin.builder.tasks.jvm.Ksp2Task.Companion.clearKspClassLoaderCacheForTesting
 import io.bazel.kotlin.builder.tasks.jvm.Ksp2Task.Companion.fingerprintOf
@@ -281,5 +282,13 @@ class Ksp2TaskTest {
     val fp = fingerprintOf(listOf(jar.absolutePath))
     assertThat(fp).hasLength(64)
     assertThat(fp).matches("[0-9a-f]{64}")
+  }
+
+  @Test
+  fun testInvokerImplementsTheTypedEntryPoint() {
+    // The worker should implement the Ksp2EntryPoint contract
+    val invokerClass =
+      Class.forName("io.bazel.kotlin.ksp2.Ksp2Invoker", false, javaClass.classLoader)
+    assertThat(Ksp2EntryPoint::class.java.isAssignableFrom(invokerClass)).isTrue()
   }
 }

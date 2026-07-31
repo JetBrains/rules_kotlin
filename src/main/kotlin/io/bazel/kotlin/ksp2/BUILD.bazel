@@ -14,7 +14,9 @@
 
 load("//src/main/kotlin:bootstrap.bzl", "kt_bootstrap_library")
 
-# KSP2 invoker library, loaded at runtime in the KSP2 classloader.
+# KSP2 invoker library, loaded at runtime in the KSP2 classloader. The dep on the worker's tasks
+# library provides the Ksp2EntryPoint contract the invoker implements; the KSP2 classloader
+# resolves that interface from its parent (the worker), so the dep never rides along at runtime.
 kt_bootstrap_library(
     name = "ksp2",
     srcs = glob(["*.kt"]),
@@ -24,4 +26,7 @@ kt_bootstrap_library(
         "//kotlin/compiler:symbol-processing-common-deps",
     ],
     visibility = ["//visibility:public"],
+    deps = [
+        "//src/main/kotlin/io/bazel/kotlin/builder/tasks",
+    ],
 )
