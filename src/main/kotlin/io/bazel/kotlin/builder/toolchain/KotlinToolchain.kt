@@ -30,6 +30,13 @@ class KotlinToolchain private constructor(
   val jvmAbiGen: CompilerPlugin,
   val skipCodeGen: CompilerPlugin,
   val jdepsGen: CompilerPlugin,
+  /**
+   * The jars from which the Build Tools API compiler assembles its runtime classloader: the
+   * Build Tools implementation, the daemon client, the compiler and the kotlinx-serialization
+   * runtime. The Kotlin standard library resolves through the compiler jar's manifest
+   * Class-Path, like in [classLoader].
+   */
+  val btapiRuntimeClasspath: List<File>,
 ) {
   companion object {
     private val JVM_ABI_PLUGIN by lazy {
@@ -162,6 +169,15 @@ class KotlinToolchain private constructor(
           kotlinxSerializationJson,
           kotlinxSerializationJsonJvm,
         ),
+        btapiRuntimeClasspath =
+          listOf(
+            buildTools,
+            kotlinDaemonClient,
+            kotlinc,
+            kotlinxSerializationCoreJvm,
+            kotlinxSerializationJson,
+            kotlinxSerializationJsonJvm,
+          ),
         jvmAbiGen =
           CompilerPlugin(
             jvmAbiGenFile.path,
@@ -197,9 +213,9 @@ class KotlinToolchain private constructor(
     val id: String,
   )
 
-  open class KotlincInvoker internal constructor(
+  open class KotlincInvoker(
     toolchain: KotlinToolchain,
-    clazz: String,
+    clazz: String = "io.bazel.kotlin.compiler.BazelK2JVMCompiler",
   ) {
     private val compiler: Any
     private val execHandle: MethodHandle
@@ -233,20 +249,6 @@ class KotlinToolchain private constructor(
     ): Int {
       val exitCode = execHandle.invoke(compiler, out, args, sources, destination)
       return getCodeHandle.invoke(exitCode) as Int
-    }
-  }
-
-  class KotlincInvokerBuilder(
-    private val toolchain: KotlinToolchain,
-  ) {
-    fun build(useExperimentalBuildToolsAPI: Boolean): KotlincInvoker {
-      val clazz =
-        if (useExperimentalBuildToolsAPI) {
-          "io.bazel.kotlin.compiler.BuildToolsAPICompiler"
-        } else {
-          "io.bazel.kotlin.compiler.BazelK2JVMCompiler"
-        }
-      return KotlincInvoker(toolchain = toolchain, clazz = clazz)
     }
   }
 }

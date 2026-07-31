@@ -95,7 +95,55 @@ public class KotlinBuilderJvmBtaTest {
                 lines -> assertThat(String.join("\n", lines)).contains("DoesNotExist"));
     }
 
-  @Test
+    @Test
+    public void testNoKotlinHomeResolutionWarnings() {
+        // The typed path passes -no-stdlib/-no-reflect: the rules assemble the complete
+        // classpath themselves, and a compiler runtime without a Kotlin home distribution
+        // (e.g. the embeddable family) would otherwise emit "Unable to find kotlin-stdlib.jar"
+        // warnings on every compile, failing compilations that enable -Werror.
+        ctx.runCompileTask(
+                c -> {
+                    c.useBuildToolsApi();
+                    c.compileKotlin();
+                    c.addSource("AClass.kt", "package something;" + "class AClass{}");
+                    c.outputJar();
+                    c.outputJdeps();
+                });
+        assertThat(String.join("\n", ctx.outLines())).doesNotContain("Unable to find");
+    }
+
+    @Test
+    public void testTypedArgumentsFollowToolchainJvmTarget() {
+        // The worker passes jvm_target as a typed Build Tools API argument (no CLI flattening);
+        // the produced bytecode must follow the toolchain's target (11 -> class file major 55).
+        ctx.runCompileTask(
+                c -> {
+                    c.useBuildToolsApi();
+                    c.compileKotlin();
+                    c.addSource("AClass.kt", "package something;" + "class AClass{}");
+                    c.outputJar();
+                    c.outputJdeps();
+                });
+        assertThat(ctx.classFileMajorVersion("something/AClass.class")).isEqualTo(55);
+    }
+
+    @Test
+    public void testPassthroughFlagsOverrideTypedToolchainDefaults() {
+        // User pass-through flags are applied before the typed defaults and must win: an explicit
+        // -jvm-target 17 (class file major 61) overrides the toolchain's jvm_target 11.
+        ctx.runCompileTask(
+                c -> {
+                    c.useBuildToolsApi();
+                    c.compileKotlin();
+                    c.addPassthroughFlags("-jvm-target", "17", "-Xjdk-release=17");
+                    c.addSource("AClass.kt", "package something;" + "class AClass{}");
+                    c.outputJar();
+                    c.outputJdeps();
+                });
+        assertThat(ctx.classFileMajorVersion("something/AClass.class")).isEqualTo(61);
+    }
+
+    @Test
     public void testJdkApiSurfaceLimitedToJvmTarget() {
         // The BTAPI implementation enforces compile-time JDK API version to correspond to the selected jvm_target via -Xjdk-release.
         ctx.runFailingCompileTaskAndValidateOutput(

@@ -27,14 +27,11 @@ import io.bazel.kotlin.builder.toolchain.CompilationTaskContext
 import io.bazel.kotlin.builder.toolchain.KotlinToolchain
 import io.bazel.kotlin.model.JvmCompilationTask
 import java.io.BufferedInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.ObjectOutputStream
 import java.nio.file.Files.isDirectory
 import java.nio.file.Files.walk
 import java.nio.file.Path
 import java.nio.file.Paths
-import java.util.Base64
 import java.util.stream.Collectors.toList
 import java.util.stream.Stream
 
@@ -83,126 +80,7 @@ fun JvmCompilationTask.baseArgs(overrides: Map<String, String> = emptyMap()): Co
       LANGUAGE_VERSION_ARG,
       overrides[LANGUAGE_VERSION_ARG] ?: info.toolchainInfo.common.languageVersion,
     ).flag("-jvm-target", info.toolchainInfo.jvm.jvmTarget)
-    .let { args ->
-      if (info.buildToolsApi && info.passthroughFlagsList.none { it.startsWith("-Xjdk-release") }) {
-        // Unless set explicitly, ensure the JDK API version corresponds to selected jvmTarget
-        args.flag("-Xjdk-release=${info.toolchainInfo.jvm.jvmTarget}")
-      } else {
-        args
-      }
-    }.flag("-module-name", info.moduleName)
-}
-
-internal fun JvmCompilationTask.plugins(
-  options: List<String>,
-  classpath: List<String>,
-): CompilationArgs =
-  CompilationArgs().apply {
-    classpath.forEach {
-      xFlag("plugin", it)
-    }
-
-    val optionTokens =
-      mapOf(
-        "{generatedClasses}" to directories.generatedClasses,
-        "{stubs}" to directories.stubs,
-        "{temp}" to directories.temp,
-        "{generatedSources}" to directories.generatedSources,
-        "{classpath}" to classpath.joinToString(File.pathSeparator),
-      )
-    options.forEach { opt ->
-      val formatted =
-        optionTokens.entries.fold(opt) { formatting, (token, value) ->
-          formatting.replace(token, value)
-        }
-      flag("-P", "plugin:$formatted")
-    }
-  }
-
-internal fun encodeMap(options: Map<String, String>): String {
-  val os = ByteArrayOutputStream()
-  val oos = ObjectOutputStream(os)
-
-  oos.writeInt(options.size)
-  for ((key, value) in options.entries) {
-    oos.writeUTF(key)
-    oos.writeUTF(value)
-  }
-
-  oos.flush()
-  return Base64
-    .getEncoder()
-    .encodeToString(os.toByteArray())
-}
-
-internal fun JvmCompilationTask.kaptArgs(
-  context: CompilationTaskContext,
-  plugins: InternalCompilerPlugins,
-  aptMode: String,
-): CompilationArgs {
-  // KAPT does not run javac's CLI argument parser and feeds options directly to javac.
-  // Javac reads option values via each option flag's canonical primaryName. That primaryName changed from
-  // "-source"/"-target" (JDK <= 11) to "--source"/"--target" (JDK >= 14).
-  // Pass both spelling variants, so that javac reads whichever is canonical on the running JDK and ignores the other.
-  val jvmTarget = info.toolchainInfo.jvm.jvmTarget
-  val javacArgs =
-    mapOf<String, String>(
-      "-target" to jvmTarget,
-      "--target" to jvmTarget,
-      "-source" to jvmTarget,
-      "--source" to jvmTarget,
-    )
-  return CompilationArgs().apply {
-    xFlag("plugin", plugins.kapt.jarPath)
-
-    val values =
-      arrayOf(
-        "sources" to listOf(directories.generatedJavaSources),
-        "classes" to listOf(directories.generatedClasses),
-        "stubs" to listOf(directories.stubs),
-        "incrementalData" to listOf(directories.incrementalData),
-        "javacArguments" to listOf(javacArgs.let(::encodeMap)),
-        "correctErrorTypes" to listOf("false"),
-        "verbose" to listOf(context.whenTracing { "true" } ?: "false"),
-        "apclasspath" to inputs.processorpathsList,
-        "aptMode" to listOf(aptMode),
-      )
-    val version =
-      info.toolchainInfo.common.apiVersion
-        .toFloat()
-
-    when {
-      version < 1.5 -> {
-        base64Encode(
-          "-P",
-          *values + ("processors" to inputs.processorsList).asKeyToCommaList(),
-        ) { enc -> "plugin:${plugins.kapt.id}:configuration=$enc" }
-      }
-
-      else -> {
-        repeatFlag(
-          "-P",
-          *values + ("processors" to inputs.processorsList),
-        ) { option, value ->
-          "plugin:${plugins.kapt.id}:$option=$value"
-        }
-      }
-    }
-    // Read kapt options from the plugin options
-    val optionPrefix = plugins.kapt.id + ":apoption="
-    val options =
-      (inputs.compilerPluginOptionsList + inputs.stubsPluginOptionsList)
-        .filter { o -> o.startsWith(optionPrefix) }
-        .map { o -> o.substring(optionPrefix.length).split(":", limit = 2) }
-        .map { kv -> kv[0] to listOf(kv[1]) }
-        .toTypedArray()
-
-    if (options.isNotEmpty()) {
-      base64Encode("-P", *options) { enc ->
-        "plugin:${plugins.kapt.id}:apoptions=$enc"
-      }
-    }
-  }
+    .flag("-module-name", info.moduleName)
 }
 
 internal fun JvmCompilationTask.runPlugins(
@@ -282,15 +160,7 @@ fun JvmCompilationTask.compileKotlin(
           options = inputs.compilerPluginOptionsList,
           classpath = inputs.compilerPluginClasspathList,
         )
-    ).let { compilationArgs ->
-      // Request '-verbose' execution for BTAPI compiler if tracing is enabled
-      val tracing = context.whenTracing { true } == true
-      if (info.buildToolsApi && tracing && "-verbose" !in compilationArgs.args) {
-        compilationArgs.flag("-verbose")
-      } else {
-        compilationArgs
-      }
-    }.list()
+    ).list()
       .let {
         context.whenTracing {
           context.printLines("compileKotlin arguments:\n", it)
@@ -323,10 +193,3 @@ fun JvmCompilationTask.compileKotlin(
       }
   }
 }
-
-/**
- * Helper function to convert a list of values into a single comma-separated string.
- * Used for KAPT plugin options in Kotlin versions < 1.5.
- */
-private fun Pair<String, List<String>>.asKeyToCommaList() =
-  first to listOf(second.joinToString(","))
