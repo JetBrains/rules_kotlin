@@ -74,6 +74,7 @@ def _strict_abi_test_impl(env, target):
     strict_abi_configured_toolchains = struct(
         kt = struct(
             experimental_remove_private_classes_in_abi_jars = True,
+            experimental_treat_internal_as_private_in_abi_jars = True,
             experimental_prune_transitive_deps = True,
             experimental_prune_transitive_deps_keep_transitive_repositories = [],
             experimental_strict_associate_dependencies = True,
@@ -109,6 +110,7 @@ def _fat_abi_test_impl(env, target):
     fat_abi_configured_toolchains = struct(
         kt = struct(
             experimental_remove_private_classes_in_abi_jars = False,
+            experimental_treat_internal_as_private_in_abi_jars = False,
             experimental_prune_transitive_deps = False,
             experimental_prune_transitive_deps_keep_transitive_repositories = [],
             experimental_strict_associate_dependencies = False,
@@ -159,6 +161,7 @@ def _transitive_from_exports_test_impl(env, target):
     strict_abi_configured_toolchains = struct(
         kt = struct(
             experimental_remove_private_classes_in_abi_jars = True,
+            experimental_treat_internal_as_private_in_abi_jars = True,
             experimental_prune_transitive_deps = True,
             experimental_prune_transitive_deps_keep_transitive_repositories = [],
             experimental_strict_associate_dependencies = True,
@@ -228,6 +231,7 @@ def _transitive_from_associates_test_impl(env, target):
     nothing_configured_toolchains = struct(
         kt = struct(
             experimental_remove_private_classes_in_abi_jars = False,
+            experimental_treat_internal_as_private_in_abi_jars = False,
             experimental_prune_transitive_deps = False,
             experimental_prune_transitive_deps_keep_transitive_repositories = [],
             experimental_strict_associate_dependencies = False,
@@ -280,8 +284,57 @@ def _abi_test(name, impl):
         },
     )
 
+def _remove_private_only_friends_test_impl(env, target):
+    # With private classes removed from abi jars but internals kept (treat_internal disabled),
+    # the friend set must stay the associate's compile-jar closure: internal symbols live in
+    # every abi jar, so members of the same module keep internal access to everything the
+    # module compiles against, exactly as if they were compiled together.
+    exported_dep_java_info = JavaInfo(
+        compile_jar = _file(env.ctx.attr.direct_dep_abi_jar),
+        output_jar = _file(env.ctx.attr.direct_dep_jar),
+    )
+    associate_java_info = JavaInfo(
+        compile_jar = _file(env.ctx.attr.associate_abi_jar),
+        output_jar = _file(env.ctx.attr.associate_jar),
+        exports = [exported_dep_java_info],
+    )
+    associate_deps = [{
+        JavaInfo: associate_java_info,
+        _KtJvmInfo: _KtJvmInfo(module_name = "associate_name"),
+    }]
+    fake_ctx = struct(label = target.label, attr = struct(module_name = "", tags = []))
+
+    remove_private_only_toolchains = struct(
+        kt = struct(
+            experimental_remove_private_classes_in_abi_jars = True,
+            experimental_treat_internal_as_private_in_abi_jars = False,
+            experimental_prune_transitive_deps = False,
+            experimental_prune_transitive_deps_keep_transitive_repositories = [],
+            experimental_strict_associate_dependencies = False,
+            jvm_stdlibs = JavaInfo(
+                compile_jar = _file(env.ctx.attr.jvm_jar),
+                output_jar = _file(env.ctx.attr.jvm_jar),
+            ),
+        ),
+    )
+
+    result = _jvm_deps_utils.jvm_deps(
+        ctx = fake_ctx,
+        toolchains = remove_private_only_toolchains,
+        associate_deps = associate_deps,
+        deps = [],
+    )
+
+    friends = env.expect.that_depset_of_files(result.associate_jars)
+    friends.contains(_file(env.ctx.attr.associate_abi_jar).short_path)
+    friends.contains(_file(env.ctx.attr.direct_dep_abi_jar).short_path)
+    friends.not_contains(_file(env.ctx.attr.associate_jar).short_path)
+
 def _strict_abi_test(name):
     _abi_test(name, _strict_abi_test_impl)
+
+def _remove_private_only_friends_test(name):
+    _abi_test(name, _remove_private_only_friends_test_impl)
 
 def _fat_abi_test(name):
     _abi_test(name, _fat_abi_test_impl)
@@ -340,6 +393,7 @@ def _dep_infos_ordering_test_impl(env, target):
     toolchains = struct(
         kt = struct(
             experimental_remove_private_classes_in_abi_jars = False,
+            experimental_treat_internal_as_private_in_abi_jars = False,
             experimental_prune_transitive_deps = False,
             experimental_prune_transitive_deps_keep_transitive_repositories = [],
             experimental_strict_associate_dependencies = False,
@@ -431,6 +485,7 @@ def _kept_transitive_repository_deduplication_test_impl(env, target):
     toolchains = struct(
         kt = struct(
             experimental_remove_private_classes_in_abi_jars = False,
+            experimental_treat_internal_as_private_in_abi_jars = False,
             experimental_prune_transitive_deps = True,
             experimental_prune_transitive_deps_keep_transitive_repositories = [shared_transitive_jar.owner.repo_name],
             experimental_strict_associate_dependencies = False,
@@ -543,6 +598,7 @@ def _pruned_java_deps_are_neverlink_test_impl(env, target):
     toolchains = struct(
         kt = struct(
             experimental_remove_private_classes_in_abi_jars = False,
+            experimental_treat_internal_as_private_in_abi_jars = False,
             experimental_prune_transitive_deps = True,
             experimental_prune_transitive_deps_keep_transitive_repositories = [],
             experimental_strict_associate_dependencies = False,
@@ -658,6 +714,7 @@ def jvm_deps_test_suite(name):
         name,
         tests = [
             _strict_abi_test,
+            _remove_private_only_friends_test,
             _fat_abi_test,
             _transitive_from_exports_test,
             _transitive_from_associates_test,

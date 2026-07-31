@@ -23,3 +23,13 @@ define_kt_toolchain(
     experimental_strict_kotlin_deps = "error",
     experimental_use_abi_jars = True,
 )
+
+# Only used by associates_tests, which pulls it in with --extra_toolchains.
+define_kt_toolchain(
+    name = "treat_internal_as_private_toolchain",
+    experimental_remove_private_classes_in_abi_jars = True,
+    experimental_report_unused_deps = "error",
+    experimental_strict_kotlin_deps = "error",
+    experimental_treat_internal_as_private_in_abi_jars = True,
+    experimental_use_abi_jars = True,
+)

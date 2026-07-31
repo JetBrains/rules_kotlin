@@ -30,18 +30,26 @@ def _collect_associates(ctx, toolchains, associate):
     them as a depset.
 
     There are three outcomes for this marco:
-    1. When `experimental_remove_private_classes_in_abi_jars` is enabled and the tag override has not been provided, only the
-        direct java_output CLASS jars will be collected for each associate target. Due to the stripping of internal and private
-        symbols from the compile jar, class jar is the only one that will contain the internal symbols an associate has access to.
+    1. When `experimental_treat_internal_as_private_in_abi_jars` is effective (together with
+        `experimental_remove_private_classes_in_abi_jars`, which it requires) and the tag overrides have not been
+        provided, only the direct java_output CLASS jars will be collected for each associate target. Internal symbols
+        are stripped from the compile jars in that configuration, so the class jar is the only one that contains the
+        internal symbols an associate has access to. With `experimental_remove_private_classes_in_abi_jars` alone,
+        internal symbols remain available in abi jars, so it is still possible to collect COMPILE jars
     2. When `experimental_strict_associate_dependencies` is enabled and the tag override has not been provided, only the
         direct java_output COMPILE jars will be collected for each associate target.
     3. When `experimental_strict_associate_dependencies` is disabled, the complete transitive set of compile jars will
         be collected for each assoicate target.
     """
+    internals_stripped_from_abi_jars = (
+        toolchains.kt.experimental_treat_internal_as_private_in_abi_jars and
+        "kt_treat_internal_as_private_in_abi_plugin_incompatible" not in ctx.attr.tags and
+        toolchains.kt.experimental_remove_private_classes_in_abi_jars and
+        "kt_remove_private_classes_in_abi_plugin_incompatible" not in ctx.attr.tags
+    )
     jars_depset = None
     abi_jars_set = _sets.make()
-    if (not "kt_remove_private_classes_in_abi_plugin_incompatible" in ctx.attr.tags and
-        toolchains.kt.experimental_remove_private_classes_in_abi_jars):
+    if internals_stripped_from_abi_jars:
         jars_depset = depset(direct = [a.class_jar for a in associate[JavaInfo].java_outputs])
         abi_jars_set = _sets.union(abi_jars_set, _sets.make([a.compile_jar for a in associate[JavaInfo].java_outputs]))
     elif (toolchains.kt.experimental_strict_associate_dependencies and
