@@ -177,12 +177,6 @@ _implicit_deps = {
         default = Label("//kotlin/compiler:kotlin-stdlib"),
         cfg = "target",
     ),
-    "_zipper": attr.label(
-        executable = True,
-        cfg = "exec",
-        default = Label("@bazel_tools//tools/zip:zipper"),
-        allow_files = True,
-    ),
 }
 
 _runnable_implicit_deps = utils.add_dicts(
