@@ -1070,6 +1070,15 @@ def _run_kt_java_builder_actions(
             else:
                 javac_opts.extend(_utils.javac_jvm_target_flags(jvm_target))
 
+        # Compile the Java half with the same warning mode as the kotlin part, unless the javac
+        # options (or a plugin's) already set one: a single `warn` value governs the whole target.
+        if "-nowarn" not in javac_opts and "-Werror" not in javac_opts:
+            kotlinc_warn = getattr(kotlinc_options, "warn", None) if kotlinc_options else None
+            if kotlinc_warn == "off":
+                javac_opts.append("-nowarn")
+            elif kotlinc_warn == "error":
+                javac_opts.append("-Werror")
+
         java_info = java_common.compile(
             ctx,
             source_files = srcs.java,
