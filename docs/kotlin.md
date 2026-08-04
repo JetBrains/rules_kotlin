@@ -9,8 +9,8 @@
 <pre>
 load("@rules_kotlin//kotlin:jvm.bzl", "kt_javac_options")
 
-kt_javac_options(<a href="#kt_javac_options-name">name</a>, <a href="#kt_javac_options-add_exports">add_exports</a>, <a href="#kt_javac_options-release">release</a>, <a href="#kt_javac_options-warn">warn</a>, <a href="#kt_javac_options-x_ep_disable_all_checks">x_ep_disable_all_checks</a>, <a href="#kt_javac_options-x_explicit_api_mode">x_explicit_api_mode</a>,
-                 <a href="#kt_javac_options-x_lint">x_lint</a>, <a href="#kt_javac_options-xd_suppress_notes">xd_suppress_notes</a>)
+kt_javac_options(<a href="#kt_javac_options-name">name</a>, <a href="#kt_javac_options-add_exports">add_exports</a>, <a href="#kt_javac_options-no_proc">no_proc</a>, <a href="#kt_javac_options-release">release</a>, <a href="#kt_javac_options-warn">warn</a>, <a href="#kt_javac_options-x_ep_disable_all_checks">x_ep_disable_all_checks</a>,
+                 <a href="#kt_javac_options-x_explicit_api_mode">x_explicit_api_mode</a>, <a href="#kt_javac_options-x_lint">x_lint</a>, <a href="#kt_javac_options-xd_suppress_notes">xd_suppress_notes</a>)
 </pre>
 
 Define java compiler options for `kt_jvm_*` rules with java sources.
@@ -22,6 +22,7 @@ Define java compiler options for `kt_jvm_*` rules with java sources.
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="kt_javac_options-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
 | <a id="kt_javac_options-add_exports"></a>add_exports |  Export internal jdk apis   | List of strings | optional |  `[]`  |
+| <a id="kt_javac_options-no_proc"></a>no_proc |  Disable java annotation processing (javac -proc:none). The Java half of a target with Kotlin sources is always compiled with -proc:none (Kotlin owns annotation processing there); this option extends that to Java-only kt_jvm_* targets.   | Boolean | optional |  `False`  |
 | <a id="kt_javac_options-release"></a>release |  Compile for the specified Java SE release   | String | optional |  `"default"`  |
 | <a id="kt_javac_options-warn"></a>warn |  Control warning behaviour.   | String | optional |  `"report"`  |
 | <a id="kt_javac_options-x_ep_disable_all_checks"></a>x_ep_disable_all_checks |  See javac -XepDisableAllChecks documentation   | Boolean | optional |  `False`  |
@@ -357,8 +358,8 @@ kt_jvm_library(
 <pre>
 load("@rules_kotlin//kotlin:core.bzl", "kt_javac_options")
 
-kt_javac_options(<a href="#kt_javac_options-name">name</a>, <a href="#kt_javac_options-add_exports">add_exports</a>, <a href="#kt_javac_options-release">release</a>, <a href="#kt_javac_options-warn">warn</a>, <a href="#kt_javac_options-x_ep_disable_all_checks">x_ep_disable_all_checks</a>, <a href="#kt_javac_options-x_explicit_api_mode">x_explicit_api_mode</a>,
-                 <a href="#kt_javac_options-x_lint">x_lint</a>, <a href="#kt_javac_options-xd_suppress_notes">xd_suppress_notes</a>)
+kt_javac_options(<a href="#kt_javac_options-name">name</a>, <a href="#kt_javac_options-add_exports">add_exports</a>, <a href="#kt_javac_options-no_proc">no_proc</a>, <a href="#kt_javac_options-release">release</a>, <a href="#kt_javac_options-warn">warn</a>, <a href="#kt_javac_options-x_ep_disable_all_checks">x_ep_disable_all_checks</a>,
+                 <a href="#kt_javac_options-x_explicit_api_mode">x_explicit_api_mode</a>, <a href="#kt_javac_options-x_lint">x_lint</a>, <a href="#kt_javac_options-xd_suppress_notes">xd_suppress_notes</a>)
 </pre>
 
 Define java compiler options for `kt_jvm_*` rules with java sources.
@@ -370,6 +371,7 @@ Define java compiler options for `kt_jvm_*` rules with java sources.
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="kt_javac_options-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
 | <a id="kt_javac_options-add_exports"></a>add_exports |  Export internal jdk apis   | List of strings | optional |  `[]`  |
+| <a id="kt_javac_options-no_proc"></a>no_proc |  Disable java annotation processing (javac -proc:none). The Java half of a target with Kotlin sources is always compiled with -proc:none (Kotlin owns annotation processing there); this option extends that to Java-only kt_jvm_* targets.   | Boolean | optional |  `False`  |
 | <a id="kt_javac_options-release"></a>release |  Compile for the specified Java SE release   | String | optional |  `"default"`  |
 | <a id="kt_javac_options-warn"></a>warn |  Control warning behaviour.   | String | optional |  `"report"`  |
 | <a id="kt_javac_options-x_ep_disable_all_checks"></a>x_ep_disable_all_checks |  See javac -XepDisableAllChecks documentation   | Boolean | optional |  `False`  |

@@ -35,6 +35,16 @@ _JOPTS = {
             derive.info: derive.format_key_value_for("-A", "{name}{key}={value}"),
         },
     ),
+    "no_proc": struct(
+        args = dict(
+            default = False,
+            doc = "Disable java annotation processing (javac -proc:none). The Java half of a target with Kotlin sources is always compiled with -proc:none (Kotlin owns annotation processing there); this option extends that to Java-only kt_jvm_* targets.",
+        ),
+        type = attr.bool,
+        value_to_flag = {
+            True: ["-proc:none"],
+        },
+    ),
     "release": struct(
         args = dict(
             default = "default",
