@@ -1059,6 +1059,10 @@ def _run_kt_java_builder_actions(
         if len(srcs.kt) > 0:
             javac_opts.append("-proc:none")
 
+        # The Kotlin compiler reads .kt sources as hard-coded UTF-8
+        # Compile java half of a mixed target accordingly.
+        javac_opts.extend(["-encoding", "UTF-8"])
+
         # Compile the Java half for the same effective jvm_target, the kotlin part is compiled for.
         kotlinc_options = ctx.attr.kotlinc_opts[KotlincOptions] if ctx.attr.kotlinc_opts else toolchains.kt.kotlinc_options
         jvm_target = kotlinc_options.jvm_target if (kotlinc_options and kotlinc_options.jvm_target) else toolchains.kt.jvm_target
