@@ -286,8 +286,11 @@ def _fold_jars_action(ctx, rule_kind, toolchains, output_jar, input_jars, action
         toolchain = _TOOLCHAIN_TYPE,
     )
 
-def _resourcejar_args_action(ctx, extra_resources = {}):
-    res_cmd = []
+def _resourcejar_resource_specs(ctx, extra_resources = {}):
+    """Build the list of `<fs_path>:<jar_entry>` resource descriptors that
+    singlejar's `--resources` flag accepts.
+    """
+    res_specs = []
 
     # Get the strip prefix from the File object if provided
     strip_prefix = None
@@ -323,44 +326,56 @@ def _resourcejar_args_action(ctx, extra_resources = {}):
         target_path = _adjust_resources_path(resource_path, strip_prefix)
         if target_path[0] == "/":
             target_path = target_path[1:]
-        line = "{target_path}={f_path}\n".format(
+
+        # singlejar resource descriptor: <fs_path>:<jar_entry_path>
+        res_specs.append("{f_path}:{target_path}".format(
             target_path = target_path,
             f_path = f.path,
-        )
-        res_cmd.extend([line])
+        ))
 
     for key, value in extra_resources.items():
         target_path = _adjust_resources_path(value.short_path, ctx.label.package)
         if target_path[0] == "/":
             target_path = target_path[1:]
-        line = "{target_path}={res_path}\n".format(
+        res_specs.append("{res_path}:{target_path}".format(
             res_path = value.path,
             target_path = key,
-        )
-        res_cmd.extend([line])
+        ))
 
-    zipper_args_file = ctx.actions.declare_file("%s_resources_zipper_args" % ctx.label.name)
-    ctx.actions.write(zipper_args_file, "".join(res_cmd))
-    return zipper_args_file
+    return res_specs
 
-def _build_resourcejar_action(ctx, extra_resources = {}):
-    """sets up an action to build a resource jar for the target being compiled.
+def _build_resourcejar_action(ctx, toolchains, extra_resources = {}):
+    """Sets up an action to build a resource jar for the target being compiled.
     Returns:
         The file resource jar file.
     """
     resources_jar_output = ctx.actions.declare_file(ctx.label.name + "-resources.jar")
-    zipper_args = _resourcejar_args_action(ctx, extra_resources)
+    res_specs = _resourcejar_resource_specs(ctx, extra_resources)
+
+    args = ctx.actions.args()
+    args.add_all([
+        "--normalize",
+        "--compression",
+        "--exclude_build_data",
+        "--add_missing_directories",
+    ])
+    args.add("--output", resources_jar_output)
+
+    args.add("--resources")
+    args.add_all(res_specs)
+    args.use_param_file("@%s", use_always = True)
+
+    # use `shell` format to quote args containing whitespace
+    args.set_param_file_format("shell")
+
     ctx.actions.run(
-        mnemonic = "KotlinZipResourceJar",
-        executable = ctx.executable._zipper,
-        inputs = ctx.files.resources + extra_resources.values() + [zipper_args],
+        mnemonic = "KotlinResourceJar",
+        executable = toolchains.java.single_jar,
+        inputs = ctx.files.resources + extra_resources.values(),
         outputs = [resources_jar_output],
-        arguments = [
-            "c",
-            resources_jar_output.path,
-            "@" + zipper_args.path,
-        ],
+        arguments = [args],
         progress_message = "Creating intermediate resource jar %{label}",
+        toolchain = _TOOLCHAIN_TYPE,
     )
     return resources_jar_output
 
@@ -836,9 +851,9 @@ def _kt_jvm_produce_output_jar_actions(
     generated_src_jars = outputs_struct.generated_src_jars
     annotation_processing = outputs_struct.annotation_processing
 
-    # If this rule has any resources declared setup a zipper action to turn them into a jar.
+    # If this rule has any resources declared setup a singlejar action to turn them into a jar.
     if len(ctx.files.resources) + len(extra_resources) > 0:
-        output_jars.append(_build_resourcejar_action(ctx, extra_resources))
+        output_jars.append(_build_resourcejar_action(ctx, toolchains, extra_resources))
     output_jars.extend(ctx.files.resource_jars)
 
     # Merge outputs into final runtime jar.
