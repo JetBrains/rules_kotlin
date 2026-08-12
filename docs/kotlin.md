@@ -444,7 +444,7 @@ Define kotlin compiler options.
 | <a id="kt_kotlinc_options-x_render_internal_diagnostic_names"></a>x_render_internal_diagnostic_names |  Render the internal names of warnings and errors.   | Boolean | optional |  `False`  |
 | <a id="kt_kotlinc_options-x_report_all_warnings"></a>x_report_all_warnings |  Report all warnings even if errors are found.   | Boolean | optional |  `False`  |
 | <a id="kt_kotlinc_options-x_report_perf"></a>x_report_perf |  Report detailed performance statistics   | Boolean | optional |  `False`  |
-| <a id="kt_kotlinc_options-x_sam_conversions"></a>x_sam_conversions |  Change codegen behavior of SAM/functional interfaces. Defaults to "class" (anonymous inner classes), which differs from Kotlin 2.x/Gradle default of "indy" (invokedynamic). Set to "indy" for Gradle-compatible bytecode.   | String | optional |  `"class"`  |
+| <a id="kt_kotlinc_options-x_sam_conversions"></a>x_sam_conversions |  Change codegen behavior of SAM/functional interfaces. Defaults to "indy" (invokedynamic via LambdaMetafactory), matching Kotlin compiler's own default since 1.5. Set to "class" for legacy anonymous-class codegen.   | String | optional |  `"indy"`  |
 | <a id="kt_kotlinc_options-x_skip_prerelease_check"></a>x_skip_prerelease_check |  Suppress errors thrown when using pre-release classes.   | Boolean | optional |  `False`  |
 | <a id="kt_kotlinc_options-x_suppress_version_warnings"></a>x_suppress_version_warnings |  Suppress warnings about outdated, inconsistent, or experimental language or API versions.   | Boolean | optional |  `False`  |
 | <a id="kt_kotlinc_options-x_suppress_warning"></a>x_suppress_warning |  Suppress specific warnings globally   | List of strings | optional |  `[]`  |

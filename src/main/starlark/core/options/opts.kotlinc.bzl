@@ -548,8 +548,8 @@ Migration to jvm_default:
     "x_sam_conversions": struct(
         flag = "-Xsam-conversions",
         args = dict(
-            default = "class",
-            doc = """Change codegen behavior of SAM/functional interfaces. Defaults to "class" (anonymous inner classes), which differs from Kotlin 2.x/Gradle default of "indy" (invokedynamic). Set to "indy" for Gradle-compatible bytecode.""",
+            default = "indy",
+            doc = """Change codegen behavior of SAM/functional interfaces. Defaults to "indy" (invokedynamic via LambdaMetafactory), matching Kotlin compiler's own default since 1.5. Set to "class" for legacy anonymous-class codegen.""",
             values = ["class", "indy"],
         ),
         type = attr.string,
