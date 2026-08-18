@@ -72,7 +72,30 @@ def _map_jdk_release_to_flag(version):
         return None
     return ["-Xjdk-release=%s" % version]
 
+def _map_api_version_to_flag(version):
+    if not version:
+        return None
+    return ["-api-version=%s" % version]
+
+def _map_language_version_to_flag(version):
+    if not version:
+        return None
+    return ["-language-version=%s" % version]
+
+def _map_xxlanguage_to_flag(values):
+    return ["-XXLanguage:%s" % v for v in values]
+
 _KOPTS_ALL = {
+    "api_version": struct(
+        flag = "-api-version",
+        args = dict(
+            default = "",
+            doc = "Allow using declarations from only the specified version of bundled libraries. Overrides the toolchain's api_version when set.",
+        ),
+        type = attr.string,
+        value_to_flag = None,
+        map_value_to_flag = _map_api_version_to_flag,
+    ),
     "include_stdlibs": struct(
         args = dict(
             default = "all",
@@ -127,6 +150,27 @@ Options:
         value_to_flag = None,
         map_value_to_flag = _map_jvm_target_to_flag,
     ),
+    "language_version": struct(
+        flag = "-language-version",
+        args = dict(
+            default = "",
+            doc = "Provide source compatibility with the specified version of Kotlin. Overrides the toolchain's language_version when set.",
+        ),
+        type = attr.string,
+        value_to_flag = None,
+        map_value_to_flag = _map_language_version_to_flag,
+    ),
+    "progressive": struct(
+        flag = "-progressive",
+        args = dict(
+            default = False,
+            doc = "Enable progressive compiler mode. In this mode, deprecations and bug fixes for unstable code take effect immediately instead of going through a graceful migration cycle.",
+        ),
+        type = attr.bool,
+        value_to_flag = {
+            True: ["-progressive"],
+        },
+    ),
     "warn": struct(
         args = dict(
             default = "report",
@@ -140,6 +184,17 @@ Options:
             "report": None,
         },
     ),
+    "x_allow_kotlin_package": struct(
+        flag = "-Xallow-kotlin-package",
+        args = dict(
+            default = False,
+            doc = "Allow compiling code in the 'kotlin' package, and allow not requiring 'kotlin.stdlib' in 'module-info'.",
+        ),
+        type = attr.bool,
+        value_to_flag = {
+            True: ["-Xallow-kotlin-package"],
+        },
+    ),
     "x_allow_result_return_type": struct(
         flag = "-Xallow-result-return-type",
         args = dict(
@@ -149,6 +204,17 @@ Options:
         type = attr.bool,
         value_to_flag = {
             True: ["-Xallow-result-return-type"],
+        },
+    ),
+    "x_allow_unstable_dependencies": struct(
+        flag = "-Xallow-unstable-dependencies",
+        args = dict(
+            default = False,
+            doc = "Do not report errors on classes in dependencies that were compiled by an unstable version of the Kotlin compiler.",
+        ),
+        type = attr.bool,
+        value_to_flag = {
+            True: ["-Xallow-unstable-dependencies"],
         },
     ),
     "x_annotation_default_target": struct(
@@ -446,6 +512,28 @@ Migration to jvm_default:
         value_to_flag = None,
         map_value_to_flag = _map_optin_class_to_flag,
     ),
+    "x_render_internal_diagnostic_names": struct(
+        flag = "-Xrender-internal-diagnostic-names",
+        args = dict(
+            default = False,
+            doc = "Render the internal names of warnings and errors.",
+        ),
+        type = attr.bool,
+        value_to_flag = {
+            True: ["-Xrender-internal-diagnostic-names"],
+        },
+    ),
+    "x_report_all_warnings": struct(
+        flag = "-Xreport-all-warnings",
+        args = dict(
+            default = False,
+            doc = "Report all warnings even if errors are found.",
+        ),
+        type = attr.bool,
+        value_to_flag = {
+            True: ["-Xreport-all-warnings"],
+        },
+    ),
     "x_report_perf": struct(
         flag = "-Xreport-perf",
         args = dict(
@@ -554,6 +642,27 @@ Migration to jvm_default:
         type = attr.string_dict,
         value_to_flag = None,
         map_value_to_flag = _map_warning_level,
+    ),
+    "x_when_guards": struct(
+        flag = "-Xwhen-guards",
+        args = dict(
+            default = False,
+            doc = "Enable experimental language support for when guards.",
+        ),
+        type = attr.bool,
+        value_to_flag = {
+            True: ["-Xwhen-guards"],
+        },
+    ),
+    "x_xlanguage": struct(
+        flag = "-XXLanguage",
+        args = dict(
+            default = [],
+            doc = "Enable or disable the specified language feature. Not intended for production use; prefer language_version or the dedicated feature flags.",
+        ),
+        type = attr.string_list,
+        value_to_flag = None,
+        map_value_to_flag = _map_xxlanguage_to_flag,
     ),
 }
 
