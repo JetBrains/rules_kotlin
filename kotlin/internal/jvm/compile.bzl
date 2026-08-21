@@ -1061,7 +1061,8 @@ def _run_kt_java_builder_actions(
     # the final ABI jar. Otherwise just use the KT ABI jar as final ABI jar.
     ksp_generated_java_src_jars = generated_ksp_src_jars and is_ksp_processor_generating_java(ctx.attr.plugins)
     if srcs.java or generated_kapt_src_jars or srcs.src_jars or ksp_generated_java_src_jars:
-        javac_opts = javac_options_to_flags(ctx.attr.javac_opts[JavacOptions] if ctx.attr.javac_opts else toolchains.kt.javac_options)
+        javac_options = ctx.attr.javac_opts[JavacOptions] if ctx.attr.javac_opts else toolchains.kt.javac_options
+        javac_opts = javac_options_to_flags(javac_options)
         javac_opts.extend([
             flag
             for plugin in ctx.attr.plugins
@@ -1071,7 +1072,7 @@ def _run_kt_java_builder_actions(
 
         # Kotlin takes care of annotation processing. Note that JavaBuilder "discovers"
         # annotation processors in `deps` also.
-        if len(srcs.kt) > 0:
+        if len(srcs.kt) > 0 and not javac_options.no_proc:
             javac_opts.append("-proc:none")
 
         # The Kotlin compiler reads .kt sources as hard-coded UTF-8
