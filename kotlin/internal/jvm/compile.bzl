@@ -379,7 +379,7 @@ def _build_resourcejar_action(ctx, toolchains, extra_resources = {}):
     )
     return resources_jar_output
 
-def _run_merge_jdeps_action(ctx, toolchains, jdeps, outputs, deps, associate_jars = depset()):
+def _run_merge_jdeps_action(ctx, toolchains, jdeps, outputs, deps, classpath_jars, associate_jars = depset()):
     """Creates a Jdeps merger action invocation."""
     args = ctx.actions.args()
     args.set_param_file_format("multiline")
@@ -401,13 +401,15 @@ def _run_merge_jdeps_action(ctx, toolchains, jdeps, outputs, deps, associate_jar
 
     inputs = depset(jdeps)
     if not toolchains.kt.experimental_report_unused_deps == "off":
-        # For sandboxing to work, and for this action to be deterministic, the compile jars need to be passed as inputs.
-        # The associate jars are included as well because the merger reads the owning label out of the manifest of every
-        # jar mentioned in the jdeps, and the jar the associate contributed to the classpath is not necessarily its
-        # compile jar, see associates.bzl.
+        # For sandboxing to work, and for this action to be deterministic, the jars named in the merged jdeps need to
+        # be passed as inputs. They can come from either the compile classpath or the direct dependency list.
         inputs = depset(
             jdeps,
-            transitive = [dep.transitive_compile_time_jars for dep in deps] + [associate_jars],
+            transitive = [
+                classpath_jars,
+                _java_infos_to_compile_jars(deps),
+                associate_jars,
+            ],
         )
 
     ctx.actions.run(
@@ -1147,6 +1149,7 @@ def _run_kt_java_builder_actions(
                 deps = compile_deps.deps,
                 associate_jars = compile_deps.associate_jars,
                 outputs = {"output": output_jdeps},
+                classpath_jars = compile_deps.compile_jars,
             )
         else:
             ctx.actions.symlink(
