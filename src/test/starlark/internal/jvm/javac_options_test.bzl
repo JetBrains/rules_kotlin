@@ -86,31 +86,48 @@ def _release_flag_reaches_javac_test_impl(ctx):
     # The Javac action tokenizes each flag into individual argv entries, so "--release 25"
     # reaches the action as ["--release", "25"].
     argv = _javac_action(env).argv
-    asserts.true(
-        env,
-        "--release" in argv,
-        msg = "kt_javac_options(release = \"25\") should reach the Javac action as --release 25",
-    )
-    asserts.equals(
-        env,
-        expected = "25",
-        actual = argv[argv.index("--release") + 1],
-    )
-    release_index = argv.index("--release")
-    target_flag_indices = [
+    release_indices = [
         i
         for i, arg in enumerate(argv)
-        if arg in ["-source", "-target"]
+        if arg == "--release"
     ]
     asserts.true(
         env,
-        release_index > max(target_flag_indices),
-        msg = "--release 25 must follow generated -source/-target flags so JavaBuilder keeps it",
+        len(release_indices) > 0,
+        msg = "kt_javac_options(release = \"25\") should reach the Javac action as --release 25",
     )
+    if release_indices:
+        # JavaBuilder gives later --release/-source/-target flags precedence -- the contract
+        # the flag assembly relies on -- so assert on the effective (last) release. Depending
+        # on the toolchain configuration, earlier flags derived from the Kotlin jvm target may
+        # be -source/-target or another --release.
+        last_release_index = release_indices[-1]
+        asserts.equals(
+            env,
+            expected = "25",
+            actual = argv[last_release_index + 1],
+        )
+        target_flag_indices = [
+            i
+            for i, arg in enumerate(argv)
+            if arg in ["-source", "-target"]
+        ]
+        asserts.true(
+            env,
+            last_release_index > max(target_flag_indices + [-1]),
+            msg = "--release 25 must follow -source/-target flags so JavaBuilder keeps it",
+        )
 
     return analysistest.end(env)
 
 _release_flag_reaches_javac_test = analysistest.make(_release_flag_reaches_javac_test_impl)
+
+_release_flag_reaches_javac_bta_test = analysistest.make(
+    _release_flag_reaches_javac_test_impl,
+    config_settings = {
+        str(Label("//kotlin/settings:experimental_build_tools_api")): True,
+    },
+)
 
 def _javac_options_contents():
     write_file(
@@ -203,6 +220,11 @@ def _javac_options_contents():
         target_under_test = ":javac_release_25_library",
     )
 
+    _release_flag_reaches_javac_bta_test(
+        name = "release_25_reaches_the_javac_action_bta_test",
+        target_under_test = ":javac_release_25_library",
+    )
+
 def javac_options_test_suite(name):
     _javac_options_contents()
 
@@ -214,5 +236,6 @@ def javac_options_test_suite(name):
             ":mixed_target_no_proc_test",
             ":mixed_target_explicit_no_proc_test",
             ":release_25_reaches_the_javac_action_test",
+            ":release_25_reaches_the_javac_action_bta_test",
         ],
     )
