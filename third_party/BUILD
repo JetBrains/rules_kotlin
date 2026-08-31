@@ -65,6 +65,8 @@ java_library(
 
 java_binary(
     name = "jarjar_runner",
+    # Fail on a class that jarjar cannot read or that is misplaced.
+    jvm_flags = ["-DmisplacedClassStrategy=fatal"],
     main_class = "com.eed3si9n.jarjar.Main",
     visibility = ["//visibility:public"],
     runtime_deps = ["@kotlin_rules_maven//:com_eed3si9n_jarjarabrams_jarjar_abrams_assembly_2_13"],
