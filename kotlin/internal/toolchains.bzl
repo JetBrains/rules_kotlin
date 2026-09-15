@@ -52,13 +52,19 @@ def _kotlin_toolchain_impl(ctx):
     # Create neverlink JavaInfo providers using actual compile_jars (header jars) from stdlib targets.
     # Previously, this used ctx.files.jvm_stdlibs which returns DefaultInfo.files (processed jars),
     # but we need the proper compile_jars (header jars) from the JavaInfo for correct compilation.
+    # The source jar of each output is kept, so it reaches the consumers of the compiled targets
+    # through JavaInfo.
     compile_time_providers = []
     for target in ctx.attr.jvm_stdlibs:
         if JavaInfo in target:
             for java_output in target[JavaInfo].java_outputs:
+                source_jars = java_output.source_jars.to_list()
+                if len(source_jars) > 1:
+                    fail("%s: a toolchain stdlib target has at most one source jar per output, got %s" % (target.label, source_jars))
                 compile_time_providers.append(JavaInfo(
                     output_jar = java_output.class_jar,
                     compile_jar = java_output.compile_jar if java_output.compile_jar else java_output.class_jar,
+                    source_jar = source_jars[0] if source_jars else None,
                     neverlink = True,
                 ))
 
