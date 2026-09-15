@@ -48,6 +48,18 @@ _javac_warn_wins_test = _make_warn_flags_test(["-Werror"], ["-nowarn"])
 # Without options on either side (toolchain defaults are "report") no warn flag is emitted.
 _no_warn_flags_by_default_test = _make_warn_flags_test([], ["-nowarn", "-Werror"])
 
+# A per-diagnostic level limits the derivation. javac has no `-Xwarning-level`, so a Kotlin
+# diagnostic kept at `warning` under `warn = "error"` blocks `-Werror` for the Java half, and a
+# diagnostic raised to `warning` under `warn = "off"` blocks `-nowarn`.
+_warn_error_with_kept_level_test = _make_warn_flags_test([], ["-nowarn", "-Werror"])
+_warn_off_with_raised_level_test = _make_warn_flags_test([], ["-nowarn", "-Werror"])
+
+# A level that only raises a diagnostic to `error` keeps the `-Werror` derivation.
+_warn_error_with_raised_level_test = _make_warn_flags_test(["-Werror"], ["-nowarn"])
+
+# An explicit javac-side warn still wins over a limited derivation.
+_javac_warn_wins_over_level_test = _make_warn_flags_test(["-Werror"], ["-nowarn"])
+
 def _javac_warn_contents():
     write_file(
         name = "javac_warn_java_source",
@@ -66,6 +78,27 @@ def _javac_warn_contents():
         name = "warn_off_kotlinc_options",
         tags = ["manual"],
         warn = "off",
+    )
+
+    kt_kotlinc_options(
+        name = "warn_error_kept_level_kotlinc_options",
+        tags = ["manual"],
+        warn = "error",
+        x_warning_level = {"DEPRECATION": "warning"},
+    )
+
+    kt_kotlinc_options(
+        name = "warn_error_raised_level_kotlinc_options",
+        tags = ["manual"],
+        warn = "error",
+        x_warning_level = {"UNUSED_VARIABLE": "error"},
+    )
+
+    kt_kotlinc_options(
+        name = "warn_off_raised_level_kotlinc_options",
+        tags = ["manual"],
+        warn = "off",
+        x_warning_level = {"DEPRECATION": "warning"},
     )
 
     kt_javac_options(
@@ -102,6 +135,35 @@ def _javac_warn_contents():
         tags = ["manual"],
     )
 
+    kt_jvm_library(
+        name = "javac_warn_error_kept_level_library",
+        srcs = ["javac_warn_java_source"],
+        kotlinc_opts = ":warn_error_kept_level_kotlinc_options",
+        tags = ["manual"],
+    )
+
+    kt_jvm_library(
+        name = "javac_warn_error_raised_level_library",
+        srcs = ["javac_warn_java_source"],
+        kotlinc_opts = ":warn_error_raised_level_kotlinc_options",
+        tags = ["manual"],
+    )
+
+    kt_jvm_library(
+        name = "javac_warn_off_raised_level_library",
+        srcs = ["javac_warn_java_source"],
+        kotlinc_opts = ":warn_off_raised_level_kotlinc_options",
+        tags = ["manual"],
+    )
+
+    kt_jvm_library(
+        name = "javac_warn_wins_over_level_library",
+        srcs = ["javac_warn_java_source"],
+        javac_opts = ":warn_error_javac_options",
+        kotlinc_opts = ":warn_error_kept_level_kotlinc_options",
+        tags = ["manual"],
+    )
+
     _warn_derived_from_kotlinc_error_test(
         name = "warn_derived_from_kotlinc_error_test",
         target_under_test = ":javac_warn_error_derived_library",
@@ -122,6 +184,26 @@ def _javac_warn_contents():
         target_under_test = ":javac_warn_default_library",
     )
 
+    _warn_error_with_kept_level_test(
+        name = "warn_error_with_kept_level_test",
+        target_under_test = ":javac_warn_error_kept_level_library",
+    )
+
+    _warn_error_with_raised_level_test(
+        name = "warn_error_with_raised_level_test",
+        target_under_test = ":javac_warn_error_raised_level_library",
+    )
+
+    _warn_off_with_raised_level_test(
+        name = "warn_off_with_raised_level_test",
+        target_under_test = ":javac_warn_off_raised_level_library",
+    )
+
+    _javac_warn_wins_over_level_test(
+        name = "javac_warn_wins_over_level_test",
+        target_under_test = ":javac_warn_wins_over_level_library",
+    )
+
 def javac_warn_test_suite(name):
     _javac_warn_contents()
 
@@ -132,5 +214,9 @@ def javac_warn_test_suite(name):
             ":warn_derived_from_kotlinc_off_test",
             ":javac_warn_wins_test",
             ":no_warn_flags_by_default_test",
+            ":warn_error_with_kept_level_test",
+            ":warn_error_with_raised_level_test",
+            ":warn_off_with_raised_level_test",
+            ":javac_warn_wins_over_level_test",
         ],
     )

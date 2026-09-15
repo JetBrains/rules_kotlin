@@ -1135,11 +1135,17 @@ def _run_kt_java_builder_actions(
 
         # Compile the Java half with the same warning mode as the kotlin part, unless the javac
         # options (or a plugin's) already set one: a single `warn` value governs the whole target.
+        # A per-diagnostic level in `x_warning_level` limits the derivation, because javac has no
+        # equivalent of `-Xwarning-level`. A diagnostic kept at `warning` or `disabled` under
+        # `warn = "error"` must not turn every javac warning into an error, and a diagnostic raised
+        # to `warning` or `error` under `warn = "off"` must not silence every javac warning.
         if "-nowarn" not in javac_opts and "-Werror" not in javac_opts:
             kotlinc_warn = getattr(kotlinc_options, "warn", None) if kotlinc_options else None
-            if kotlinc_warn == "off":
+            warning_levels = (getattr(kotlinc_options, "x_warning_level", None) if kotlinc_options else None) or {}
+            levels = warning_levels.values()
+            if kotlinc_warn == "off" and "error" not in levels and "warning" not in levels:
                 javac_opts.append("-nowarn")
-            elif kotlinc_warn == "error":
+            elif kotlinc_warn == "error" and "warning" not in levels and "disabled" not in levels:
                 javac_opts.append("-Werror")
 
         java_info = java_common.compile(
