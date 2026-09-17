@@ -7,6 +7,7 @@ load("//src/test/starlark:truth.bzl", "flags_and_values_of")
 
 _TOOLCHAIN_FILE_FIELDS = (
     ("btapi_build_tools_impl", "btapi_build_tools_impl_basename"),
+    ("btapi_kotlin_tooling_core", "btapi_kotlin_tooling_core_basename"),
     ("btapi_kotlin_compiler_embeddable", "btapi_kotlin_compiler_embeddable_basename"),
     ("btapi_kotlin_daemon_client", "btapi_kotlin_daemon_client_basename"),
     ("btapi_kotlin_stdlib", "btapi_kotlin_stdlib_basename"),
@@ -21,6 +22,7 @@ _TOOLCHAIN_FILE_FIELDS = (
 
 _REQUIRED_COMPILE_FLAGS = [
     "--btapi_build_tools_impl",
+    "--btapi_kotlin_tooling_core",
     "--btapi_kotlin_compiler_embeddable",
     "--btapi_kotlin_daemon_client",
     "--btapi_kotlin_stdlib",
@@ -65,6 +67,7 @@ def _toolchain_override_wiring_test(name):
     toolchain_name = name + "_toolchain"
 
     btapi_build_tools_impl_basename = name + "_btapi_build_tools_impl.jar"
+    btapi_kotlin_tooling_core_basename = name + "_btapi_kotlin_tooling_core.jar"
     btapi_kotlin_compiler_embeddable_basename = name + "_btapi_kotlin_compiler_embeddable.jar"
     btapi_kotlin_daemon_client_basename = name + "_btapi_kotlin_daemon_client.jar"
     btapi_kotlin_stdlib_basename = name + "_btapi_kotlin_stdlib.jar"
@@ -79,6 +82,7 @@ def _toolchain_override_wiring_test(name):
     define_kt_toolchain(
         name = toolchain_name,
         btapi_build_tools_impl = util.empty_file(btapi_build_tools_impl_basename),
+        btapi_kotlin_tooling_core = util.empty_file(btapi_kotlin_tooling_core_basename),
         btapi_kotlin_compiler_embeddable = util.empty_file(btapi_kotlin_compiler_embeddable_basename),
         btapi_kotlin_daemon_client = util.empty_file(btapi_kotlin_daemon_client_basename),
         btapi_kotlin_stdlib = util.empty_file(btapi_kotlin_stdlib_basename),
@@ -103,6 +107,7 @@ def _toolchain_override_wiring_test(name):
             "btapi_kotlin_daemon_client_basename": btapi_kotlin_daemon_client_basename,
             "btapi_kotlin_reflect_basename": btapi_kotlin_reflect_basename,
             "btapi_kotlin_stdlib_basename": btapi_kotlin_stdlib_basename,
+            "btapi_kotlin_tooling_core_basename": btapi_kotlin_tooling_core_basename,
             "internal_jdeps_gen_basename": internal_jdeps_gen_basename,
             "internal_jvm_abi_gen_basename": internal_jvm_abi_gen_basename,
             "internal_kapt_basename": internal_kapt_basename,
@@ -116,6 +121,7 @@ def _toolchain_override_wiring_test(name):
             "btapi_kotlin_daemon_client_basename": attr.string(),
             "btapi_kotlin_reflect_basename": attr.string(),
             "btapi_kotlin_stdlib_basename": attr.string(),
+            "btapi_kotlin_tooling_core_basename": attr.string(),
             "internal_jdeps_gen_basename": attr.string(),
             "internal_jvm_abi_gen_basename": attr.string(),
             "internal_kapt_basename": attr.string(),

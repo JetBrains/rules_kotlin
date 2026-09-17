@@ -87,6 +87,7 @@ def _kotlin_toolchain_impl(ctx):
         ksp2_invoker = ctx.attr.ksp2_invoker,
         snapshot_worker = ctx.attr.snapshot_worker,
         btapi_build_tools_impl = ctx.file.btapi_build_tools_impl,
+        btapi_kotlin_tooling_core = ctx.file.btapi_kotlin_tooling_core,
         btapi_kotlin_compiler_embeddable = ctx.file.btapi_kotlin_compiler_embeddable,
         btapi_kotlin_daemon_client = ctx.file.btapi_kotlin_daemon_client,
         btapi_kotlin_stdlib = ctx.file.btapi_kotlin_stdlib,
@@ -181,6 +182,12 @@ _kt_toolchain = rule(
             allow_single_file = True,
             cfg = "exec",
             default = Label("//kotlin/compiler:kotlin-stdlib"),
+        ),
+        "btapi_kotlin_tooling_core": attr.label(
+            doc = "BTAPI runtime: kotlin-tooling-core artifact, a library of kotlin-build-tools-impl.",
+            allow_single_file = True,
+            cfg = "exec",
+            default = Label("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_tooling_core"),
         ),
         "debug": attr.string_list(
             doc = """Debugging tags passed to the builder. Two tags are supported. `timings` will cause the builder to
@@ -439,6 +446,7 @@ def define_kt_toolchain(
         jvm_runtime = None,
         jacocorunner = None,
         btapi_build_tools_impl = None,
+        btapi_kotlin_tooling_core = None,
         btapi_kotlin_compiler_embeddable = None,
         btapi_kotlin_daemon_client = None,
         btapi_kotlin_stdlib = None,
@@ -480,6 +488,7 @@ def define_kt_toolchain(
         visibility = ["//visibility:public"],
         jacocorunner = jacocorunner,
         btapi_build_tools_impl = btapi_build_tools_impl if btapi_build_tools_impl != None else Label("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_build_tools_impl"),
+        btapi_kotlin_tooling_core = btapi_kotlin_tooling_core if btapi_kotlin_tooling_core != None else Label("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_tooling_core"),
         btapi_kotlin_compiler_embeddable = btapi_kotlin_compiler_embeddable if btapi_kotlin_compiler_embeddable != None else Label("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_compiler_embeddable"),
         btapi_kotlin_daemon_client = btapi_kotlin_daemon_client if btapi_kotlin_daemon_client != None else Label("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_daemon_client"),
         btapi_kotlin_stdlib = btapi_kotlin_stdlib if btapi_kotlin_stdlib != None else Label("//kotlin/compiler:kotlin-stdlib"),

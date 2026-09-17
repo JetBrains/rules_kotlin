@@ -86,6 +86,7 @@ class KotlinBuilder(
       IC_ENABLE_LOGGING("--ic_enable_logging"),
       CLASSPATH_SNAPSHOTS("--classpath_snapshots"),
       BTAPI_BUILD_TOOLS_IMPL("--btapi_build_tools_impl"),
+      BTAPI_KOTLIN_TOOLING_CORE("--btapi_kotlin_tooling_core"),
       BTAPI_KOTLIN_COMPILER_EMBEDDABLE("--btapi_kotlin_compiler_embeddable"),
       BTAPI_KOTLIN_DAEMON_CLIENT("--btapi_kotlin_daemon_client"),
       BTAPI_KOTLIN_STDLIB("--btapi_kotlin_stdlib"),
@@ -205,6 +206,7 @@ class KotlinBuilder(
   private fun buildBtapiRuntimeSpec(argMap: ArgMap): BtapiRuntimeSpec =
     BtapiRuntimeSpec.fromJarPaths(
       buildToolsImplJar = argMap.mandatorySingle(KotlinBuilderFlags.BTAPI_BUILD_TOOLS_IMPL),
+      kotlinToolingCoreJar = argMap.mandatorySingle(KotlinBuilderFlags.BTAPI_KOTLIN_TOOLING_CORE),
       kotlinCompilerEmbeddableJar =
         argMap.mandatorySingle(KotlinBuilderFlags.BTAPI_KOTLIN_COMPILER_EMBEDDABLE),
       kotlinDaemonClientJar = argMap.mandatorySingle(KotlinBuilderFlags.BTAPI_KOTLIN_DAEMON_CLIENT),

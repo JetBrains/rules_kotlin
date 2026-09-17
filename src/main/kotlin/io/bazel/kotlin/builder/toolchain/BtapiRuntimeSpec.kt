@@ -24,6 +24,7 @@ import java.nio.file.Paths
  */
 data class BtapiRuntimeSpec(
   val buildToolsImplJar: Path,
+  val kotlinToolingCoreJar: Path,
   val kotlinCompilerEmbeddableJar: Path,
   val kotlinDaemonClientJar: Path,
   val kotlinStdlibJar: Path,
@@ -35,6 +36,7 @@ data class BtapiRuntimeSpec(
     get() =
       listOf(
         buildToolsImplJar,
+        kotlinToolingCoreJar,
         kotlinDaemonClientJar,
         kotlinCompilerEmbeddableJar,
         kotlinStdlibJar,
@@ -46,6 +48,7 @@ data class BtapiRuntimeSpec(
   companion object {
     fun fromJarPaths(
       buildToolsImplJar: String,
+      kotlinToolingCoreJar: String,
       kotlinCompilerEmbeddableJar: String,
       kotlinDaemonClientJar: String,
       kotlinStdlibJar: String,
@@ -55,6 +58,7 @@ data class BtapiRuntimeSpec(
     ): BtapiRuntimeSpec =
       BtapiRuntimeSpec(
         buildToolsImplJar = Paths.get(buildToolsImplJar),
+        kotlinToolingCoreJar = Paths.get(kotlinToolingCoreJar),
         kotlinCompilerEmbeddableJar = Paths.get(kotlinCompilerEmbeddableJar),
         kotlinDaemonClientJar = Paths.get(kotlinDaemonClientJar),
         kotlinStdlibJar = Paths.get(kotlinStdlibJar),

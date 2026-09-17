@@ -9,7 +9,7 @@ module(
 # Variables
 # =============================================================================
 
-kotlin_version = "2.4.0"
+kotlin_version = "2.4.20"
 
 # =============================================================================
 # Production Dependencies
@@ -134,6 +134,7 @@ maven.install(
         # Kotlin build tools (already present)
         "org.jetbrains.kotlin:kotlin-build-tools-api:{}".format(kotlin_version),
         "org.jetbrains.kotlin:kotlin-build-tools-impl:{}".format(kotlin_version),
+        "org.jetbrains.kotlin:kotlin-tooling-core:{}".format(kotlin_version),
         "org.jetbrains.kotlin:kotlin-metadata-jvm:{}".format(kotlin_version),
         "org.jetbrains.kotlin:kotlin-compiler-arguments-description:{}".format(kotlin_version),
         # KSP (Kotlin Symbol Processing)

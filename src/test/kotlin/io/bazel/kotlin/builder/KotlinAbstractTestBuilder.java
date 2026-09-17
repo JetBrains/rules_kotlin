@@ -211,6 +211,7 @@ abstract class KotlinAbstractTestBuilder<T> {
     static BtapiRuntimeSpec btapiRuntimeForTest() {
         return new BtapiRuntimeSpec(
                 Paths.get(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_build_tools_impl").singleCompileJar()),
+                Paths.get(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_tooling_core").singleCompileJar()),
                 Paths.get(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_compiler_embeddable").singleCompileJar()),
                 Paths.get(Deps.Dep.fromLabel("@kotlin_rules_maven//:org_jetbrains_kotlin_kotlin_daemon_client").singleCompileJar()),
                 Paths.get(Deps.Dep.fromLabel("//kotlin/compiler:kotlin-stdlib").singleCompileJar()),

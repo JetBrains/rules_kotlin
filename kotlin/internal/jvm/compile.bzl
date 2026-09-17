@@ -61,6 +61,7 @@ load(
 # Keep BTAPI runtime artifact wiring in a single place for all worker actions.
 _BTAPI_RUNTIME_ARG_SPECS = (
     ("--btapi_build_tools_impl", "btapi_build_tools_impl"),
+    ("--btapi_kotlin_tooling_core", "btapi_kotlin_tooling_core"),
     ("--btapi_kotlin_compiler_embeddable", "btapi_kotlin_compiler_embeddable"),
     ("--btapi_kotlin_daemon_client", "btapi_kotlin_daemon_client"),
     ("--btapi_kotlin_stdlib", "btapi_kotlin_stdlib"),
