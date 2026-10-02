@@ -2,12 +2,13 @@
 
 load("@bazel_skylib//lib:modules.bzl", "modules")
 load(
-    "//src/main/starlark/core/repositories:initialize.release.bzl",
+    ":bzlmod_impl.bzl",
+    "configure_modules_and_repositories",
+    "tag_classes",
     _kotlin_repositories = "kotlin_repositories",
     _kotlinc_version = "kotlinc_version",
     _ksp_version = "ksp_version",
 )
-load(":bzlmod_impl.bzl", "configure_modules_and_repositories", "tag_classes")
 
 def _rules_kotlin_extensions_impl(mctx):
     configure_modules_and_repositories(

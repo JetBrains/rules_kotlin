@@ -4,13 +4,12 @@ load(
     "unittest",
 )
 load("//kotlin/internal:btapi_runtime.bzl", "BTAPI_RUNTIME_ATTRIBUTES")
-load("//src/main/starlark/core/repositories:btapi_impl.bzl", "btapi_impl_build_file")
-load("//src/main/starlark/core/repositories:bzlmod_impl.bzl", "collect_btapi_impl_releases")
+load("//src/main/starlark/core/repositories:btapi_impl.bzl", "btapi_impl_build_file", "btapi_impl_version")
 load(
-    "//src/main/starlark/core/repositories:initialize.release.bzl",
-    "btapi_impl_version",
-    "versions",
+    "//src/main/starlark/core/repositories:bzlmod_impl.bzl",
+    "collect_btapi_impl_releases",
 )
+load("//src/main/starlark/core/repositories:versions.bzl", "versions")
 
 # The artifacts a record names: record field, Maven artifact id.
 _ARTIFACTS = [

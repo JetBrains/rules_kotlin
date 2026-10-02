@@ -50,30 +50,14 @@ Generated API documentation is available at
 # Quick Guide
 
 ## Installation
-Copy from the
-[release you wish to use](https://github.com/bazelbuild/rules_kotlin/releases) either the Bzlmod or WORKSPACE snippet into your `MODULE.bazel` or `WORKSPACE` file respectively.
+Add rules_kotlin to `MODULE.bazel`. Pick a version from the
+[releases page](https://github.com/bazel-contrib/rules_kotlin/releases):
 
-### `WORKSPACE`
-In the project's `WORKSPACE`, declare the external repository and initialize the toolchains, like
-this:
-
-```python
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-
-rules_kotlin_version = "1.9.0"
-rules_kotlin_sha = "5766f1e599acf551aa56f49dab9ab9108269b03c557496c54acaf41f98e2b8d6"
-http_archive(
-    name = "rules_kotlin",
-    urls = ["https://github.com/bazelbuild/rules_kotlin/releases/download/v%s/rules_kotlin-v%s.tar.gz" % (rules_kotlin_version, rules_kotlin_version)],
-    sha256 = rules_kotlin_sha,
-)
-
-load("@rules_kotlin//kotlin:repositories.bzl", "kotlin_repositories")
-kotlin_repositories() # if you want the default. Otherwise see custom kotlinc distribution below
-
-load("@rules_kotlin//kotlin:core.bzl", "kt_register_toolchains")
-kt_register_toolchains() # to use the default toolchain, otherwise see toolchains below
+```starlark
+bazel_dep(name = "rules_kotlin", version = "<VERSION>")
 ```
+
+The default toolchain registers automatically. See below to customize it.
 
 ## `BUILD` files
 
@@ -107,37 +91,23 @@ define_kt_toolchain(
 )
 ```
 
-and then in your `WORKSPACE` file, instead of `kt_register_toolchains()` do
+Then register it in `MODULE.bazel`:
 
-```python
+```starlark
 register_toolchains("//:kotlin_toolchain")
 ```
 
 ## Custom `kotlinc` distribution (and version)
 
-To choose a different `kotlinc` distribution (1.3 and 1.4 variants supported), do the following
-in your `WORKSPACE` file (or import from a `.bzl` file:
+To pin a different `kotlinc` distribution, set it on the extension in `MODULE.bazel`:
 
-### `MODULE.bazel`
-```python
+```starlark
 rules_kotlin_extensions = use_extension("@rules_kotlin//src/main/starlark/core/repositories:bzlmod_setup.bzl", "rules_kotlin_extensions")
 rules_kotlin_extensions.kotlinc_version(
     version = "2.1.20",
     sha256 = "a118197b0de55ffab2bc8d5cd03a5e39033cfb53383d6931bc761dec0784891a"
 )
 use_repo(rules_kotlin_extensions, "com_github_google_ksp", "com_github_jetbrains_kotlin", "com_github_jetbrains_kotlin_git", "com_github_pinterest_ktlint", "kotlinx_serialization_core_jvm", "kotlinx_serialization_json", "kotlinx_serialization_json_jvm")
-```
-
-### `WORKSPACE`
-```python
-load("@rules_kotlin//kotlin:repositories.bzl", "kotlin_repositories", "kotlinc_version")
-
-kotlin_repositories(
-    compiler_release = kotlinc_version(
-        release = "2.1.20",
-        sha256 = "a118197b0de55ffab2bc8d5cd03a5e39033cfb53383d6931bc761dec0784891a"
-    )
-)
 ```
 
 ## Build Tools API implementation releases
@@ -345,9 +315,9 @@ with a comma-separated build setting:
 build --@rules_kotlin//kotlin/settings:experimental_prune_transitive_deps_keep_transitive_repositories=maven,rules_jvm_external++maven+maven
 ```
 
-Repository names omit the leading `@`. For Bzlmod extensions, use the canonical name (for example,
-`rules_jvm_external++maven+maven`); for `WORKSPACE` repositories, use the repository name (for example, `maven`).
-The allow-list is empty by default and has no effect unless transitive dependency pruning is enabled.
+Repository names omit the leading `@`. Use the canonical extension name (for example,
+`rules_jvm_external++maven+maven`). The allow-list is empty by default and has no effect unless
+transitive dependency pruning is enabled.
 
 # Workers
 
@@ -402,7 +372,7 @@ define_kt_toolchain(
 )
 ```
 
-Then register the toolchain in your `WORKSPACE`:
+Then register the toolchain in `MODULE.bazel`:
 
 ```python
 register_toolchains("//:kotlin_toolchain")
@@ -428,7 +398,7 @@ define_kt_toolchain(
 )
 ```
 
-Then register the toolchain in your `WORKSPACE`:
+Then register the toolchain in `MODULE.bazel`:
 
 ```python
 register_toolchains("//:kotlin_toolchain")
@@ -467,30 +437,15 @@ kt_jvm_library(
 )
 ```
 
-To choose a different `ksp_version` distribution,
-do the following in your repository.
+To pin a different `ksp_version` distribution, set it on the extension in `MODULE.bazel`:
 
-### `MODULE.bazel`
-```python
+```starlark
 rules_kotlin_extensions = use_extension("@rules_kotlin//src/main/starlark/core/repositories:bzlmod_setup.bzl", "rules_kotlin_extensions")
 rules_kotlin_extensions.ksp_version(
     version = "1.8.22-1.0.11",
     sha256 = "2ce5a08fddd20ef07ac051615905453fe08c3ba3ce5afa5dc43a9b77aa64507d",
 )
 use_repo(rules_kotlin_extensions, "com_github_google_ksp", "com_github_jetbrains_kotlin", "com_github_jetbrains_kotlin_git", "com_github_pinterest_ktlint", "kotlinx_serialization_core_jvm", "kotlinx_serialization_json", "kotlinx_serialization_json_jvm")
-```
-
-### `WORKSPACE` (or import from a `.bzl` file):
-
-```python
-load("@rules_kotlin//kotlin:repositories.bzl", "kotlin_repositories", "ksp_version")
-
-kotlin_repositories(
-    ksp_compiler_release = ksp_version(
-        release = "1.8.22-1.0.11",
-        sha256 = "2ce5a08fddd20ef07ac051615905453fe08c3ba3ce5afa5dc43a9b77aa64507d",
-    ),
-)
 ```
 
 # Kotlin compiler plugins

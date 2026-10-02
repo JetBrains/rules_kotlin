@@ -25,8 +25,7 @@ def release_archive(name, srcs = None, src_map = {}, package_dir = None, extensi
     release_archive(
         name = "release_archive",
         src_map = {
-            "BUILD.release.bazel.bazel": "BUILD.bazel",
-            "WORKSPACE.release.bazel": "WORKSPACE",
+            "MODULE.release.bazel": "MODULE.bazel",
         },
         deps = [
             "//dep:pkg"

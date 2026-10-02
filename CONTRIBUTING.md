@@ -54,9 +54,8 @@ To cope with API churn, the release archive can configure different rule attribu
  Each major release of kotlin (1.4, 1.5) has a specific sub-repository under [src/main/starlark](src/main/starlark). The naming convention for these
   is `rkt_<major>_<minor>` ([r]elease [k]o[t]lin).
 
-The version is selected by the [kotlin_repositories](src/main/starlark/repositories/initialize.release.bzl) rule during initialization. 
-New versions of kotlin that change the API should be added to [versions.bzl](src/main/starlark/repositories/versions.bzl), under `CORE` following the 
-existing naming convention.
+The [kotlin_repositories](src/main/starlark/core/repositories/bzlmod_impl.bzl) macro selects the version during setup.
+Add API-changing versions to [versions.bzl](src/main/starlark/core/repositories/versions.bzl) under `CORE`, following the existing naming convention.
 
 Multiple versions of kotlin are not currently handled.(_help wanted_)
 

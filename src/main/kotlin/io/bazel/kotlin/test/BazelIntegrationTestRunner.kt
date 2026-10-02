@@ -20,23 +20,11 @@ class BazelIntegrationTestRunner : BazelIntegrationTestBase() {
 
     val version = bazel.run(workspace, "--version").parseVersion()
 
-    val workspaceEnabled = System.getenv("WORKSPACE_ENABLED") != null
-
-    val workspaceFlags = FlagSets(
+    val moduleFlags = FlagSets(
       listOf(
-        if (workspaceEnabled) {
-          listOf(
-            Flag("--override_repository=rules_kotlin=$unpack"),
-            Flag("--enable_bzlmod=false"),
-            Flag("--enable_workspace=true") { it.isBzlmodEnabledByDefault },
-          )
-        } else {
-          listOf(
-            Flag("--enable_bzlmod=true"),
-            Flag("--override_module=rules_kotlin=$unpack"),
-            Flag("--enable_workspace=false") { it.isBzlmodEnabledByDefault },
-          )
-        },
+        listOf(
+          Flag("--override_module=rules_kotlin=$unpack"),
+        ),
       ),
     )
 
@@ -59,8 +47,20 @@ class BazelIntegrationTestRunner : BazelIntegrationTestBase() {
       ),
     )
 
+    // Share a persistent repository cache across bazel invocations to
+    // avoid maven central rate limits and general network abuse.
+    val repositoryCacheFlags = FlagSets(
+      listOf(
+        (System.getenv("RULES_KOTLIN_REPOSITORY_CACHE")
+          ?: System.getenv("TMPDIR")
+          ?.let { "$it/.cache/rules_kotlin/integration_repository_cache" })
+          ?.let { listOf(Flag("--repository_cache=$it")) }
+          ?: emptyList(),
+      ),
+    )
+
     val startupFlagSets = version.resolveBazelRc(workspace)
-    val commandFlagSets = workspaceFlags * deprecationFlags * experimentFlags
+    val commandFlagSets = moduleFlags * deprecationFlags * experimentFlags * repositoryCacheFlags
 
     startupFlagSets.asStringsFor(version).forEach { systemFlags ->
       commandFlagSets.asStringsFor(version).forEach { commandFlags ->

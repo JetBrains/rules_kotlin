@@ -22,14 +22,13 @@ release_archive(
         "BUILD.kotlin_capabilities.bazel",
         "btapi_impl.bzl",
         "bzlmod_impl.bzl",
+        "bzlmod_setup.bzl",
         "compiler.bzl",
         "ksp.bzl",
         "versions.bzl",
     ],
     src_map = {
         "BUILD.release.bazel": "BUILD.bazel",
-        "bzlmod_setup.release.bzl": "bzlmod_setup.bzl",
-        "initialize.release.bzl": "initialize.bzl",
     },
     deps = [
         "//src/main/starlark/core/repositories/kotlin:pkg",

@@ -400,13 +400,6 @@ _kt_toolchain = rule(
     provides = [platform_common.ToolchainInfo],
 )
 
-_KT_DEFAULT_TOOLCHAIN = Label("//kotlin/internal:default_toolchain")
-
-# buildifier: disable=unnamed-macro
-def kt_register_toolchains():
-    """This macro registers the kotlin toolchain."""
-    native.register_toolchains(str(_KT_DEFAULT_TOOLCHAIN))
-
 # Evaluating the select in the context of bzl file to get its repository
 _DEBUG_SELECT = select({
     str(Label("//kotlin/internal:builder_debug_trace")): ["trace"],
