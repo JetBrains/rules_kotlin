@@ -129,6 +129,13 @@ def _reshade_kotlinc_jars(target, ctx, rules_file, output_infix, jars, deps):
 def _expand_location_with_data_deps(ctx):
     return lambda targets: ctx.expand_location(targets, ctx.attr.data)
 
+def _data_files(ctx):
+    """The files the data attribute names and the runfiles of the targets it names."""
+    return depset(
+        ctx.files.data,
+        transitive = [d[DefaultInfo].default_runfiles.files for d in ctx.attr.data],
+    )
+
 def _runs_embedded_compiler(ctx):
     """Tells whether the compilation actions run the embeddable compiler dialect.
 
@@ -175,6 +182,7 @@ def kt_compiler_plugin_impl(ctx):
             id = plugin_id,
             classpath = classpath,
             options = options,
+            data = _data_files(ctx),
             stubs = ctx.attr.stubs_phase,
             compile = ctx.attr.compile_phase,
             resolve_cfg = plugin_common.resolve_cfg,
@@ -186,7 +194,13 @@ def kt_plugin_cfg_impl(ctx):
     plugin = ctx.attr.plugin[_KtCompilerPluginInfo]
     return [
         plugin,
-    ] + plugin.resolve_cfg(plugin, ctx.attr.options, ctx.attr.deps, _expand_location_with_data_deps(ctx))
+    ] + plugin.resolve_cfg(
+        plugin,
+        ctx.attr.options,
+        ctx.attr.deps,
+        _expand_location_with_data_deps(ctx),
+        _data_files(ctx),
+    )
 
 def kt_ksp_plugin_impl(ctx):
     """Implements the kt_ksp_plugin rule.
@@ -288,7 +302,10 @@ kt_jvm_library(
             default = True,
         ),
         "data": attr.label_list(
-            doc = "The list of data files to be used by compiler's plugin",
+            doc = """The files the plugin reads at compile time. An option value names one of them as
+            `$(location <file>)`. The files and the runfiles of each listed target are inputs of the
+            compilation.""",
+            allow_files = True,
             providers = [DefaultInfo],
             cfg = "exec",
         ),
@@ -409,7 +426,10 @@ kt_plugin_cfg = rule(
     """,
     attrs = {
         "data": attr.label_list(
-            doc = "The list of data files to be used by compiler's plugin",
+            doc = """The files the plugin reads at compile time. An option value names one of them as
+            `$(location <file>)`. The files and the runfiles of each listed target are inputs of the
+            compilation.""",
+            allow_files = True,
             providers = [DefaultInfo],
             cfg = "exec",
         ),
