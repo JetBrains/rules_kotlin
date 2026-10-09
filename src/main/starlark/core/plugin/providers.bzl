@@ -14,12 +14,13 @@ KtCompilerPluginInfo = provider(
     fields = {
         "classpath": "The kotlin compiler plugin classpath.",
         "compile": "Run this plugin during koltinc compilation.",
+        "data": "Depset of files the plugin reads at compile time; they are inputs of the compilation.",
         "id": "The id of the plugin.",
         "merge_cfgs": "A Callable[[KtCompilerPluginInfo, List[KtPluginConfiguration]]] that merge multiple plugin configurations.",
         "options": "List of plugin options, represented as KtCompilerPluginOption, to be passed to the compiler",
         "plugin_jars": "List of plugin jars.",
-        "resolve_cfg": "A Callable[[KtCompilerPluginInfo, Dict[str,str], List[Target], KtPluginConfiguration]" +
-                       " that resolves an associated plugin configuration.",
+        "resolve_cfg": "A Callable[[KtCompilerPluginInfo, Dict[str, List[str]], List[Target], Callable[[str], str], List[File]]" +
+                       " that resolves an associated plugin configuration; the last argument holds the data files of the configuration.",
         "stubs": "Run this plugin during kapt stub generation.",
     },
 )
@@ -29,7 +30,8 @@ KtPluginConfiguration = provider(
     doc = "Resolved configuration (classpath, data, options) for a Kotlin compiler plugin.",
     fields = {
         "classpath": "Depset of jars to add to the classpath when running the plugin.",
-        "data": "runfiles to pass to the plugin.",
+        "data": "Depset of files the plugin reads at compile time: the data files of the configuration and the runfiles" +
+                " of its dependencies. They are inputs of the compilation.",
         "id": "The id of the compiler plugin associated with this configuration.",
         "options": "List of plugin options, represented KtCompilerPluginOption",
     },

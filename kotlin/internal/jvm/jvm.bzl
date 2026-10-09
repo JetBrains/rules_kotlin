@@ -593,7 +593,9 @@ kt_jvm_library(
             default = True,
         ),
         "data": attr.label_list(
-            doc = "The list of data files to be used by compiler's plugin",
+            doc = """The files the plugin reads at compile time. An option value names one of them as
+            `$(location <file>)`. The files are inputs of the compilation.""",
+            allow_files = True,
             providers = [DefaultInfo],
             cfg = "exec",
         ),
@@ -714,7 +716,9 @@ kt_plugin_cfg = rule(
     """,
     attrs = {
         "data": attr.label_list(
-            doc = "The list of data files to be used by compiler's plugin",
+            doc = """The files the plugin reads at compile time. An option value names one of them as
+            `$(location <file>)`. The files are inputs of the compilation.""",
+            allow_files = True,
             providers = [DefaultInfo],
             cfg = "exec",
         ),

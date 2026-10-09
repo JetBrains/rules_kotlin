@@ -637,6 +637,7 @@ def kt_compiler_plugin_impl(ctx):
             id = plugin_id,
             classpath = classpath,
             options = options,
+            data = depset(ctx.files.data),
             stubs = ctx.attr.stubs_phase,
             compile = ctx.attr.compile_phase,
             resolve_cfg = plugin_common.resolve_cfg,
@@ -648,7 +649,7 @@ def kt_plugin_cfg_impl(ctx):
     plugin = ctx.attr.plugin[_KtCompilerPluginInfo]
     return [
         plugin,
-    ] + plugin.resolve_cfg(plugin, ctx.attr.options, ctx.attr.deps, _expand_location_with_data_deps(ctx))
+    ] + plugin.resolve_cfg(plugin, ctx.attr.options, ctx.attr.deps, _expand_location_with_data_deps(ctx), ctx.files.data)
 
 def kt_ksp_plugin_impl(ctx):
     """Implements the kt_ksp_plugin rule.

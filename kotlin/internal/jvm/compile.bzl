@@ -229,6 +229,9 @@ def _new_plugins_from(targets):
     for p in all_plugins.values():
         plugin_classpath = [p.classpath]
         plugin_options = list(p.options)
+        plugin_data = getattr(p, "data", None)
+        if plugin_data:
+            data.append(plugin_data)
         if p.id in all_plugin_cfgs:
             cfg = p.merge_cfgs(p, all_plugin_cfgs[p.id])
             plugin_classpath.append(cfg.classpath)
@@ -802,6 +805,7 @@ def _run_kt_builder_action(
                 transitive_runtime_jars,
                 deps_artifacts,
                 plugins.classpath,
+                plugins.data,
             ],
         ),
         tools = [
