@@ -118,6 +118,7 @@ versions = struct(
         reflect_sha256 = "7c9e8bda3cafa85b65692065acd22578b2843292b4e4baa8361bdc9175746e88",
         daemon_client_sha256 = "095903c4c4713bf91a562d226d7ba0464cf5424e76342d487deec494451ab29b",
         script_runtime_sha256 = "a658cf5902a1525a06c264a5e42b437e97a6679ddeef8ca641246f270cf6a013",
+        tooling_core_sha256 = "5fc5db083803232857408ed5c25bcc307c703b04bdef6cb2c34ebf4db611a622",
     ),
     RULES_ANDROID = version(
         version = "0.7.3",

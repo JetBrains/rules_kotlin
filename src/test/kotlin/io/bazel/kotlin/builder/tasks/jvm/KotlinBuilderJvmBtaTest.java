@@ -263,4 +263,35 @@ public class KotlinBuilderJvmBtaTest {
                 lines -> assertThat(String.join("\n", lines)).contains("HexFormat"));
     }
 
+    @Test
+    public void testStrictDepsViolationIsReportedAsCompilerException() {
+        // The jdeps plugin throws on a strict deps violation. The compiler reports the exception
+        // as an EXCEPTION-severity message, which the Build Tools API implementation logs together
+        // with its API version. That lookup needs kotlin-tooling-core in the runtime classloader.
+        Dep transitiveDep =
+                ctx.runCompileTask(
+                        c -> {
+                            c.useBuildToolsApi();
+                            c.compileKotlin();
+                            c.addSource("TransitiveClass.kt", "package something;", "class TransitiveClass{}");
+                            c.outputJar();
+                            c.outputJdeps();
+                        });
+        ctx.runFailingCompileTaskAndValidateOutput(
+                () -> ctx.runCompileTask(
+                        c -> {
+                            c.useBuildToolsApi();
+                            c.compileKotlin();
+                            c.addSource(
+                                    "HasTransitiveReference.kt",
+                                    "package something;",
+                                    "val transitiveReference = TransitiveClass()");
+                            c.addTransitiveDependencies(transitiveDep);
+                            c.kotlinStrictDeps("error");
+                            c.outputJar();
+                            c.outputJdeps();
+                        }),
+                lines -> assertThat(String.join("\n", lines)).contains("Strict Deps Violations - please fix"));
+    }
+
 }
