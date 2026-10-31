@@ -15,6 +15,7 @@
  */
 package io.bazel.kotlin.compiler
 
+import org.jetbrains.kotlin.buildtools.api.BuildOperation
 import org.jetbrains.kotlin.buildtools.api.CompilationResult
 import org.jetbrains.kotlin.buildtools.api.ExperimentalBuildToolsApi
 import org.jetbrains.kotlin.buildtools.api.KotlinLogger
@@ -47,6 +48,11 @@ class BuildToolsAPICompiler(
   private class BtImplRuntime(
     val kotlinToolchains: KotlinToolchains,
     val exitCodes: Map<CompilationResult, Int>,
+    /**
+     * The switch of the runtime's plugin class loader cache, or null when the runtime predates the
+     * switch and would reject it.
+     */
+    val classLoaderCacheOption: BuildOperation.Option<Boolean>?,
   )
 
   private val runtime by lazy {
@@ -55,10 +61,23 @@ class BuildToolsAPICompiler(
         btImplClasspath.map { File(it).toURI().toURL() }.toTypedArray(),
         SharedApiClassesClassLoader(), // allows only BuildTools API classes from the parent loader
       )
+    val kotlinToolchains = KotlinToolchains.loadImplementation(classLoader)
     BtImplRuntime(
-      kotlinToolchains = KotlinToolchains.loadImplementation(classLoader),
+      kotlinToolchains = kotlinToolchains,
       exitCodes = exitCodesFrom(classLoader),
+      classLoaderCacheOption =
+        BuildOperation.ENABLE_CLASSLOADER_CACHE.takeIf { kotlinToolchains.accepts(it) },
     )
+  }
+
+  /**
+   * Whether the runtime accepts [option]. A runtime rejects an option that is newer than its own
+   * release; the classifier of the release does not count, as in the runtime's own check.
+   */
+  private fun KotlinToolchains.accepts(option: BuildOperation.Option<*>): Boolean {
+    val release = kotlinReleaseOf(getCompilerVersion()) ?: return false
+    val since = option.availableSinceVersion
+    return release >= KotlinVersion(since.major, since.minor, since.patch)
   }
 
   /**
@@ -101,6 +120,10 @@ class BuildToolsAPICompiler(
           compilationUnit.sources.map { Paths.get(it) },
           Paths.get(compilationUnit.destination),
         )
+
+    // Every compile loads its plugins in a class loader of its own, which the compiler closes with
+    // the compile.
+    runtime.classLoaderCacheOption?.let { operationBuilder[it] = false }
 
     val args = operationBuilder.compilerArguments
 

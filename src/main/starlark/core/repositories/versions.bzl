@@ -96,13 +96,15 @@ versions = struct(
         sha256 = "cdf6dedea6a749feb1d2b298463f007b20817a72602a0843261d2b152c6d4b20",
     ),
     # Starting with Kotlin 2.4.0 the Build Tools API interfaces are no longer bundled in
-    # kotlin-compiler.jar, so they must be provided as a separate jar.
+    # kotlin-compiler.jar, so they must be provided as a separate jar. The API jar is ahead of the
+    # compiler release: the API wraps an older implementation, and the worker needs the switch of
+    # the plugin class loader cache, which the API declares since 2.5.0.
     KOTLIN_BUILD_TOOLS_API = version(
-        version = _KOTLIN_CURRENT_RELEASE,
+        version = "2.5.0-Beta2",
         url_templates = [
             "https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-build-tools-api/{version}/kotlin-build-tools-api-{version}.jar",
         ],
-        sha256 = "c5cd6a49bd072b529ae10809111c16a7aa0f92147e95d288354017fd65799461",
+        sha256 = "d70535d850e7047e73baa1534ee0500e6f613beab989a7a823b8d7468ee184ec",
     ),
     # The Build Tools API implementation of the current release and the embeddable compiler family
     # it loads: the Maven-published kotlinc build whose bundled third-party packages are shaded
