@@ -1,10 +1,11 @@
 """Public API for Kotlin/Native rules.
 
-M1 (source-only klib compilation):
+Experimental (prototype):
 - kt_native_library: compile .kt -> .klib for the resolved konan target.
+- kt_native_binary: link .kt sources + klib deps into a native executable.
 
 The konan target is selected by Bazel toolchain resolution (the build's --platforms),
-not a rule attribute. See thoughts/shared/plans/2026-06-01-kotlin-native-m1-design.md.
+not a rule attribute. See examples/native for usage.
 """
 
 load("//kotlin/internal/native:binary.bzl", _kt_native_binary = "kt_native_binary")

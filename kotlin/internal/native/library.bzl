@@ -1,9 +1,8 @@
-"""kt_native_library: source-only Kotlin/Native klib compilation (M1).
+"""kt_native_library: source-only Kotlin/Native klib compilation.
 
 Compiles .kt sources to a .klib for the konan target supplied by the resolved
 toolchain (NOT a rule attribute). Consumes other kt_native_library klibs of the same
-target via `-l`. This is the BTA "klib compilation operation" seam; binary linking is a
-separate future operation/rule.
+target via `-l`. Binary linking is handled separately by kt_native_binary (binary.bzl).
 """
 
 load("@rules_java//java:defs.bzl", "java_common")
@@ -27,12 +26,12 @@ def _kt_native_library_impl(ctx):
         transitive.append(info.transitive_klibs)
 
     # Pass the full transitive klib closure as -l. konanc reads each klib's `depends=`
-    # and must resolve those libraries by name, but konanc 2.3.x has no library
-    # search-path flag — it only searches the directories of -l'd libraries. Direct-only
-    # -l happens to work when all klibs are co-located (same Bazel package -> same bin
-    # dir), but not when deps span packages. Passing the closure is robust regardless.
+    # and must resolve those libraries by name, but konanc has no library search-path
+    # flag — it only searches the directories of -l'd libraries. Direct-only -l happens
+    # to work when all klibs are co-located (same Bazel package -> same bin dir), but not
+    # when deps span packages. Passing the closure is robust regardless.
     # Cost: a klib's `depends=` then over-declares (lists transitive, not just direct).
-    # Revisit at P6/P8 (search-path flag / symlink-into-one-dir) for clean metadata.
+    # TODO: symlink direct deps into one dir for clean `depends=` metadata.
     dep_klibs = depset(transitive = transitive)
 
     klib = ctx.actions.declare_file(ctx.label.name + ".klib")

@@ -78,9 +78,9 @@ register_toolchains("//src/main/starlark/core/compile:cli_toolchain")
 
 register_toolchains("//kotlin:default_toolchain")
 
-# Kotlin/Native (M1: source-only klib compilation). The distribution repo is fetched
-# lazily — only when a native target is actually built — so JVM-only consumers are
-# unaffected.
+# Kotlin/Native (experimental: kt_native_library + kt_native_binary). The distribution
+# and link-dependency repos are fetched lazily — only when a native target is actually
+# built — so JVM-only consumers are unaffected.
 kotlin_native = use_extension("//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
 use_repo(
     kotlin_native,

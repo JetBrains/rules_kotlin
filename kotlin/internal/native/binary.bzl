@@ -1,4 +1,4 @@
-"""kt_native_binary: link a Kotlin/Native executable (P3).
+"""kt_native_binary: link a Kotlin/Native executable.
 
 Compiles .kt sources + transitive klib deps into a native executable for the resolved
 konan target (`-produce program`).

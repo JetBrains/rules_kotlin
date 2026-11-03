@@ -1,8 +1,9 @@
 """Module extension that provisions the Kotlin/Native prebuilt distribution.
 
-Creates a single repository (`com_github_jetbrains_kotlin_native`) holding the host's
-prebuilt distribution. A host distribution can cross-compile klibs for every supported
-target, so one repo per build host is sufficient.
+Creates `com_github_jetbrains_kotlin_native`, holding the host's prebuilt distribution
+(a host distribution can cross-compile klibs for every supported target, so one repo per
+build host is sufficient), and `com_github_jetbrains_kotlin_native_deps`, holding the
+pre-staged LLVM/sysroot/cross-toolchain bundle used by kt_native_binary.
 """
 
 load(

@@ -1,0 +1,63 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+load("//kotlin/internal/native:toolchains.bzl", "define_kt_native_toolchain")
+
+bzl_library(
+    name = "native",
+    srcs = glob(["*.bzl"]),
+    visibility = ["//visibility:public"],
+)
+
+toolchain_type(
+    name = "kt_native_toolchain_type",
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "konanc_launcher",
+    srcs = ["konanc_launcher.sh"],
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "konanc_link_launcher",
+    srcs = ["konanc_link_launcher.sh"],
+    visibility = ["//visibility:public"],
+)
+
+exports_files(
+    glob(["*.bzl"]),
+    visibility = ["//visibility:public"],
+)
+
+define_kt_native_toolchain(
+    name = "macos_arm64",
+    exec_compatible_with = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+    konan_deps = "@com_github_jetbrains_kotlin_native_deps//:deps",
+    konan_home = "@com_github_jetbrains_kotlin_native//:home",
+    konan_target = "macos_arm64",
+    konanc = "@com_github_jetbrains_kotlin_native//:bin/konanc",
+    target_compatible_with = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+)
+
+define_kt_native_toolchain(
+    name = "linux_x64",
+    exec_compatible_with = [
+        "@platforms//os:macos",
+        "@platforms//cpu:aarch64",
+    ],
+    konan_deps = "@com_github_jetbrains_kotlin_native_deps//:deps",
+    konan_home = "@com_github_jetbrains_kotlin_native//:home",
+    konan_target = "linux_x64",
+    konanc = "@com_github_jetbrains_kotlin_native//:bin/konanc",
+    target_compatible_with = [
+        "@platforms//os:linux",
+        "@platforms//cpu:x86_64",
+    ],
+)
