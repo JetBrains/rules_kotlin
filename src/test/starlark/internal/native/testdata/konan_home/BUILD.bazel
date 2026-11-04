@@ -1,0 +1,41 @@
+load("@bazel_skylib//rules/directory:directory.bzl", "directory")
+load("@bazel_skylib//rules/directory:subdirectory.bzl", "subdirectory")
+
+package(default_visibility = ["//src/test/starlark/internal/native:__pkg__"])
+
+# A stand-in for the distribution repository of a host building for linux_arm64 and
+# macos_arm64 (see kotlin_native_compiler_build_file). bin/ and klib/cache stay out of the
+# tree, as they do there.
+directory(
+    name = "home",
+    srcs = glob([
+        "konan/**",
+        "klib/common/stdlib/**",
+        "klib/platform/linux_arm64/**",
+        "klib/platform/macos_arm64/**",
+    ]),
+)
+
+subdirectory(
+    name = "konan",
+    parent = ":home",
+    path = "konan",
+)
+
+subdirectory(
+    name = "stdlib",
+    parent = ":home",
+    path = "klib/common/stdlib",
+)
+
+subdirectory(
+    name = "platform_linux_arm64",
+    parent = ":home",
+    path = "klib/platform/linux_arm64",
+)
+
+subdirectory(
+    name = "platform_macos_arm64",
+    parent = ":home",
+    path = "klib/platform/macos_arm64",
+)

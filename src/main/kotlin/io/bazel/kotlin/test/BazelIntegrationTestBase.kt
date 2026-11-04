@@ -44,6 +44,11 @@ abstract class BazelIntegrationTestBase {
           entry.isFile -> {
             destination.parent.createDirectories()
             Files.copy(tar, destination)
+            // Keep the executable bit, as Bazel does when it extracts the release: sh_binary
+            // only accepts an executable script.
+            if ((entry.mode and 0b001_001_001) != 0) {
+              destination.toFile().setExecutable(true, false)
+            }
           }
 
           else -> {

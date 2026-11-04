@@ -44,10 +44,10 @@ def _kt_native_library_impl(ctx):
     konan_data_dir = ctx.label.name + ".konan_data"
     auto_cache_dir = ctx.label.name + ".autocache"
 
-    # Leading positionals are consumed by the launcher: konanc path, count of scratch
+    # Leading positionals are consumed by the launcher: konan home, count of scratch
     # dirs to mkdir, then those dirs; the rest are konanc's own flags.
     args = ctx.actions.args()
-    args.add(tc.konanc.path)
+    args.add(tc.konan_home.path)
     args.add("2")
     args.add(auto_cache_dir)
     args.add(konan_data_dir)
@@ -56,19 +56,22 @@ def _kt_native_library_impl(ctx):
     args.add("-module-name", module_name)
     args.add("-Xkonan-data-dir=" + konan_data_dir)
     args.add("-Xauto-cache-dir=" + auto_cache_dir)
+
+    # A dependency konanc would download fails with its own message, not a network error.
+    args.add("-Xoverride-konan-properties=airplaneMode=true")
     args.add("-o", out_base)
     args.add_all(dep_klibs, before_each = "-l")
     args.add_all(ctx.files.srcs)
 
-    # konanc/run_konan launches a JVM; JAVA_HOME comes from the Bazel JDK toolchain
-    # (hermetic — no client-env inheritance). The launcher sets its own PATH for `mkdir`;
-    # `java` is found via JAVA_HOME, not PATH.
+    # The launcher runs konanc on a JVM from JAVA_HOME, the Bazel JDK toolchain (hermetic —
+    # no client-env inheritance), with -Dkonan.home in the sandbox, so the inputs are only
+    # the parts of the distribution this target needs. It sets its own PATH for `mkdir`.
     ctx.actions.run(
         executable = ctx.executable._launcher,
         arguments = [args],
         inputs = depset(
             ctx.files.srcs,
-            transitive = [dep_klibs, tc.konan_home, java_runtime.files],
+            transitive = [dep_klibs, tc.compile_inputs, java_runtime.files],
         ),
         outputs = [klib],
         env = {

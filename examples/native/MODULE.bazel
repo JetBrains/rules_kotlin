@@ -6,5 +6,14 @@ local_path_override(
     path = "../..",
 )
 
+bazel_dep(name = "bazel_lib", version = "3.1.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_shell", version = "0.6.1")
+
+# Link dependencies are only staged for the targets the example links for: linux_x64 (the
+# Linux CI host, and a cross-link on macOS) and macos_arm64. klibs compile for every target.
+kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
+kotlin_native.targets(targets = [
+    "linux_x64",
+    "macos_arm64",
+])

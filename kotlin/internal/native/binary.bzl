@@ -3,35 +3,29 @@
 Compiles .kt sources + transitive klib deps into a native executable for the resolved
 konan target (`-produce program`).
 
-Binary linking needs the konan dependency bundle (LLVM + sysroot + cross-toolchain) that
-klib compilation does not. The bundle is pre-fetched by the `kotlin_native_deps`
-repository (at repo-fetch time) and staged into a writable KONAN_DATA_DIR by the link
-launcher, so this action runs **sandboxed with no network** (verified for linux_x64 with
+Binary linking needs the konan dependency bundle (LLVM + libffi + lldb + cross-toolchain)
+that klib compilation does not. The bundle of each exec host is pre-fetched by its
+`com_github_jetbrains_kotlin_native_deps_<host>` repository (at repo-fetch time), and the
+link launcher stages the target's dependency dirs into a writable KONAN_DATA_DIR, so this
+action runs **sandboxed with no network** (verified for linux_x64 with
 --sandbox_default_allow_network=false).
 
 Caveat: Apple *targets* still need a local Xcode SDK for the platform sysroot (read from
 the host via xcrun); that part is not vendorable. Non-Apple cross targets (e.g. linux_x64)
-are fully hermetic. Host/target dependency coverage is whatever `kotlin_native_deps`
-stages — see src/main/starlark/core/repositories/native_compiler.bzl.
+are fully hermetic. The targets a bundle stages are the ones of kotlin_native.targets(...)
+— see src/main/starlark/core/repositories/native_compiler.bzl.
 """
 
 load("@rules_java//java:defs.bzl", "java_common")
 load(":providers.bzl", "KtNativeInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 
-def _staged_deps_dir(deps_files):
-    """Derive the `dependencies/` dir path from the pre-staged deps filegroup files."""
-    for f in deps_files:
-        idx = f.path.find("/dependencies/")
-        if idx != -1:
-            return f.path[:idx] + "/dependencies"
-    fail("could not locate the konan 'dependencies' dir in the staged deps")
-
 def _kt_native_binary_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
-    if not tc.konan_deps:
-        fail("kt_native_binary requires a toolchain with konan_deps (the LLVM/sysroot " +
-             "bundle); the resolved %s toolchain has none." % tc.konan_target)
+    if not tc.konan_deps.staged:
+        fail(("%s: the Kotlin/Native link dependencies of %s are not staged, so nothing links for it; " +
+              "add '%s' to kotlin_native.targets(...) in the root MODULE.bazel") %
+             (ctx.label, tc.konan_target, tc.konan_target))
     java_runtime = ctx.attr._java_runtime[java_common.JavaRuntimeInfo]
     module_name = ctx.attr.module_name or ctx.label.name
 
@@ -51,19 +45,22 @@ def _kt_native_binary_impl(ctx):
     out_base = binary.path[:-len(".kexe")]  # konanc -produce program appends .kexe
     konan_data_dir = ctx.label.name + ".konan_data"  # action-local scratch (writable)
     auto_cache_dir = ctx.label.name + ".autocache"
-    staged_deps = _staged_deps_dir(tc.konan_deps.to_list())
 
-    # launcher: <konanc> <konan_data_dir> <auto_cache_dir> <staged_deps_dir> [konanc args]
+    # launcher: <konan_home> <konan_data_dir> <auto_cache_dir> <n> <dep_dir>... [konanc args]
     args = ctx.actions.args()
-    args.add(tc.konanc.path)
+    args.add(tc.konan_home.path)
     args.add(konan_data_dir)
     args.add(auto_cache_dir)
-    args.add(staged_deps)
+    args.add(str(len(tc.konan_deps.dirs)))
+    args.add_all([d.path for d in tc.konan_deps.dirs])
     args.add("-produce", "program")
     args.add("-target", tc.konan_target)
     args.add("-module-name", module_name)
     args.add("-Xkonan-data-dir=" + konan_data_dir)
     args.add("-Xauto-cache-dir=" + auto_cache_dir)
+
+    # A dependency missing from the bundle fails with konanc's own message, not a network error.
+    args.add("-Xoverride-konan-properties=airplaneMode=true")
     args.add("-o", out_base)
     args.add_all(dep_klibs, before_each = "-l")
     args.add_all(ctx.files.srcs)
@@ -73,7 +70,7 @@ def _kt_native_binary_impl(ctx):
         arguments = [args],
         inputs = depset(
             ctx.files.srcs,
-            transitive = [dep_klibs, tc.konan_home, tc.konan_deps, java_runtime.files],
+            transitive = [dep_klibs, tc.compile_inputs, tc.konan_deps.files, java_runtime.files],
         ),
         outputs = [binary],
         env = {

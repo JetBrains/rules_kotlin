@@ -1,6 +1,6 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//kotlin/internal/native:toolchains.bzl", "define_kt_native_toolchain")
+load("//kotlin/internal/native:toolchains.bzl", "define_kt_native_toolchains")
 load("//src/main/starlark/release:packager.bzl", "release_archive")
 
 release_archive(
@@ -17,8 +17,12 @@ release_archive(
 bzl_library(
     name = "native",
     srcs = glob(["*.bzl"]),
-    visibility = ["//kotlin:__subpackages__"],
+    visibility = [
+        "//kotlin:__subpackages__",
+        "//src/main/starlark/core/repositories:__pkg__",
+    ],
     deps = [
+        "@bazel_skylib//rules/directory:providers",
         "@rules_java//java:rules",
     ],
 )
@@ -49,42 +53,8 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 
-# Native toolchains, one per (exec host, konan target). A host distribution can
-# cross-compile klibs for every target, so all toolchains for a given host share the
-# same konan_home and differ only in konan_target + target_compatible_with.
-#
-# macOS arm64 is the only exec host with a pre-staged link bundle (exec_compatible_with
-# reflects it). Other hosts are future work (see KOTLIN_NATIVE_DEPS in
-# src/main/starlark/core/repositories/native_compiler.bzl).
-
-define_kt_native_toolchain(
-    name = "macos_arm64",
-    exec_compatible_with = [
-        "@platforms//os:macos",
-        "@platforms//cpu:aarch64",
-    ],
-    konan_deps = "@com_github_jetbrains_kotlin_native_deps//:deps",
-    konan_home = "@com_github_jetbrains_kotlin_native//:home",
-    konan_target = "macos_arm64",
-    konanc = "@com_github_jetbrains_kotlin_native//:bin/konanc",
-    target_compatible_with = [
-        "@platforms//os:macos",
-        "@platforms//cpu:aarch64",
-    ],
-)
-
-define_kt_native_toolchain(
-    name = "linux_x64",
-    exec_compatible_with = [
-        "@platforms//os:macos",
-        "@platforms//cpu:aarch64",
-    ],
-    konan_deps = "@com_github_jetbrains_kotlin_native_deps//:deps",
-    konan_home = "@com_github_jetbrains_kotlin_native//:home",
-    konan_target = "linux_x64",
-    konanc = "@com_github_jetbrains_kotlin_native//:bin/konanc",
-    target_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-)
+# Native toolchains, one per (exec host, konan target) of EXEC_HOSTS (targets.bzl), named
+# <host>_<target>, e.g. macos_aarch64_ios_simulator_arm64. A host distribution compiles
+# klibs for every target the host builds for, so a host's toolchains share its konan_home
+# and differ in the target's platform libraries, link dependencies and constraints.
+define_kt_native_toolchains()

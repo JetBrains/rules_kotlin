@@ -1,0 +1,16 @@
+load("//kotlin/internal/native:targets.bzl", "define_konan_platforms")
+load("//src/main/starlark/release:packager.bzl", "release_archive")
+
+# Explicit, as release_archive would otherwise place the package under its last path segment.
+release_archive(
+    name = "pkg",
+    package_dir = "native/platforms",
+    src_map = {
+        "BUILD.release.bazel": "BUILD.bazel",
+    },
+)
+
+# A platform per Kotlin/Native target, e.g.
+# --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64, and an is_<target>
+# config_setting to select() on.
+define_konan_platforms()

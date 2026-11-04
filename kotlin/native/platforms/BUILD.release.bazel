@@ -1,0 +1,6 @@
+load("//kotlin/internal/native:targets.bzl", "define_konan_platforms")
+
+# A platform per Kotlin/Native target, e.g.
+# --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64, and an is_<target>
+# config_setting to select() on.
+define_konan_platforms()

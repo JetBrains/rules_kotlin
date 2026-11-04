@@ -41,14 +41,25 @@ register_toolchains("//kotlin:default_toolchain")
 # Kotlin/Native (experimental). Repos are fetched lazily, only when a native target is built.
 bazel_dep(name = "rules_shell", version = "0.4.1")
 
+# The Apple platforms in //kotlin/native/platforms use apple_support's constraints.
+bazel_dep(name = "apple_support", version = "2.5.2", repo_name = "build_bazel_apple_support")
+
 kotlin_native = use_extension("//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
 use_repo(
     kotlin_native,
-    "com_github_jetbrains_kotlin_native",
-    "com_github_jetbrains_kotlin_native_deps",
+    "com_github_jetbrains_kotlin_native_deps_linux_x86_64",
+    "com_github_jetbrains_kotlin_native_deps_macos_aarch64",
+    "com_github_jetbrains_kotlin_native_linux_x86_64",
+    "com_github_jetbrains_kotlin_native_macos_aarch64",
 )
 
+# One per (exec host, konan target), see define_kt_native_toolchains.
 register_toolchains(
-    "//kotlin/internal/native:linux_x64",
-    "//kotlin/internal/native:macos_arm64",
+    "//kotlin/internal/native:linux_x86_64_linux_arm64",
+    "//kotlin/internal/native:linux_x86_64_linux_x64",
+    "//kotlin/internal/native:macos_aarch64_ios_arm64",
+    "//kotlin/internal/native:macos_aarch64_ios_simulator_arm64",
+    "//kotlin/internal/native:macos_aarch64_linux_arm64",
+    "//kotlin/internal/native:macos_aarch64_linux_x64",
+    "//kotlin/internal/native:macos_aarch64_macos_arm64",
 )

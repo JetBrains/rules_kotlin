@@ -6,8 +6,9 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 echo "== building //:hello for linux_x64 via Bazel =="
-bazel build //:hello --platforms=//:linux_x64
-bin="$(bazel cquery //:hello --platforms=//:linux_x64 --output=files 2>/dev/null)"
+platform="@rules_kotlin//kotlin/native/platforms:linux_x64"
+bazel build //:hello --platforms="$platform"
+bin="$(bazel cquery //:hello --platforms="$platform" --output=files 2>/dev/null)"
 abs="$PWD/$bin"
 echo "built: $bin"
 file "$abs"

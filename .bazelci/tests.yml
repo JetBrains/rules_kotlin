@@ -34,6 +34,8 @@
     # cl : Command line error D8022 : cannot open 'bazel-out/x64_windows-opt-exec-ST-a828a81199fe/bin/external/
     # com_google_protobuf/src/google/protobuf/compiler/_objs/code_generator_lite/code_generator_lite.obj.params'
     - "-//examples:deps"
+    # Kotlin/Native has no Windows exec host (see EXEC_HOSTS in kotlin/internal/native/targets.bzl).
+    - "-//examples:native"
 
 # Common platform configurations.
 .ubuntu2404: &ubuntu2404
@@ -71,6 +73,11 @@ matrix:
 tasks:
   macos_unittests:
     <<: [ *macos, *unittests ]
+  macos_integration_tests:
+    <<: *macos
+    name: "Integration Tests (Kotlin/Native)"
+    test_targets:
+      - //examples:native
   ubuntu2404_unittests:
     <<: [ *ubuntu2404, *unittests ]
   ubuntu2404_integration_tests:

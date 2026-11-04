@@ -25,6 +25,8 @@ release_archive(
         "bzlmod_setup.bzl",
         "compiler.bzl",
         "ksp.bzl",
+        "native.bzl",
+        "native_compiler.bzl",
         "versions.bzl",
     ],
     src_map = {
@@ -40,6 +42,7 @@ bzl_library(
     srcs = glob(["*.bzl"]),
     visibility = ["//:__subpackages__"],
     deps = [
+        "//kotlin/internal/native",
         "//src/main/starlark/core/repositories/kotlin",
         "@bazel_skylib//lib:versions",
     ],

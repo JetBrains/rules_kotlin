@@ -1,6 +1,6 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//kotlin/internal/native:toolchains.bzl", "define_kt_native_toolchain")
+load("//kotlin/internal/native:toolchains.bzl", "define_kt_native_toolchains")
 
 bzl_library(
     name = "native",
@@ -30,34 +30,4 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 
-define_kt_native_toolchain(
-    name = "macos_arm64",
-    exec_compatible_with = [
-        "@platforms//os:macos",
-        "@platforms//cpu:aarch64",
-    ],
-    konan_deps = "@com_github_jetbrains_kotlin_native_deps//:deps",
-    konan_home = "@com_github_jetbrains_kotlin_native//:home",
-    konan_target = "macos_arm64",
-    konanc = "@com_github_jetbrains_kotlin_native//:bin/konanc",
-    target_compatible_with = [
-        "@platforms//os:macos",
-        "@platforms//cpu:aarch64",
-    ],
-)
-
-define_kt_native_toolchain(
-    name = "linux_x64",
-    exec_compatible_with = [
-        "@platforms//os:macos",
-        "@platforms//cpu:aarch64",
-    ],
-    konan_deps = "@com_github_jetbrains_kotlin_native_deps//:deps",
-    konan_home = "@com_github_jetbrains_kotlin_native//:home",
-    konan_target = "linux_x64",
-    konanc = "@com_github_jetbrains_kotlin_native//:bin/konanc",
-    target_compatible_with = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-)
+define_kt_native_toolchains()

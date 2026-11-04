@@ -1,0 +1,48 @@
+load("@bazel_skylib//rules/directory:directory.bzl", "directory")
+load("@bazel_skylib//rules/directory:subdirectory.bzl", "subdirectory")
+
+# buildifier: disable=bzl-visibility
+load("//kotlin/internal/native:toolchains.bzl", "kt_native_deps_view")
+
+package(default_visibility = ["//src/test/starlark/internal/native:__pkg__"])
+
+# A stand-in for the link bundle repository of the host of ../konan_home, staging linux_arm64
+# but not macos_arm64 (see kotlin_native_deps_build_file).
+directory(
+    name = "root",
+    srcs = glob(["dependencies/**"]),
+)
+
+subdirectory(
+    name = "gcc-fixture",
+    parent = ":root",
+    path = "dependencies/gcc-fixture",
+)
+
+subdirectory(
+    name = "libffi-fixture",
+    parent = ":root",
+    path = "dependencies/libffi-fixture",
+)
+
+subdirectory(
+    name = "llvm-fixture",
+    parent = ":root",
+    path = "dependencies/llvm-fixture",
+)
+
+kt_native_deps_view(
+    name = "linux_arm64",
+    konan_target = "linux_arm64",
+    deps = [
+        ":gcc-fixture",
+        ":libffi-fixture",
+        ":llvm-fixture",
+    ],
+)
+
+kt_native_deps_view(
+    name = "macos_arm64",
+    konan_target = "macos_arm64",
+    staged = False,
+)

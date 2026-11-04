@@ -1,25 +1,11 @@
+load("@bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_binary", "kt_native_library")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 package(default_visibility = ["//visibility:public"])
 
 # Build for the host (no flag) or cross-compile with e.g.
-#   bazel build //:app --platforms=//:linux_x64
-platform(
-    name = "macos_arm64",
-    constraint_values = [
-        "@platforms//os:macos",
-        "@platforms//cpu:aarch64",
-    ],
-)
-
-platform(
-    name = "linux_x64",
-    constraint_values = [
-        "@platforms//os:linux",
-        "@platforms//cpu:x86_64",
-    ],
-)
+#   bazel build //:app --platforms=@rules_kotlin//kotlin/native/platforms:linux_x64
 
 kt_native_library(
     name = "greeter",
@@ -54,52 +40,100 @@ kt_native_library(
 )
 
 # --- validation: assert each klib is well-formed with the expected manifest ---
-# (runs in the host config, so the expected target is macos_arm64)
+# These run in the host configuration, so they expect the konan target of the host.
+
+HOST_KONAN_TARGET = select({
+    "@rules_kotlin//kotlin/native/platforms:is_linux_x64": ["linux_x64"],
+    "@rules_kotlin//kotlin/native/platforms:is_macos_arm64": ["macos_arm64"],
+})
 
 sh_test(
     name = "greeter_klib_test",
     srcs = ["validate_klib.sh"],
-    args = [
-        "$(rootpath :greeter)",
-        "macos_arm64",
-    ],
+    args = ["$(rootpath :greeter)"] + HOST_KONAN_TARGET,
     data = [":greeter"],
 )
 
 sh_test(
     name = "app_klib_test",
     srcs = ["validate_klib.sh"],
-    args = [
-        "$(rootpath :app)",
-        "macos_arm64",
-        "greeter",
-    ],
+    args = ["$(rootpath :app)"] + HOST_KONAN_TARGET + ["greeter"],
     data = [":app"],
 )
 
 sh_test(
     name = "top_klib_test",
     srcs = ["validate_klib.sh"],
-    args = [
-        "$(rootpath :top)",
-        "macos_arm64",
-        "app",
-    ],
+    args = ["$(rootpath :top)"] + HOST_KONAN_TARGET + ["app"],
     data = [":top"],
 )
 
 sh_test(
     name = "util_klib_test",
     srcs = ["validate_klib.sh"],
-    args = [
-        "$(rootpath :util)",
-        "macos_arm64",
-    ],
+    args = ["$(rootpath :util)"] + HOST_KONAN_TARGET,
     data = [":util"],
 )
 
+# --- cross-target: the same klib for every konan target, whatever the host ---
+# Every exec host compiles klibs for the Linux targets, but only a macOS one for the Apple
+# targets, so those are skipped elsewhere. klibs need no link dependencies, so they also
+# build for the targets MODULE.bazel leaves out of kotlin_native.targets(...).
+
+# konan target: the constraints the host must meet to compile for it.
+CROSS_TARGETS = {
+    "ios_arm64": ["@platforms//os:macos"],
+    "ios_simulator_arm64": ["@platforms//os:macos"],
+    "linux_arm64": [],
+    "linux_x64": [],
+    "macos_arm64": ["@platforms//os:macos"],
+}
+
+[
+    platform_transition_filegroup(
+        name = "greeter_" + target,
+        srcs = [":greeter"],
+        target_compatible_with = compatible_with,
+        target_platform = "@rules_kotlin//kotlin/native/platforms:" + target,
+    )
+    for target, compatible_with in CROSS_TARGETS.items()
+]
+
+[
+    sh_test(
+        name = "greeter_%s_klib_test" % target,
+        srcs = ["validate_klib.sh"],
+        args = [
+            "$(rootpath :greeter_%s)" % target,
+            target,
+        ],
+        data = [":greeter_" + target],
+        target_compatible_with = compatible_with,
+    )
+    for target, compatible_with in CROSS_TARGETS.items()
+]
+
+# The transitive chain, for a target no exec host stages link dependencies for here.
+platform_transition_filegroup(
+    name = "top_linux_arm64",
+    srcs = [":top"],
+    target_platform = "@rules_kotlin//kotlin/native/platforms:linux_arm64",
+)
+
+sh_test(
+    name = "top_linux_arm64_klib_test",
+    srcs = ["validate_klib.sh"],
+    args = [
+        "$(rootpath :top_linux_arm64)",
+        "linux_arm64",
+        "app",
+    ],
+    data = [":top_linux_arm64"],
+)
+
 # --- e2e: link a real native executable and actually run it (host target) ---
-# NOTE: the first build downloads the konan dependency bundle (~650 MB) into ~/.konan.
+# The link dependencies come from the link bundle repository of the exec host, which stages
+# them for the targets of kotlin_native.targets(...) in MODULE.bazel.
 
 kt_native_binary(
     name = "hello",
@@ -112,4 +146,19 @@ sh_test(
     srcs = ["run_hello.sh"],
     args = ["$(rootpath :hello)"],
     data = [":hello"],
+)
+
+# --- cross-link: the same executable for linux_x64, a native link on Linux, a cross one on macOS ---
+
+platform_transition_filegroup(
+    name = "hello_linux_x64",
+    srcs = [":hello"],
+    target_platform = "@rules_kotlin//kotlin/native/platforms:linux_x64",
+)
+
+sh_test(
+    name = "hello_linux_x64_elf_test",
+    srcs = ["check_elf.sh"],
+    args = ["$(rootpath :hello_linux_x64)"],
+    data = [":hello_linux_x64"],
 )
