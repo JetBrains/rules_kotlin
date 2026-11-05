@@ -5,9 +5,15 @@ distribution + target string instead of the JVM compiler. A host distribution co
 klibs for every target the host builds for, so all of a host's toolchains share its
 `konan_home`, `konan` and `stdlib`, and differ in `konan_target`, its platform libraries,
 its link dependencies and `target_compatible_with`.
+
+Every toolchain also carries the KonanLauncher binary its actions run (see klib.bzl) and, for an
+Apple target, the environment and execution requirements of an action using Xcode.
 """
 
+load("@bazel_skylib//lib:dicts.bzl", "dicts")
 load("@bazel_skylib//rules/directory:providers.bzl", "DirectoryInfo")
+load("@build_bazel_apple_support//lib:apple_support.bzl", "apple_support")
+load("@build_bazel_apple_support//xcode:providers.bzl", "XcodeVersionInfo")
 load(":targets.bzl", "EXEC_HOSTS", "KONAN_TARGETS")
 
 KT_NATIVE_TOOLCHAIN_TYPE = Label("//kotlin/internal/native:kt_native_toolchain_type")
@@ -76,17 +82,36 @@ def _kt_native_toolchain_impl(ctx):
     if konan_deps.konan_target != konan_target:
         fail("konan_deps link for %s, but the toolchain is for %s" % (konan_deps.konan_target, konan_target))
 
+    # What apple_support.run adds to an action (DEVELOPER_DIR and SDKROOT of the selected Xcode,
+    # darwin and Xcode execution requirements), with the SDK of the konan target rather than of the
+    # --apple_platform_type the apple configuration fragment reads.
+    target = KONAN_TARGETS[konan_target]
+    action_env = {}
+    execution_requirements = {}
+    if target.is_apple:
+        xcode_config = ctx.attr._xcode_config[XcodeVersionInfo]
+        action_env.update(apple_common.apple_host_system_env(xcode_config))
+        action_env.update(apple_common.target_apple_env(
+            xcode_config,
+            getattr(apple_common.platform, target.apple_platform),
+        ))
+        execution_requirements["requires-darwin"] = ""
+        execution_requirements.update(xcode_config.execution_info())
+
     return [platform_common.ToolchainInfo(
+        action_env = action_env,
         compile_inputs = depset(transitive = [
             konan.transitive_files,
             stdlib.transitive_files,
             platform_libs.transitive_files,
         ]),
-        is_apple = KONAN_TARGETS[konan_target].is_apple,
+        execution_requirements = execution_requirements,
+        is_apple = target.is_apple,
         konan = konan,
         konan_deps = konan_deps,
         konan_home = konan_home,
         konan_target = konan_target,
+        launcher = ctx.attr.launcher[DefaultInfo].files_to_run,
         platform_libs = platform_libs,
         stdlib = stdlib,
     )]
@@ -94,7 +119,7 @@ def _kt_native_toolchain_impl(ctx):
 _kt_native_toolchain = rule(
     doc = "A Kotlin/Native toolchain. Use define_kt_native_toolchain, not this directly.",
     implementation = _kt_native_toolchain_impl,
-    attrs = {
+    attrs = dicts.add({
         "konan": attr.label(
             doc = "konan/ of the distribution: the compiler and konan.properties",
             mandatory = True,
@@ -115,6 +140,12 @@ _kt_native_toolchain = rule(
             mandatory = True,
             values = sorted(KONAN_TARGETS.keys()),
         ),
+        "launcher": attr.label(
+            doc = "the KonanLauncher binary, which runs the tools of the distribution in every action",
+            default = Label("//src/main/kotlin:konan_launcher"),
+            executable = True,
+            cfg = "exec",
+        ),
         "platform_libs": attr.label(
             doc = "klib/platform/<konan_target> of the distribution",
             mandatory = True,
@@ -125,7 +156,8 @@ _kt_native_toolchain = rule(
             mandatory = True,
             providers = [DirectoryInfo],
         ),
-    },
+    }, apple_support.action_required_attrs()),
+    fragments = ["apple"],
     provides = [platform_common.ToolchainInfo],
 )
 

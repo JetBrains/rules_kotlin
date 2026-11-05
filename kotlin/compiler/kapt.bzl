@@ -70,6 +70,7 @@ def _kapt_compiler_plugin_impl(ctx):
         KtCompilerPluginInfo(
             id = plugin_id,
             classpath = depset(),
+            embeddable_classpath = depset(),
             options = [],
             data = depset(),
             stubs = True,

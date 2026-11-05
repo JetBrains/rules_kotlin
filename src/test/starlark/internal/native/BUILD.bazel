@@ -1,3 +1,9 @@
+load(":common.bzl", "define_fake_toolchains")
+load(":library_test.bzl", "native_library_test_suite")
 load(":toolchain_test.bzl", "native_toolchain_test_suite")
 
+define_fake_toolchains()
+
 native_toolchain_test_suite(name = "native_toolchain_tests")
+
+native_library_test_suite(name = "native_library_tests")

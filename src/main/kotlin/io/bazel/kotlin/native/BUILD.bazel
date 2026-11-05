@@ -1,0 +1,28 @@
+load("//kotlin/compiler:compiler.bzl", _KOTLIN_STDLIBS = "KOTLIN_STDLIBS")
+load("//src/main/kotlin:bootstrap.bzl", "kt_bootstrap_binary", "kt_bootstrap_library")
+
+kt_bootstrap_library(
+    name = "konan_launcher_lib",
+    srcs = ["KonanLauncher.kt"],
+    visibility = ["//src:__subpackages__"],
+)
+
+# The binary every Kotlin/Native action runs (see kotlin/internal/native/klib.bzl): it runs a tool
+# of the distribution in-process, so its JVM flags are the ones bin/run_konan of the distribution
+# gives the compiler. Keep them in sync with konan_launcher in src/main/kotlin/BUILD.release.bazel.
+kt_bootstrap_binary(
+    name = "konan_launcher",
+    final_runtime_deps = _KOTLIN_STDLIBS,
+    jvm_flags = [
+        "-ea",
+        "-Xmx3G",
+        "-XX:TieredStopAtLevel=1",
+        "-Dfile.encoding=UTF-8",
+        # The compiler loads native libraries (JDK 24+).
+        "--enable-native-access=ALL-UNNAMED",
+    ],
+    main_class = "io.bazel.kotlin.native.KonanLauncher",
+    shade_rules = "//src/main/kotlin:shade.jarjar",
+    visibility = ["//src:__subpackages__"],
+    runtime_deps = [":konan_launcher_lib"],
+)

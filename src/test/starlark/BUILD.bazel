@@ -22,6 +22,7 @@ test_suite(
         ":ktlint_fix_runfiles_tests",
         ":native_repositories_tests",
         ":resource_strip_prefix_tests",
+        "//src/test/starlark/internal/native:native_library_tests",
         "//src/test/starlark/internal/native:native_toolchain_tests",
         "//src/test/starlark/ksp:ksp_tests",
     ],

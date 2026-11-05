@@ -16,6 +16,8 @@ KtCompilerPluginInfo = provider(
         "compile": "Run this plugin during koltinc compilation.",
         "data": "Depset of files the plugin reads at compile time: the data files and the runfiles of the data targets." +
                 " They are compilation inputs.",
+        "embeddable_classpath": "The plugin classpath in the embeddable compiler dialect, whichever dialect the Kotlin toolchain runs." +
+                                " The Kotlin/Native compiler is always embeddable.",
         "id": "The id of the plugin.",
         "merge_cfgs": "A Callable[[KtCompilerPluginInfo, List[KtPluginConfiguration]]] that merge multiple plugin configurations.",
         "options": "List of plugin options, represented as KtCompilerPluginOption, to be passed to the compiler",

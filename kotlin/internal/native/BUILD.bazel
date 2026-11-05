@@ -1,14 +1,10 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//kotlin/internal/native:toolchains.bzl", "define_kt_native_toolchains")
 load("//src/main/starlark/release:packager.bzl", "release_archive")
 
 release_archive(
     name = "pkg",
-    srcs = glob([
-        "*.bzl",
-        "*.sh",
-    ]),
+    srcs = glob(["*.bzl"]),
     src_map = {
         "BUILD.release.bazel": "BUILD.bazel",
     },
@@ -22,29 +18,17 @@ bzl_library(
         "//src/main/starlark/core/repositories:__pkg__",
     ],
     deps = [
+        "//kotlin/internal/utils",
+        "//src/main/starlark/core/plugin",
+        "@bazel_skylib//lib:dicts",
         "@bazel_skylib//rules/directory:providers",
-        "@rules_java//java:rules",
+        "@build_bazel_apple_support//lib:apple_support",
+        "@build_bazel_apple_support//xcode:providers",
     ],
 )
 
 toolchain_type(
     name = "kt_native_toolchain_type",
-    visibility = ["//visibility:public"],
-)
-
-# Wraps a konanc invocation: creates the action-local scratch/cache dirs, then execs
-# konanc. Used as the executable for KotlinNativeKlibCompile actions.
-sh_binary(
-    name = "konanc_launcher",
-    srcs = ["konanc_launcher.sh"],
-    visibility = ["//visibility:public"],
-)
-
-# Like konanc_launcher, but also stages the pre-fetched konan dependency bundle into a
-# writable KONAN_DATA_DIR. Used by kt_native_binary (binary linking).
-sh_binary(
-    name = "konanc_link_launcher",
-    srcs = ["konanc_link_launcher.sh"],
     visibility = ["//visibility:public"],
 )
 
@@ -56,5 +40,6 @@ exports_files(
 # Native toolchains, one per (exec host, konan target) of EXEC_HOSTS (targets.bzl), named
 # <host>_<target>, e.g. macos_aarch64_ios_simulator_arm64. A host distribution compiles
 # klibs for every target the host builds for, so a host's toolchains share its konan_home
-# and differ in the target's platform libraries, link dependencies and constraints.
+# and differ in the target's platform libraries, link dependencies and constraints. Their
+# actions run the KonanLauncher of //src/main/kotlin:konan_launcher.
 define_kt_native_toolchains()

@@ -136,13 +136,21 @@ def kt_compiler_plugin_impl(ctx):
     # the plugin can differ from the dialect of the compiler that runs it. The rule then replaces
     # every jar with its copy in the compiler dialect.
     deps = ctx.attr.deps
-    classpath = depset(transitive = [d[JavaInfo].transitive_runtime_jars for d in deps])
+    runtime_classpath = depset(transitive = [d[JavaInfo].transitive_runtime_jars for d in deps])
+    infos = [d[_KtCompilerPluginClasspathInfo] for d in deps]
     if ctx.attr.target_embedded_compiler:
         copies = None if _runs_embedded_compiler(ctx) else "reshaded"
     else:
         copies = "reshaded_embeddable" if _runs_embedded_compiler(ctx) else None
-    if copies:
-        classpath = _reshaded_classpath(classpath, [d[_KtCompilerPluginClasspathInfo] for d in deps], copies)
+
+    # The Kotlin/Native compiler runs the embeddable dialect, whichever one the Kotlin toolchain runs.
+    embeddable_copies = None if ctx.attr.target_embedded_compiler else "reshaded_embeddable"
+
+    classpath = _reshaded_classpath(runtime_classpath, infos, copies) if copies else runtime_classpath
+    if embeddable_copies == copies:
+        embeddable_classpath = classpath
+    else:
+        embeddable_classpath = _reshaded_classpath(runtime_classpath, infos, embeddable_copies) if embeddable_copies else runtime_classpath
 
     options = plugin_common.resolve_plugin_options(ctx.attr.options, _expand_location_with_data_deps(ctx))
 
@@ -151,6 +159,7 @@ def kt_compiler_plugin_impl(ctx):
         _KtCompilerPluginInfo(
             id = plugin_id,
             classpath = classpath,
+            embeddable_classpath = embeddable_classpath,
             options = options,
             data = _data_files(ctx),
             stubs = ctx.attr.stubs_phase,

@@ -46,6 +46,13 @@ alias(
     visibility = ["//visibility:public"],
 )
 
+# The launcher of the Kotlin/Native actions (the launcher of kotlin/internal/native toolchains).
+alias(
+    name = "konan_launcher",
+    actual = "//src/main/kotlin/io/bazel/kotlin/native:konan_launcher",
+    visibility = ["//visibility:public"],
+)
+
 release_archive(
     name = "pkg",
     srcs = [
@@ -58,6 +65,7 @@ release_archive(
         "//src/main/kotlin/io/bazel/kotlin/builder/cmd:ksp2_deploy.jar": "ksp2_worker.jar",
         "//src/main/kotlin/io/bazel/kotlin/builder/cmd:merge_jdeps_deploy.jar": "jdeps_merger_worker.jar",
         "//src/main/kotlin/io/bazel/kotlin/ksp2:ksp2.jar": "ksp2_invoker.jar",
+        "//src/main/kotlin/io/bazel/kotlin/native:konan_launcher_deploy.jar": "konan_launcher_lib.jar",
         "BUILD.release.bazel": "BUILD.bazel",
     },
     deps = [

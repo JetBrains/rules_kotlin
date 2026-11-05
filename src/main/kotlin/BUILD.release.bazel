@@ -37,6 +37,11 @@ java_import(
 )
 
 java_import(
+    name = "konan_launcher_lib",
+    jars = ["konan_launcher_lib.jar"],
+)
+
+java_import(
     name = "jdeps-gen",
     jars = ["jdeps-gen.jar"],
     visibility = ["//visibility:public"],
@@ -103,4 +108,20 @@ java_binary(
     main_class = "io.bazel.kotlin.builder.cmd.Ksp2",
     visibility = ["//visibility:public"],
     runtime_deps = [":ksp2_worker"],
+)
+
+# The launcher of the Kotlin/Native actions; the JVM flags are the ones of
+# //src/main/kotlin/io/bazel/kotlin/native:konan_launcher.
+java_binary(
+    name = "konan_launcher",
+    jvm_flags = [
+        "-ea",
+        "-Xmx3G",
+        "-XX:TieredStopAtLevel=1",
+        "-Dfile.encoding=UTF-8",
+        "--enable-native-access=ALL-UNNAMED",
+    ],
+    main_class = "io.bazel.kotlin.native.KonanLauncher",
+    visibility = ["//visibility:public"],
+    runtime_deps = [":konan_launcher_lib"],
 )

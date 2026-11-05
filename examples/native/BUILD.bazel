@@ -20,14 +20,15 @@ kt_native_library(
     deps = [":greeter"],
 )
 
-# Multi-source-file library (cross-file references within one module).
+# Multi-source-file library (cross-file references within one module), whose module name, the
+# unique_name of its klib, differs from the target name.
 kt_native_library(
     name = "util",
     srcs = [
         "Util1.kt",
         "Util2.kt",
     ],
-    module_name = "util",
+    module_name = "example_util",
 )
 
 # 3-level transitive chain: top -> app -> greeter. `top` uses only app's API, but konanc
@@ -40,6 +41,7 @@ kt_native_library(
 )
 
 # --- validation: assert each klib is well-formed with the expected manifest ---
+# validate_klib.sh <klib> <native target> <unique_name> [depends...]
 # These run in the host configuration, so they expect the konan target of the host.
 
 HOST_KONAN_TARGET = select({
@@ -50,28 +52,34 @@ HOST_KONAN_TARGET = select({
 sh_test(
     name = "greeter_klib_test",
     srcs = ["validate_klib.sh"],
-    args = ["$(rootpath :greeter)"] + HOST_KONAN_TARGET,
+    args = ["$(rootpath :greeter)"] + HOST_KONAN_TARGET + ["greeter"],
     data = [":greeter"],
 )
 
 sh_test(
     name = "app_klib_test",
     srcs = ["validate_klib.sh"],
-    args = ["$(rootpath :app)"] + HOST_KONAN_TARGET + ["greeter"],
+    args = ["$(rootpath :app)"] + HOST_KONAN_TARGET + [
+        "app",
+        "greeter",
+    ],
     data = [":app"],
 )
 
 sh_test(
     name = "top_klib_test",
     srcs = ["validate_klib.sh"],
-    args = ["$(rootpath :top)"] + HOST_KONAN_TARGET + ["app"],
+    args = ["$(rootpath :top)"] + HOST_KONAN_TARGET + [
+        "top",
+        "app",
+    ],
     data = [":top"],
 )
 
 sh_test(
     name = "util_klib_test",
     srcs = ["validate_klib.sh"],
-    args = ["$(rootpath :util)"] + HOST_KONAN_TARGET,
+    args = ["$(rootpath :util)"] + HOST_KONAN_TARGET + ["example_util"],
     data = [":util"],
 )
 
@@ -106,6 +114,7 @@ CROSS_TARGETS = {
         args = [
             "$(rootpath :greeter_%s)" % target,
             target,
+            "greeter",
         ],
         data = [":greeter_" + target],
         target_compatible_with = compatible_with,
@@ -126,6 +135,7 @@ sh_test(
     args = [
         "$(rootpath :top_linux_arm64)",
         "linux_arm64",
+        "top",
         "app",
     ],
     data = [":top_linux_arm64"],

@@ -1,5 +1,4 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
-load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//kotlin/internal/native:toolchains.bzl", "define_kt_native_toolchains")
 
 bzl_library(
@@ -10,18 +9,6 @@ bzl_library(
 
 toolchain_type(
     name = "kt_native_toolchain_type",
-    visibility = ["//visibility:public"],
-)
-
-sh_binary(
-    name = "konanc_launcher",
-    srcs = ["konanc_launcher.sh"],
-    visibility = ["//visibility:public"],
-)
-
-sh_binary(
-    name = "konanc_link_launcher",
-    srcs = ["konanc_link_launcher.sh"],
     visibility = ["//visibility:public"],
 )
 

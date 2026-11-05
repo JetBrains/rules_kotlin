@@ -1,0 +1,28 @@
+load("@rules_java//java:defs.bzl", "java_library")
+load("//kotlin:jvm.bzl", "kt_jvm_test")
+
+# A stand-in for the compiler jar of a Kotlin/Native distribution. It is data of the test, not a
+# dependency: KonanLauncher loads it in a class loader of its own, as it does the real compiler.
+java_library(
+    name = "fake_konan_compiler",
+    srcs = glob(["fake/*.java"]),
+)
+
+kt_jvm_test(
+    name = "KonanLauncherTest",
+    srcs = ["KonanLauncherTest.kt"],
+    data = [":fake_konan_compiler"],
+    jvm_flags = ["-Dfake_konan_compiler=$(rlocationpath :fake_konan_compiler)"],
+    # Kotlin/Native has no Windows exec host, and the launcher stages with symbolic links.
+    target_compatible_with = select({
+        "@platforms//os:windows": ["@platforms//:incompatible"],
+        "//conditions:default": [],
+    }),
+    test_class = "io.bazel.kotlin.native.KonanLauncherTest",
+    deps = [
+        "//src/main/kotlin/io/bazel/kotlin/native:konan_launcher_lib",
+        "@bazel_tools//tools/java/runfiles",
+        "@kotlin_rules_maven_test//:com_google_truth_truth",
+        "@kotlin_rules_maven_test//:junit_junit",
+    ],
+)

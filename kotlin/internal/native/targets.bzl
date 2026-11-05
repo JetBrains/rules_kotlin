@@ -1,6 +1,7 @@
 """The Kotlin/Native targets and exec hosts rules_kotlin supports.
 
-`KONAN_TARGETS` maps a konan target to the constraints of the platform it builds for.
+`KONAN_TARGETS` maps a konan target to the constraints of the platform it builds for and, for an
+Apple target, the name of its `apple_common.platform`, which selects the Xcode SDK of its actions.
 `EXEC_HOSTS` maps a distribution host (the suffix of the `kotlin-native-prebuilt-<host>-<version>`
 archives) to its konan name, the constraints of the exec platform it runs on and the konan targets
 its distribution compiles for. Platforms, toolchains and repositories are all generated from these
@@ -22,22 +23,27 @@ APPLE_VENDOR_CONSTRAINT = Label("@build_bazel_apple_support//constraints:apple")
 KONAN_TARGETS = {
     "ios_arm64": struct(
         is_apple = True,
+        apple_platform = "ios_device",
         constraints = [_OS_IOS, _CPU_AARCH64, _APPLE_DEVICE],
     ),
     "ios_simulator_arm64": struct(
         is_apple = True,
+        apple_platform = "ios_simulator",
         constraints = [_OS_IOS, _CPU_AARCH64, _APPLE_SIMULATOR],
     ),
     "linux_arm64": struct(
         is_apple = False,
+        apple_platform = None,
         constraints = [_OS_LINUX, _CPU_AARCH64],
     ),
     "linux_x64": struct(
         is_apple = False,
+        apple_platform = None,
         constraints = [_OS_LINUX, _CPU_X86_64],
     ),
     "macos_arm64": struct(
         is_apple = True,
+        apple_platform = "macos",
         constraints = [_OS_MACOS, _CPU_AARCH64],
     ),
 }

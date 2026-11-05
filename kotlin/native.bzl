@@ -3,6 +3,7 @@
 Experimental (prototype):
 - kt_native_library: compile .kt -> .klib for the resolved konan target.
 - kt_native_binary: link .kt sources + klib deps into a native executable.
+- KtKlibInfo: the provider of a klib.
 
 The konan target is selected by Bazel toolchain resolution (the build's --platforms),
 not a rule attribute. See examples/native for usage.
@@ -10,8 +11,8 @@ not a rule attribute. See examples/native for usage.
 
 load("//kotlin/internal/native:binary.bzl", _kt_native_binary = "kt_native_binary")
 load("//kotlin/internal/native:library.bzl", _kt_native_library = "kt_native_library")
-load("//kotlin/internal/native:providers.bzl", _KtNativeInfo = "KtNativeInfo")
+load("//kotlin/internal/native:providers.bzl", _KtKlibInfo = "KtKlibInfo")
 
 kt_native_library = _kt_native_library
 kt_native_binary = _kt_native_binary
-KtNativeInfo = _KtNativeInfo
+KtKlibInfo = _KtKlibInfo

@@ -5,3 +5,16 @@ common --tool_java_runtime_version=remotejdk_21
 # come from Bazel repositories, fetched before any action runs.
 build --sandbox_default_allow_network=false
 test --test_output=errors
+
+# Engage path mapping, as examples/path_mapping does: the Kotlin/Native actions declare support for
+# it, and take every output path from their params file, so they run with config-free output paths.
+# Workers (e.g. the Java compiler building the KonanLauncher) run singleplex and sandboxed: a
+# multiplex worker does not resolve the paths of its requests under path mapping.
+# Linux and macOS only, the exec hosts of Kotlin/Native (path mapping needs a sandboxing strategy).
+common --enable_platform_specific_config
+build:linux --experimental_output_paths=strip
+build:linux --worker_sandboxing
+build:linux --noworker_multiplex
+build:macos --experimental_output_paths=strip
+build:macos --worker_sandboxing
+build:macos --noworker_multiplex

@@ -1,122 +1,91 @@
-"""kt_native_library: source-only Kotlin/Native klib compilation.
+"""kt_native_library: compiles Kotlin sources into a Kotlin/Native klib.
 
-Compiles .kt sources to a .klib for the konan target supplied by the resolved
-toolchain (NOT a rule attribute). Consumes other kt_native_library klibs of the same
-target via `-l`. Binary linking is handled separately by kt_native_binary (binary.bzl).
+The konan target is the one of the resolved toolchain (the build's --platforms), not a rule
+attribute. The klib action is the shared one of klib.bzl; binary linking is handled separately by
+kt_native_binary (binary.bzl).
 """
 
-load("@rules_java//java:defs.bzl", "java_common")
-load(":providers.bzl", "KtNativeInfo")
+load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
+load(":klib.bzl", "collect_klib_deps", "kt_native_compile", "native_module_name")
+load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 
 def _kt_native_library_impl(ctx):
+    if ctx.attr.source_sets:
+        fail("source_sets are reserved for Kotlin Multiplatform source sets, which kt_native_library does not support yet")
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
-    java_runtime = ctx.attr._java_runtime[java_common.JavaRuntimeInfo]
-    module_name = ctx.attr.module_name or ctx.label.name
-
-    transitive = []
-    for dep in ctx.attr.deps:
-        info = dep[KtNativeInfo]
-        if info.konan_target != tc.konan_target:
-            fail("dep {dep} is for target {dt}, but this target is {t}".format(
-                dep = dep.label,
-                dt = info.konan_target,
-                t = tc.konan_target,
-            ))
-        transitive.append(info.transitive_klibs)
-
-    # Pass the full transitive klib closure as -l. konanc reads each klib's `depends=`
-    # and must resolve those libraries by name, but konanc has no library search-path
-    # flag — it only searches the directories of -l'd libraries. Direct-only -l happens
-    # to work when all klibs are co-located (same Bazel package -> same bin dir), but not
-    # when deps span packages. Passing the closure is robust regardless.
-    # Cost: a klib's `depends=` then over-declares (lists transitive, not just direct).
-    # TODO: symlink direct deps into one dir for clean `depends=` metadata.
-    dep_klibs = depset(transitive = transitive)
+    module_name = native_module_name(ctx)
+    klib_deps = collect_klib_deps(tc.konan_target, ctx.attr.deps + ctx.attr.exports)
 
     klib = ctx.actions.declare_file(ctx.label.name + ".klib")
-    out_base = klib.path[:-len(".klib")]  # konanc appends .klib
-
-    # Action-local scratch (NOT declared outputs). konanc auto-caches stdlib/platform
-    # deps into -Xauto-cache-dir; without redirecting it, it writes into the read-only
-    # distribution repo and Bazel re-fetches it every build. konanc does not create the
-    # auto-cache dir itself, so the launcher mkdir's both first.
-    konan_data_dir = ctx.label.name + ".konan_data"
-    auto_cache_dir = ctx.label.name + ".autocache"
-
-    # Leading positionals are consumed by the launcher: konan home, count of scratch
-    # dirs to mkdir, then those dirs; the rest are konanc's own flags.
-    args = ctx.actions.args()
-    args.add(tc.konan_home.path)
-    args.add("2")
-    args.add(auto_cache_dir)
-    args.add(konan_data_dir)
-    args.add("-produce", "library")
-    args.add("-target", tc.konan_target)
-    args.add("-module-name", module_name)
-    args.add("-Xkonan-data-dir=" + konan_data_dir)
-    args.add("-Xauto-cache-dir=" + auto_cache_dir)
-
-    # A dependency konanc would download fails with its own message, not a network error.
-    args.add("-Xoverride-konan-properties=airplaneMode=true")
-    args.add("-o", out_base)
-    args.add_all(dep_klibs, before_each = "-l")
-    args.add_all(ctx.files.srcs)
-
-    # The launcher runs konanc on a JVM from JAVA_HOME, the Bazel JDK toolchain (hermetic —
-    # no client-env inheritance), with -Dkonan.home in the sandbox, so the inputs are only
-    # the parts of the distribution this target needs. It sets its own PATH for `mkdir`.
-    ctx.actions.run(
-        executable = ctx.executable._launcher,
-        arguments = [args],
-        inputs = depset(
-            ctx.files.srcs,
-            transitive = [dep_klibs, tc.compile_inputs, java_runtime.files],
-        ),
-        outputs = [klib],
-        env = {
-            "JAVA_HOME": java_runtime.java_home,
-            "KONAN_DATA_DIR": konan_data_dir,
-        },
+    kt_native_compile(
+        ctx,
+        produce = "library",
+        output = klib,
+        srcs = ctx.files.srcs,
+        klib_deps = klib_deps,
+        module_name = module_name,
+        plugins = ctx.attr.plugins,
+        opts = ctx.attr.opts,
         mnemonic = "KotlinNativeKlibCompile",
         progress_message = "Compiling Kotlin/Native klib %{label} (" + tc.konan_target + ")",
     )
 
+    exports = [export[KtKlibInfo] for export in ctx.attr.exports]
     return [
         DefaultInfo(files = depset([klib])),
-        KtNativeInfo(
+        KtKlibInfo(
+            cc_info = None,
+            exported_klibs = depset(
+                [export.klib for export in exports],
+                transitive = [export.exported_klibs for export in exports],
+            ),
             klib = klib,
             konan_target = tc.konan_target,
             module_name = module_name,
-            transitive_klibs = depset([klib], transitive = transitive),
+            platform = "native",
+            transitive_klibs = depset([klib], transitive = [klib_deps]),
         ),
     ]
 
 kt_native_library = rule(
-    doc = "Compiles Kotlin sources into a Kotlin/Native .klib for the resolved target.",
+    doc = """Compiles Kotlin sources into a Kotlin/Native klib, for the konan target of the build's platform.
+
+    Experimental. Build for a konan target with `--platforms`, e.g.
+    `--platforms=@rules_kotlin//kotlin/native/platforms:linux_x64`; the host platform builds for the
+    host's target.""",
     implementation = _kt_native_library_impl,
     attrs = {
         "deps": attr.label_list(
-            doc = "Other kt_native_library targets (must be the same konan target).",
-            providers = [KtNativeInfo],
+            doc = "The klibs the sources compile against, e.g. kt_native_library targets. They are for the same konan target.",
+            providers = [KtKlibInfo],
+        ),
+        "exports": attr.label_list(
+            doc = """Klibs the sources compile against that the library also re-exports: its dependents compile against
+            them as if they listed them in their own deps.""",
+            providers = [KtKlibInfo],
         ),
         "module_name": attr.string(
-            doc = "The Kotlin module name; defaults to the target name.",
+            doc = """The Kotlin module name, which is the unique_name of the klib. By default it is derived from the label,
+            as for the JVM rules.""",
+        ),
+        "opts": attr.string_list(
+            doc = "More konanc options, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`. They follow the options of the rule.",
+        ),
+        "plugins": attr.label_list(
+            doc = """Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation. The Kotlin/Native compiler
+            loads them in the embeddable compiler dialect.""",
+            providers = [KtCompilerPluginInfo],
+            cfg = "exec",
+        ),
+        "source_sets": attr.label_list(
+            doc = "Reserved for the Kotlin Multiplatform source sets to compile with the sources; not supported yet.",
         ),
         "srcs": attr.label_list(
             doc = "Kotlin sources.",
             allow_files = [".kt"],
         ),
-        "_java_runtime": attr.label(
-            default = Label("@bazel_tools//tools/jdk:current_java_runtime"),
-            cfg = "exec",
-        ),
-        "_launcher": attr.label(
-            default = Label("//kotlin/internal/native:konanc_launcher"),
-            executable = True,
-            cfg = "exec",
-        ),
     },
     toolchains = [KT_NATIVE_TOOLCHAIN_TYPE],
-    provides = [KtNativeInfo],
+    provides = [KtKlibInfo],
 )
