@@ -6,6 +6,11 @@ common --tool_java_runtime_version=remotejdk_21
 build --sandbox_default_allow_network=false
 test --test_output=errors
 
+# The integration test runner (BazelIntegrationTestRunner) passes every test of the example to
+# `bazel coverage` by name, including those a Linux host cannot build, such as the Apple framework
+# checks: skip them, as `bazel test //...` does, rather than fail.
+build --skip_incompatible_explicit_targets
+
 # Engage path mapping, as examples/path_mapping does: the Kotlin/Native actions declare support for
 # it, and take every output path from their params file, so they run with config-free output paths.
 # Workers (e.g. the Java compiler building the KonanLauncher) run singleplex and sandboxed: a

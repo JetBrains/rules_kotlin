@@ -1,8 +1,8 @@
 """kt_native_library: compiles Kotlin sources into a Kotlin/Native klib.
 
 The konan target is the one of the resolved toolchain (the build's --platforms), not a rule
-attribute. The klib action is the shared one of klib.bzl; binary linking is handled separately by
-kt_native_binary (binary.bzl).
+attribute. The klib action is the shared one of klib.bzl; linking is handled separately by
+kt_native_binary, kt_native_test and kt_native_framework (see link.bzl).
 """
 
 load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
@@ -20,14 +20,12 @@ def _kt_native_library_impl(ctx):
     klib = ctx.actions.declare_file(ctx.label.name + ".klib")
     kt_native_compile(
         ctx,
-        produce = "library",
         output = klib,
         srcs = ctx.files.srcs,
         klib_deps = klib_deps,
         module_name = module_name,
         plugins = ctx.attr.plugins,
         opts = ctx.attr.opts,
-        mnemonic = "KotlinNativeKlibCompile",
         progress_message = "Compiling Kotlin/Native klib %{label} (" + tc.konan_target + ")",
     )
 

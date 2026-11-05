@@ -3,14 +3,15 @@ load("@bazel_skylib//rules/directory:subdirectory.bzl", "subdirectory")
 
 package(default_visibility = ["//src/test/starlark/internal/native:__pkg__"])
 
-# A stand-in for the distribution repository of a host building for linux_arm64 and
-# macos_arm64 (see kotlin_native_compiler_build_file). bin/ and klib/cache stay out of the
-# tree, as they do there.
+# A stand-in for the distribution repository of a host building for ios_simulator_arm64,
+# linux_arm64 and macos_arm64 (see kotlin_native_compiler_build_file). bin/ and klib/cache stay
+# out of the tree, as they do there.
 directory(
     name = "home",
     srcs = glob([
         "konan/**",
         "klib/common/stdlib/**",
+        "klib/platform/ios_simulator_arm64/**",
         "klib/platform/linux_arm64/**",
         "klib/platform/macos_arm64/**",
     ]),
@@ -26,6 +27,12 @@ subdirectory(
     name = "stdlib",
     parent = ":home",
     path = "klib/common/stdlib",
+)
+
+subdirectory(
+    name = "platform_ios_simulator_arm64",
+    parent = ":home",
+    path = "klib/platform/ios_simulator_arm64",
 )
 
 subdirectory(

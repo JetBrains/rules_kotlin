@@ -128,7 +128,7 @@ kotlin_native_compiler_repository = repository_rule(
     },
 )
 
-# --- konan dependency bundle (LLVM / libffi / lldb / cross-toolchain) for binary linking ---
+# --- konan dependency bundle (LLVM / libffi / lldb / cross-toolchain / emulator) for binary linking ---
 #
 # klib compilation needs none of these. Binary linking (`-produce program`) does: konanc
 # otherwise downloads them to ~/.konan on first run. Pre-staging them (here), with the link
@@ -148,13 +148,15 @@ KOTLIN_NATIVE_ARCHIVES = {
     "lldb-4-macos": (_DEPS_BASE + "/lldb-4-macos.tar.gz", "069193359103d4e4a4653f236e7a963e266a4a366905e858d4a68e701f43866e"),
     "llvm-21-aarch64-macos-essentials-97": (_DEPS_BASE + "/resources/llvm/21-aarch64-macos/llvm-21-aarch64-macos-essentials-97.tar.gz", "62fd78f090353aa7b2c6601ad6f95bd7a0b0558b18f86978043cc878321b408a"),
     "llvm-21-x86_64-linux-essentials-116": (_DEPS_BASE + "/resources/llvm/21-x86_64-linux/llvm-21-x86_64-linux-essentials-116.tar.gz", "0b1f290214dd7ec20e2506210967e0ebd735cdefc3a3b4485bbccb439fa78e5b"),
+    "qemu-aarch64-static-5.1.0-linux-2": (_DEPS_BASE + "/qemu-aarch64-static-5.1.0-linux-2.tar.gz", "87b618ef95bc9883069c47ee625e287d1c38154e94bc7de7df8706d57e3e50e5"),
     "x86_64-unknown-linux-gnu-gcc-8.3.0-glibc-2.19-kernel-4.9-2": (_DEPS_BASE + "/x86_64-unknown-linux-gnu-gcc-8.3.0-glibc-2.19-kernel-4.9-2.tar.gz", "a048397d50fb5a2bd6cc0f89d5a30e0b8ff0373ebff9c1d78ce1f1fb7f185a50"),
 }
 
 # The link dependencies of each exec host of EXEC_HOSTS, by name: `host` ones to link for any
 # target (LLVM, libffi) and `targets` ones on top of them for that target (lldb for the host
-# itself, the *-gcc-* cross-toolchain for Linux). iOS targets add none, as Xcode provides their
-# toolchain and SDK.
+# itself, the *-gcc-* cross-toolchain for Linux, and on a Linux host the qemu emulator of another
+# Linux target, which konanc requires to link although it only runs tests with it). iOS targets
+# add none, as Xcode provides their toolchain and SDK.
 #
 # They must be exactly the ones the `konan/konan.properties` of the host's own distribution asks
 # for (see konan_link_dependencies): each distribution points its host at the essentials LLVM
@@ -164,7 +166,7 @@ KOTLIN_NATIVE_DEPS = {
     "linux-x86_64": struct(
         host = ["libffi-3.2.1-2-linux-x86-64", "llvm-21-x86_64-linux-essentials-116"],
         targets = {
-            "linux_arm64": ["aarch64-unknown-linux-gnu-gcc-8.3.0-glibc-2.25-kernel-4.9-2"],
+            "linux_arm64": ["aarch64-unknown-linux-gnu-gcc-8.3.0-glibc-2.25-kernel-4.9-2", "qemu-aarch64-static-5.1.0-linux-2"],
             "linux_x64": ["lldb-4-linux", "x86_64-unknown-linux-gnu-gcc-8.3.0-glibc-2.19-kernel-4.9-2"],
         },
     ),
@@ -501,7 +503,8 @@ def konan_link_dependencies(properties, konan_host, konan_target):
     Those are the host's LLVM (`llvmHome.<host>`) and libffi (`libffiDir.<host>`), plus
     `dependencies.<host>` to link for the host itself or `dependencies.<host>-<target>` for
     another target. The latter is absent for iOS targets, as Xcode provides their toolchain and
-    SDK.
+    SDK. A Linux target also needs its emulator, `emulatorDependency.<host>-<target>`, which
+    konan's GCC configurables add to the dependencies: qemu, for linux_arm64 on linux_x64.
 
     Args:
       properties: the parsed konan.properties of the distribution.
@@ -512,8 +515,11 @@ def konan_link_dependencies(properties, konan_host, konan_target):
       The sorted dependency names, which are also their archive and directory names.
     """
     suffix = konan_host if konan_target == konan_host else konan_host + "-" + konan_target
+    keys = [("llvmHome", konan_host), ("libffiDir", konan_host), ("dependencies", suffix)]
+    if konan_target.startswith("linux_"):
+        keys.append(("emulatorDependency", suffix))
     names = {}
-    for key, key_suffix in [("llvmHome", konan_host), ("libffiDir", konan_host), ("dependencies", suffix)]:
+    for key, key_suffix in keys:
         for name in _resolve_tokens(properties, _host_property(properties, key, key_suffix)):
             names[name] = None
     return sorted(names.keys())

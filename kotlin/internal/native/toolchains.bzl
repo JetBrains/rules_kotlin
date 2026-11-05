@@ -6,8 +6,9 @@ klibs for every target the host builds for, so all of a host's toolchains share 
 `konan_home`, `konan` and `stdlib`, and differ in `konan_target`, its platform libraries,
 its link dependencies and `target_compatible_with`.
 
-Every toolchain also carries the KonanLauncher binary its actions run (see klib.bzl) and, for an
-Apple target, the environment and execution requirements of an action using Xcode.
+Every toolchain also carries the KonanLauncher binary its actions run (see klib.bzl), the konan
+target of its exec host, whose binaries a test can run there, and, for an Apple target, the
+environment and execution requirements of an action using Xcode.
 """
 
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
@@ -110,6 +111,7 @@ def _kt_native_toolchain_impl(ctx):
         konan = konan,
         konan_deps = konan_deps,
         konan_home = konan_home,
+        konan_host = ctx.attr.konan_host,
         konan_target = konan_target,
         launcher = ctx.attr.launcher[DefaultInfo].files_to_run,
         platform_libs = platform_libs,
@@ -134,6 +136,11 @@ _kt_native_toolchain = rule(
             doc = "the distribution root, which konanc gets as -Dkonan.home",
             mandatory = True,
             providers = [DirectoryInfo],
+        ),
+        "konan_host": attr.string(
+            doc = "the konan target of the exec host, whose binaries run there (e.g. linux_x64)",
+            mandatory = True,
+            values = sorted(KONAN_TARGETS.keys()),
         ),
         "konan_target": attr.string(
             doc = "the konan target this toolchain compiles for (e.g. macos_arm64)",
@@ -164,6 +171,7 @@ _kt_native_toolchain = rule(
 def define_kt_native_toolchain(
         name,
         konan_target,
+        konan_host,
         konan_home,
         konan,
         stdlib,
@@ -180,6 +188,7 @@ def define_kt_native_toolchain(
     Args:
       name: the name of the toolchain; the impl is <name>_impl.
       konan_target: the konan target the toolchain compiles for.
+      konan_host: the konan target of the exec host (EXEC_HOSTS[...].konan_host).
       konan_home: the DirectoryInfo of the distribution root.
       konan: the DirectoryInfo of konan/ under konan_home.
       stdlib: the DirectoryInfo of klib/common/stdlib under konan_home.
@@ -193,6 +202,7 @@ def define_kt_native_toolchain(
     _kt_native_toolchain(
         name = impl_name,
         konan_target = konan_target,
+        konan_host = konan_host,
         konan_home = konan_home,
         konan = konan,
         stdlib = stdlib,
@@ -225,6 +235,7 @@ def define_kt_native_toolchains():
             define_kt_native_toolchain(
                 name = "%s_%s" % (host.repo_suffix, target),
                 konan_target = target,
+                konan_host = host.konan_host,
                 konan_home = dist + ":home",
                 konan = dist + ":konan",
                 stdlib = dist + ":stdlib",

@@ -10,10 +10,15 @@ bazel_dep(name = "bazel_lib", version = "3.1.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_shell", version = "0.6.1")
 
-# Link dependencies are only staged for the targets the example links for: linux_x64 (the
-# Linux CI host, and a cross-link on macOS) and macos_arm64. klibs compile for every target.
+# Link dependencies are staged for every target the example links for: linux_x64 and linux_arm64
+# (a native link on Linux or a cross one, which adds the cross-toolchain of the target and, on a
+# Linux host, its qemu emulator), macos_arm64, and the iOS targets of its frameworks, whose
+# toolchain comes from Xcode, so they add no download. klibs compile for every target regardless.
 kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
 kotlin_native.targets(targets = [
+    "ios_arm64",
+    "ios_simulator_arm64",
+    "linux_arm64",
     "linux_x64",
     "macos_arm64",
 ])

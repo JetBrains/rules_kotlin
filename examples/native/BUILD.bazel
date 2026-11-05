@@ -1,5 +1,5 @@
 load("@bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
-load("@rules_kotlin//kotlin:native.bzl", "kt_native_binary", "kt_native_library")
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_binary", "kt_native_framework", "kt_native_library", "kt_native_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 package(default_visibility = ["//visibility:public"])
@@ -85,8 +85,8 @@ sh_test(
 
 # --- cross-target: the same klib for every konan target, whatever the host ---
 # Every exec host compiles klibs for the Linux targets, but only a macOS one for the Apple
-# targets, so those are skipped elsewhere. klibs need no link dependencies, so they also
-# build for the targets MODULE.bazel leaves out of kotlin_native.targets(...).
+# targets, so those are skipped elsewhere. klibs need no link dependencies, so they build for a
+# target whether kotlin_native.targets(...) in MODULE.bazel lists it or not.
 
 # konan target: the constraints the host must meet to compile for it.
 CROSS_TARGETS = {
@@ -122,7 +122,7 @@ CROSS_TARGETS = {
     for target, compatible_with in CROSS_TARGETS.items()
 ]
 
-# The transitive chain, for a target no exec host stages link dependencies for here.
+# The transitive chain, for a target other than the host's on every exec host.
 platform_transition_filegroup(
     name = "top_linux_arm64",
     srcs = [":top"],
@@ -142,8 +142,8 @@ sh_test(
 )
 
 # --- e2e: link a real native executable and actually run it (host target) ---
-# The link dependencies come from the link bundle repository of the exec host, which stages
-# them for the targets of kotlin_native.targets(...) in MODULE.bazel.
+# `bazel run //:hello` runs it too. The link dependencies come from the link bundle repository of
+# the exec host, which stages them for the targets of kotlin_native.targets(...) in MODULE.bazel.
 
 kt_native_binary(
     name = "hello",
@@ -158,17 +158,107 @@ sh_test(
     data = [":hello"],
 )
 
-# --- cross-link: the same executable for linux_x64, a native link on Linux, a cross one on macOS ---
+# --- tests: a test runner of the host target, which bazel test runs ---
 
-platform_transition_filegroup(
-    name = "hello_linux_x64",
-    srcs = [":hello"],
-    target_platform = "@rules_kotlin//kotlin/native/platforms:linux_x64",
+# greeter_test tests an internal function of greeter, its associate.
+kt_native_test(
+    name = "greeter_test",
+    srcs = ["GreeterTest.kt"],
+    associates = [":greeter"],
+)
+
+# FailingTest has a passing and a failing test. failing_test passes, as the test runner's own
+# filter in its args leaves the failing one out; failing_test_exit_code_test runs the test runner
+# without the filter and expects it to fail.
+kt_native_test(
+    name = "failing_test",
+    srcs = ["FailingTest.kt"],
+    args = ["--ktest_filter=*.passes"],
 )
 
 sh_test(
-    name = "hello_linux_x64_elf_test",
-    srcs = ["check_elf.sh"],
-    args = ["$(rootpath :hello_linux_x64)"],
-    data = [":hello_linux_x64"],
+    name = "failing_test_exit_code_test",
+    srcs = ["expect_test_failure.sh"],
+    args = ["$(rootpath :failing_test)"],
+    data = [":failing_test"],
 )
+
+# --- cross-link: the same executable for each Linux target, a native or a cross link ---
+
+# konan target: the machine of its ELF files.
+LINUX_TARGETS = {
+    "linux_arm64": "aarch64",
+    "linux_x64": "x86_64",
+}
+
+[
+    platform_transition_filegroup(
+        name = "hello_" + target,
+        srcs = [":hello"],
+        target_platform = "@rules_kotlin//kotlin/native/platforms:" + target,
+    )
+    for target in LINUX_TARGETS
+]
+
+[
+    sh_test(
+        name = "hello_%s_elf_test" % target,
+        srcs = ["check_elf.sh"],
+        args = [
+            "$(rootpath :hello_%s)" % target,
+            machine,
+        ],
+        data = [":hello_" + target],
+    )
+    for target, machine in LINUX_TARGETS.items()
+]
+
+# --- frameworks: a static Apple framework, linked on a macOS host for each Apple target ---
+# GreeterKit exports greeter: its header declares the API of Welcome.kt and of greeter, prefixed
+# with the name of the framework.
+
+kt_native_framework(
+    name = "GreeterKit",
+    srcs = ["Welcome.kt"],
+    bundle_id = "org.example.GreeterKit",
+    target_compatible_with = select({
+        "@platforms//os:ios": [],
+        "@platforms//os:macos": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    exports = [":greeter"],
+)
+
+# Apple konan target: the platform its frameworks support (CFBundleSupportedPlatforms).
+APPLE_TARGETS = {
+    "ios_arm64": "iPhoneOS",
+    "ios_simulator_arm64": "iPhoneSimulator",
+    "macos_arm64": "MacOSX",
+}
+
+[
+    platform_transition_filegroup(
+        name = "GreeterKit_" + target,
+        srcs = [":GreeterKit"],
+        target_compatible_with = ["@platforms//os:macos"],
+        target_platform = "@rules_kotlin//kotlin/native/platforms:" + target,
+    )
+    for target in APPLE_TARGETS
+]
+
+[
+    sh_test(
+        name = "GreeterKit_%s_framework_test" % target,
+        srcs = ["check_framework.sh"],
+        args = [
+            "$(rootpath :GreeterKit_%s)" % target,
+            platform,
+            "org.example.GreeterKit",
+            "GreeterKitWelcome",
+            "GreeterKitGreeter",
+        ],
+        data = [":GreeterKit_" + target],
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+    for target, platform in APPLE_TARGETS.items()
+]

@@ -6,8 +6,8 @@ load("//kotlin/internal/native:toolchains.bzl", "kt_native_deps_view")
 
 package(default_visibility = ["//src/test/starlark/internal/native:__pkg__"])
 
-# A stand-in for the link bundle repository of the host of ../konan_home, staging linux_arm64
-# but not macos_arm64 (see kotlin_native_deps_build_file).
+# A stand-in for the link bundle repository of the host of ../konan_home, staging
+# ios_simulator_arm64 and linux_arm64 but not macos_arm64 (see kotlin_native_deps_build_file).
 directory(
     name = "root",
     srcs = glob(["dependencies/**"]),
@@ -29,6 +29,16 @@ subdirectory(
     name = "llvm-fixture",
     parent = ":root",
     path = "dependencies/llvm-fixture",
+)
+
+# Like an iOS target of a real bundle, it adds no dependency to those of the host.
+kt_native_deps_view(
+    name = "ios_simulator_arm64",
+    konan_target = "ios_simulator_arm64",
+    deps = [
+        ":libffi-fixture",
+        ":llvm-fixture",
+    ],
 )
 
 kt_native_deps_view(

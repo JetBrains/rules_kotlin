@@ -139,6 +139,7 @@ _LLDB_MACOS = "lldb-4-macos"
 _LLVM_LINUX = "llvm-21-x86_64-linux-essentials-116"
 _LLVM_LINUX_DEV = "llvm-21-x86_64-linux-dev-116"
 _LLVM_MACOS = "llvm-21-aarch64-macos-essentials-97"
+_QEMU_AARCH64 = "qemu-aarch64-static-5.1.0-linux-2"
 
 # An excerpt of the konan/konan.properties of the macOS distribution of Kotlin/Native 2.4.21,
 # copied verbatim: the entries the link dependencies of the supported exec hosts and targets
@@ -344,6 +345,21 @@ def _link_dependencies_resolve_references_test(ctx):
 
     return unittest.end(env)
 
+def _link_dependencies_add_the_emulator_test(ctx):
+    """A Linux target also needs the emulator of its host, as konan's GCC configurables add it; other targets do not."""
+    env = unittest.begin(ctx)
+
+    properties = {
+        "emulatorDependency.h-ios_t": "simulator",
+        "emulatorDependency.h-linux_t": "$qemu",
+        "qemu": "qemu-t",
+    }
+    asserts.equals(env, ["qemu-t"], konan_link_dependencies(properties, "h", "linux_t"))
+    asserts.equals(env, [], konan_link_dependencies(properties, "h", "linux_other"))
+    asserts.equals(env, [], konan_link_dependencies(properties, "h", "ios_t"))
+
+    return unittest.end(env)
+
 def _link_dependencies_match_the_table_test(ctx):
     """konan.properties of 2.4.21 requires exactly the table's dependencies for every host and target."""
     env = unittest.begin(ctx)
@@ -365,12 +381,19 @@ def _link_dependencies_match_the_table_test(ctx):
         [_LIBFFI_LINUX, _LLDB_LINUX, _LLVM_LINUX, _GCC_X86_64],
         konan_link_dependencies(linux, "linux_x64", "linux_x64"),
     )
+
+    # Only a Linux host has an emulator for another Linux target.
     asserts.equals(
         env,
-        [_GCC_AARCH64, _LIBFFI_LINUX, _LLVM_LINUX],
+        [_GCC_AARCH64, _LIBFFI_LINUX, _LLVM_LINUX, _QEMU_AARCH64],
         konan_link_dependencies(linux, "linux_x64", "linux_arm64"),
     )
     macos = parse_konan_properties(_KONAN_PROPERTIES_2_4_21["macos-aarch64"])
+    asserts.equals(
+        env,
+        [_GCC_AARCH64, _LIBFFI_MACOS, _LLVM_MACOS],
+        konan_link_dependencies(macos, "macos_arm64", "linux_arm64"),
+    )
     for target in ["ios_arm64", "ios_simulator_arm64"]:
         asserts.equals(env, [_LIBFFI_MACOS, _LLVM_MACOS], konan_link_dependencies(macos, "macos_arm64", target))
 
@@ -577,6 +600,7 @@ archives_are_pinned_test = unittest.make(_archives_are_pinned_test)
 parser_follows_java_properties_test = unittest.make(_parser_follows_java_properties_test)
 parser_reads_konan_properties_test = unittest.make(_parser_reads_konan_properties_test)
 link_dependencies_resolve_references_test = unittest.make(_link_dependencies_resolve_references_test)
+link_dependencies_add_the_emulator_test = unittest.make(_link_dependencies_add_the_emulator_test)
 link_dependencies_match_the_table_test = unittest.make(_link_dependencies_match_the_table_test)
 cross_check_accepts_the_bundles_test = unittest.make(_cross_check_accepts_the_bundles_test)
 cross_check_reports_differences_test = unittest.make(_cross_check_reports_differences_test)
@@ -605,6 +629,7 @@ def native_repositories_test_suite(name):
         parser_follows_java_properties_test,
         parser_reads_konan_properties_test,
         link_dependencies_resolve_references_test,
+        link_dependencies_add_the_emulator_test,
         link_dependencies_match_the_table_test,
         cross_check_accepts_the_bundles_test,
         cross_check_reports_differences_test,
