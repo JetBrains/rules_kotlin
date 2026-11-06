@@ -262,3 +262,39 @@ APPLE_TARGETS = {
     )
     for target, platform in APPLE_TARGETS.items()
 ]
+
+# The files of GreeterKit that rules_apple's apple_static_framework_import imports, the output
+# group framework_files: copies of the binary, header, module map and Info.plist of the framework.
+
+filegroup(
+    name = "GreeterKit_files",
+    srcs = [":GreeterKit"],
+    output_group = "framework_files",
+)
+
+[
+    platform_transition_filegroup(
+        name = "GreeterKit_%s_files" % target,
+        srcs = [":GreeterKit_files"],
+        target_compatible_with = ["@platforms//os:macos"],
+        target_platform = "@rules_kotlin//kotlin/native/platforms:" + target,
+    )
+    for target in APPLE_TARGETS
+]
+
+[
+    sh_test(
+        name = "GreeterKit_%s_files_test" % target,
+        srcs = ["check_framework_files.sh"],
+        args = [
+            "$(rootpath :GreeterKit_%s)" % target,
+            "$(rootpaths :GreeterKit_%s_files)" % target,
+        ],
+        data = [
+            ":GreeterKit_" + target,
+            ":GreeterKit_%s_files" % target,
+        ],
+        target_compatible_with = ["@platforms//os:macos"],
+    )
+    for target in APPLE_TARGETS
+]
