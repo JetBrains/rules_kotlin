@@ -83,6 +83,32 @@ def _framework_link_test_impl(ctx):
 
     return analysistest.end(env)
 
+def _framework_files_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The output group framework_files holds the files rules_apple imports, with the layout of an iOS
+    # framework under _kt_native/: the framework directory stays the only default output.
+    target = analysistest.target_under_test(env)
+    framework = single_action(env, "KotlinNativeLink").outputs.to_list()[0]
+    asserts.equals(env, [framework], target[DefaultInfo].files.to_list())
+    files = target[OutputGroupInfo].framework_files.to_list()
+    prefix = PACKAGE + "/_kt_native/GreeterKit.framework/"
+    paths = ["GreeterKit", "Headers/GreeterKit.h", "Modules/module.modulemap", "Info.plist"]
+    asserts.equals(env, [prefix + path for path in paths], [file.short_path for file in files])
+
+    # One action copies them out of the framework directory, its only input, which it gets first, then a
+    # pair of a path in the framework and an output per file. An iOS framework has its Info.plist at the top.
+    copy = single_action(env, "KotlinNativeFrameworkFiles")
+    asserts.equals(env, [framework], copy.inputs.to_list())
+    asserts.equals(env, files, copy.outputs.to_list())
+    arguments = copy.argv[copy.argv.index(framework.path) + 1:]
+    expected = []
+    for path, file in zip(paths, files):
+        expected.extend([path, file.path])
+    asserts.equals(env, expected, arguments)
+
+    return analysistest.end(env)
+
 def _framework_without_srcs_test_impl(ctx):
     env = analysistest.begin(ctx)
 
@@ -99,6 +125,13 @@ def _framework_without_srcs_test_impl(ctx):
 
     # Without a bundle_id, konanc derives one.
     asserts.equals(env, [], prefixed(tool, "-Xbinary=bundleId="))
+
+    # Its files are named after the target too.
+    asserts.equals(
+        env,
+        ["ExportsOnlyKit", "ExportsOnlyKit.h", "Info.plist", "module.modulemap"],
+        _basenames([file.short_path for file in analysistest.target_under_test(env)[OutputGroupInfo].framework_files.to_list()]),
+    )
 
     return analysistest.end(env)
 
@@ -117,6 +150,7 @@ def _framework_unstaged_test_impl(ctx):
     return analysistest.end(env)
 
 framework_link_test = analysistest.make(_framework_link_test_impl, config_settings = for_target("ios_simulator_arm64"))
+framework_files_test = analysistest.make(_framework_files_test_impl, config_settings = for_target("ios_simulator_arm64"))
 framework_without_srcs_test = analysistest.make(
     _framework_without_srcs_test_impl,
     config_settings = for_target("ios_simulator_arm64"),
@@ -183,6 +217,11 @@ def native_framework_test_suite(name):
         target_under_test = ":GreeterKit",
         target_compatible_with = not_on_windows(),
     )
+    framework_files_test(
+        name = "framework_files_test",
+        target_under_test = ":GreeterKit",
+        target_compatible_with = not_on_windows(),
+    )
     framework_without_srcs_test(
         name = "framework_without_srcs_test",
         target_under_test = ":ExportsOnlyKit",
@@ -204,6 +243,7 @@ def native_framework_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
+            ":framework_files_test",
             ":framework_link_test",
             ":framework_non_apple_fails_test",
             ":framework_unstaged_fails_test",
