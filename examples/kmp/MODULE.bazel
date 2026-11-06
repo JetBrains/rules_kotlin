@@ -58,3 +58,28 @@ kotlin_native.targets(targets = [
     "linux_x64",
     "macos_arm64",
 ])
+
+# The Maven dependencies of the multiplatform code, as the commonMain dependencies of a Gradle
+# build: @kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core is the klib of the konan target
+# for the Kotlin/Native rules, the Android variant on Android and the JVM variant otherwise. Builds
+# download the artifacts pinned in kmp_manifest.json; after changing the install, pin it again with
+# `bazel run @kmp_maven//pin`, which downloads the bazel-kmp-resolver release rules_kotlin pins, and
+# commit it.
+kmp_maven = use_extension("@rules_kotlin//src/main/starlark/core/repositories:kmp_maven.bzl", "kmp_maven")
+kmp_maven.install(
+    name = "kmp_maven",
+    artifacts = [
+        "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+    ],
+    manifest = "//:kmp_manifest.json",
+    platforms = [
+        "jvm",
+        "android",
+        "ios_arm64",
+        "ios_simulator_arm64",
+        "linux_arm64",
+        "linux_x64",
+        "macos_arm64",
+    ],
+)
+use_repo(kmp_maven, "kmp_maven")

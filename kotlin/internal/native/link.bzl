@@ -10,6 +10,9 @@ Linking needs the link dependencies of the konan target (LLVM, libffi, the cross
 the `com_github_jetbrains_kotlin_native_deps_<host>` repository of each exec host stages for the
 targets of kotlin_native.targets(...), so the link action runs sandboxed with no network. Apple
 targets also need the SDK of the local Xcode, which konanc finds with xcrun.
+
+The linking rules declare LINK_ATTRS, with the attribute of kt_native_transition, the transition of
+the Kotlin/Native rules to the Kotlin platform type native (see transition.bzl).
 """
 
 load("//kotlin/internal/kmp:fragments.bzl", "collect_fragments")
@@ -26,8 +29,9 @@ load(
 )
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
+load(":transition.bzl", "TRANSITION_ATTRS")
 
-LINK_ATTRS = {
+LINK_ATTRS = dict(TRANSITION_ATTRS, **{
     "deps": attr.label_list(
         doc = "The klibs to link, e.g. kt_native_library targets, which the srcs compile against. They are for the same konan target.",
         providers = [KtKlibInfo],
@@ -56,7 +60,7 @@ LINK_ATTRS = {
         doc = "Kotlin sources.",
         allow_files = [".kt"],
     ),
-}
+})
 
 def link_native(
         ctx,

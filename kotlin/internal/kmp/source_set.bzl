@@ -80,8 +80,9 @@ kt_source_set = rule(
 
     The deps are resolved in the configuration of each rule compiling the source set, so they must
     provide what that rule needs: JavaInfo for a JVM or Android rule, a klib of the konan target for a
-    Kotlin/Native one. A dep that differs per platform is an `alias` that selects on the platform,
-    e.g. on `@rules_kotlin//kotlin/native/platforms:is_<konan target>` and `@platforms//os:android`.""",
+    Kotlin/Native one. A dep that differs per platform is an `alias` that selects its klib on
+    `@rules_kotlin//kotlin/native/platforms:native_<konan target>`, which the Kotlin/Native rules
+    match, its Android library on `@platforms//os:android` and its JVM library by default.""",
     implementation = _kt_source_set_impl,
     attrs = {
         "depends_on": attr.label_list(

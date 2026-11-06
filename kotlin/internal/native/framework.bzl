@@ -8,6 +8,7 @@ prefix of its Objective-C names. Its header declares the API of the srcs and of 
 load(":link.bzl", "LINK_ATTRS", "link_native")
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
+load(":transition.bzl", "kt_native_transition")
 
 def _kt_native_framework_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
@@ -51,5 +52,6 @@ kt_native_framework = rule(
             providers = [KtKlibInfo],
         ),
     }),
+    cfg = kt_native_transition,
     toolchains = [KT_NATIVE_TOOLCHAIN_TYPE],
 )

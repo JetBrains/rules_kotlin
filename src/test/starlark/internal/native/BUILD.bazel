@@ -1,14 +1,23 @@
 load(":binary_test.bzl", "native_binary_test_suite")
 load(":common.bzl", "define_fake_toolchains")
 load(":framework_test.bzl", "native_framework_test_suite")
+load(":import_test.bzl", "native_import_test_suite")
 load(":library_test.bzl", "native_library_test_suite")
 load(":toolchain_test.bzl", "native_toolchain_test_suite")
 
 define_fake_toolchains()
 
+# Placeholder klibs, which the analysis tests of other packages import too.
+exports_files(
+    glob(["testdata/*.klib"]),
+    visibility = ["//src/test/starlark:__subpackages__"],
+)
+
 native_toolchain_test_suite(name = "native_toolchain_tests")
 
 native_library_test_suite(name = "native_library_tests")
+
+native_import_test_suite(name = "native_import_tests")
 
 native_binary_test_suite(name = "native_binary_tests")
 

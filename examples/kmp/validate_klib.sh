@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Validates that a multiplatform kt_native_library output is a well-formed klib with the expected
 # manifest. Usage: validate_klib.sh <klib> <expected_native_target> <expected_unique_name> [expected_depend ...]
+# A unique name of a Maven klib is its group:artifact, e.g. org.jetbrains.kotlinx:kotlinx-coroutines-core.
 set -euo pipefail
 
 klib="$1"
@@ -10,7 +11,8 @@ shift 3
 
 [[ -f "$klib" ]] || { echo "FAIL: klib not found: $klib"; exit 1; }
 
-manifest="$(unzip -p "$klib" default/manifest)"
+# The manifest is a properties file, which escapes the colons of the unique names.
+manifest="$(unzip -p "$klib" default/manifest | sed 's/\\:/:/g')"
 echo "--- manifest of $klib ---"
 echo "$manifest"
 

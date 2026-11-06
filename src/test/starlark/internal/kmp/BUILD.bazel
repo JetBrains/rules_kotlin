@@ -1,9 +1,12 @@
 load(":fragments_test.bzl", "fragments_test_suite")
 load(":multiplatform_test.bzl", "multiplatform_test_suite")
+load(":platform_type_test.bzl", "platform_type_test_suite")
 load(":source_set_test.bzl", "source_set_test_suite")
 
 fragments_test_suite(name = "fragments_tests")
 
 multiplatform_test_suite(name = "multiplatform_tests")
+
+platform_type_test_suite(name = "platform_type_tests")
 
 source_set_test_suite(name = "source_set_tests")

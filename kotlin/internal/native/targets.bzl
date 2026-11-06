@@ -8,6 +8,8 @@ its distribution compiles for. Platforms, toolchains and repositories are all ge
 tables, so a target or host is added here once.
 """
 
+load(":transition.bzl", "KOTLIN_PLATFORM_TYPE")
+
 _OS_IOS = Label("@platforms//os:ios")
 _OS_LINUX = Label("@platforms//os:linux")
 _OS_MACOS = Label("@platforms//os:macos")
@@ -75,11 +77,25 @@ def konan_platform_constraints(konan_target):
 
 # buildifier: disable=unnamed-macro
 def define_konan_platforms():
-    """Declares a `<target>` platform and an `is_<target>` config_setting per konan target.
+    """Declares the platform and the config_settings of each konan target, and `native`.
 
-    Pass the platform to `--platforms` to build for a konan target, and use the config_setting as a
-    `select()` key.
+    Per konan target:
+    - `<target>`, the platform to pass to `--platforms` to build for the target;
+    - `is_<target>`, a config_setting of the constraints of the target: it matches any build for its
+      OS and CPU, a JVM one on a host of the target included;
+    - `native_<target>`, a config_setting of the constraints of the target and of
+      //kotlin/settings:kotlin_platform_type `native`: it matches the Kotlin/Native rules building
+      for the target, and their deps, which the rules transition to `native`.
+
+    `native` matches the Kotlin/Native rules and their deps, whatever their target. An alias that
+    selects a klib for a Kotlin/Native consumer and a JVM library otherwise selects on
+    `native_<target>`.
     """
+    native.config_setting(
+        name = "native",
+        flag_values = {KOTLIN_PLATFORM_TYPE: "native"},
+        visibility = ["//visibility:public"],
+    )
     for name in KONAN_TARGETS:
         native.platform(
             name = name,
@@ -89,5 +105,11 @@ def define_konan_platforms():
         native.config_setting(
             name = "is_" + name,
             constraint_values = KONAN_TARGETS[name].constraints,
+            visibility = ["//visibility:public"],
+        )
+        native.config_setting(
+            name = "native_" + name,
+            constraint_values = KONAN_TARGETS[name].constraints,
+            flag_values = {KOTLIN_PLATFORM_TYPE: "native"},
             visibility = ["//visibility:public"],
         )

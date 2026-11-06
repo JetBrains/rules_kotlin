@@ -242,6 +242,7 @@ def fragment_deps(label, source_sets, provider, provider_name, consumer):
     deps = _deps(walk.order)
     for dep, owner in zip(deps.deps, deps.owners):
         if provider not in dep:
-            fail("%s: dep %s of source set %s provides no %s; %s (use a select() alias per platform)" %
+            fail(("%s: dep %s of source set %s provides no %s; %s (use an alias selecting the klib on " +
+                  "@rules_kotlin//kotlin/native/platforms:native_<konan target> and the JVM library by default)") %
                  (label, dep.label, owner, provider_name, consumer))
     return deps.deps
