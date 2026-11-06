@@ -1,0 +1,6 @@
+# A Kotlin Multiplatform module, //shared, whose common code declares `expect` APIs that a source set
+# per platform implements: the JVM, Android, the Apple targets and the Linux targets.
+#   //shared    kt_multiplatform_library: the source sets, a library per platform and an alias
+#   //explicit  the same kind of module, declared with kt_source_set and the platform rules
+#   //tests     tests on the JVM and on the native target of the host, and checks of the klibs
+exports_files(["validate_klib.sh"])

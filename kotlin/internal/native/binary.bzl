@@ -13,7 +13,6 @@ def _kt_native_binary_impl(ctx):
     binary = ctx.actions.declare_file(ctx.label.name + ".kexe")
     link_native(
         ctx,
-        rule_kind = "kt_native_binary",
         produce = "program",
         output = binary,
         progress_message = "Linking Kotlin/Native binary %{label} (" + tc.konan_target + ")",

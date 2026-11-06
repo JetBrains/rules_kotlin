@@ -1,0 +1,46 @@
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library", "kt_jvm_test")
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_source_set")
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_library", "kt_native_test")
+
+# The kind of module //shared is, declared with the rules kt_multiplatform_library expands to: a
+# source set of the common code, and a library per platform that compiles it with its `actual`
+# declarations. kt_native_library compiles for the konan target of the build's platform.
+
+kt_source_set(
+    name = "common",
+    srcs = ["Runtime.kt"],
+)
+
+kt_jvm_library(
+    name = "explicit_jvm",
+    srcs = ["Runtime.jvm.kt"],
+    source_sets = [":common"],
+)
+
+kt_native_library(
+    name = "explicit_native",
+    srcs = ["Runtime.native.kt"],
+    source_sets = [":common"],
+)
+
+kt_jvm_test(
+    name = "explicit_jvm_test",
+    srcs = ["ExplicitJvmTest.kt"],
+    test_class = "examples.kmp.explicit.ExplicitJvmTest",
+    deps = [
+        ":explicit_jvm",
+        "@maven_rules_kotlin_example//:junit_junit",
+        "@rules_kotlin//kotlin/compiler:kotlin-test",
+    ],
+)
+
+# A test can also take the common code as a source set: it compiles it with its own actual, here
+# the native one of the library above, as a fragment of the test.
+kt_native_test(
+    name = "explicit_native_test",
+    srcs = [
+        "ExplicitNativeTest.kt",
+        "Runtime.native.kt",
+    ],
+    source_sets = [":common"],
+)

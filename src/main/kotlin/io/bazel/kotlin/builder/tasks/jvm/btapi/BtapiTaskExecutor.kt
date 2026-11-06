@@ -55,6 +55,28 @@ private const val JVM_ABI_GEN_PLUGIN_ID = "org.jetbrains.kotlin.jvm.abi"
 private const val KAPT_PLUGIN_ID = "org.jetbrains.kotlin.kapt3"
 private const val JDEPS_GEN_PLUGIN_ID = "io.bazel.kotlin.plugin.jdeps.JDepsGen"
 
+private const val FRAGMENT_SOURCES = "-Xfragment-sources="
+
+/**
+ * The [arguments] with the path of every `-Xfragment-sources=<fragment>:<path>` made absolute.
+ *
+ * The Build Tools API passes the sources to the compiler as absolute paths, and the compiler
+ * assigns a source to the K2 fragment whose -Xfragment-sources names the same path. The rules pass
+ * the sources of the fragments of a multiplatform compilation relative to the working directory,
+ * as the sources themselves, so they are resolved the same way. Other arguments are unchanged.
+ */
+fun absoluteFragmentSources(arguments: List<String>): List<String> =
+  arguments.map { argument ->
+    val fragmentSource = argument.removePrefix(FRAGMENT_SOURCES)
+    val separator = fragmentSource.indexOf(':')
+    if (fragmentSource.length == argument.length || separator < 0) {
+      argument
+    } else {
+      val path = Paths.get(fragmentSource.substring(separator + 1)).toAbsolutePath()
+      "$FRAGMENT_SOURCES${fragmentSource.substring(0, separator)}:$path"
+    }
+  }
+
 /**
  * Executes JVM compilation tasks through the typed Build Tools API path.
  */
@@ -288,7 +310,7 @@ class BtapiTaskExecutor(
         invokeCompiler(
           context,
           compiler,
-          arguments = info.passthroughFlagsList,
+          arguments = absoluteFragmentSources(info.passthroughFlagsList),
           friendPaths = info.friendPathsList,
           sources = inputs.javaSourcesList + inputs.kotlinSourcesList,
           descriptors = descriptors,

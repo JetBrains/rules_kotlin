@@ -1,0 +1,24 @@
+package examples.kmp.tests
+
+import examples.kmp.shared.PlatformInfo
+import examples.kmp.shared.greeting
+import examples.kmp.shared.platformName
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class GreetingNativeTest {
+  @Test
+  fun greetsFromTheHost() {
+    // The exec hosts of Kotlin/Native: macOS (the Apple group) and Linux (the Linux group).
+    assertTrue(platformName() == "macOS" || platformName() == "Linux", platformName())
+    assertEquals("Hello from ${platformName()}", greeting())
+  }
+
+  @Test
+  fun describesTheHost() {
+    val info = PlatformInfo()
+    assertEquals(platformName(), info.name)
+    assertTrue(info.is64Bit)
+  }
+}

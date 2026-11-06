@@ -1,0 +1,37 @@
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
+
+# The common source set declares platformName() and PlatformInfo with `expect`; each platform
+# implements them with `actual` and compiles them with the common code, as K2 fragments. The macro
+# declares shared_common, shared_jvm, shared_android, shared_apple, shared_linux, shared_native,
+# shared_srcs and the alias shared, which selects the library of the build's platform.
+kt_multiplatform_library(
+    name = "shared",
+    android = dict(
+        srcs = ["android/Platform.android.kt"],
+        custom_package = "examples.kmp.shared",
+        manifest = "android/AndroidManifest.xml",
+    ),
+    common_srcs = [
+        "common/Greeting.kt",
+        "common/Platform.kt",
+    ],
+    jvm = dict(srcs = ["jvm/Platform.jvm.kt"]),
+    native = {
+        "apple": dict(
+            srcs = ["apple/Platform.apple.kt"],
+            targets = [
+                "ios_arm64",
+                "ios_simulator_arm64",
+                "macos_arm64",
+            ],
+        ),
+        "linux": dict(
+            srcs = ["linux/Platform.linux.kt"],
+            targets = [
+                "linux_arm64",
+                "linux_x64",
+            ],
+        ),
+    },
+    visibility = ["//visibility:public"],
+)

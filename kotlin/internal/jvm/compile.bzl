@@ -58,6 +58,11 @@ load(
     _plugin_mappers = "mappers",
 )
 load(
+    "//kotlin/internal/kmp:fragments.bzl",
+    _collect_fragments = "collect_fragments",
+    _fragment_deps = "fragment_deps",
+)
+load(
     "//kotlin/internal/utils:utils.bzl",
     _utils = "utils",
 )
@@ -105,6 +110,40 @@ def _partitioned_srcs(srcs):
         java = java_srcs,
         all_srcs = kt_srcs + java_srcs,
         src_jars = src_jars,
+    )
+
+def _fragment_srcs(ctx, srcs, fragments):
+    """The srcs of a compilation with source sets: the Kotlin sources of every fragment, and the Java sources.
+
+    Every Kotlin source of a multiplatform compilation must belong to a fragment, so the sources of
+    .srcjar files, which the worker expands, cannot be compiled with source sets.
+    """
+    if srcs.src_jars:
+        fail("%s: source_sets cannot be combined with .srcjar sources: the sources they contain belong to no fragment" %
+             ctx.label)
+    return struct(
+        kt = fragments.srcs,
+        java = srcs.java,
+        all_srcs = fragments.srcs + srcs.java,
+        src_jars = [],
+    )
+
+def _source_set_deps(ctx):
+    """The deps of the source_sets of a JVM or Android target, which it compiles against with its deps.
+
+    Args:
+        ctx: the rule context of a target with a source_sets attribute.
+
+    Returns:
+        The deps of its source sets and of those they refine, transitively: JVM libraries, or the
+        analysis fails.
+    """
+    return _fragment_deps(
+        ctx.label,
+        getattr(ctx.attr, "source_sets", []),
+        JavaInfo,
+        "JavaInfo",
+        "a JVM consumer needs JVM deps",
     )
 
 def _compiler_toolchains(ctx):
@@ -669,7 +708,8 @@ def _run_kt_builder_action(
         transitive_runtime_jars,
         plugins,
         outputs,
-        build_kotlin = True):
+        build_kotlin = True,
+        fragments = None):
     """Creates a KotlinBuilder action invocation."""
     if not mnemonic:
         fail("Error: A `mnemonic` must be provided for every invocation of `_run_kt_builder_action`!")
@@ -712,6 +752,10 @@ def _run_kt_builder_action(
 
     # Unwrap kotlinc_options/javac_options options or default to the ones being provided by the toolchain
     args.add_all("--kotlin_passthrough_flags", kotlinc_options_to_flags(kotlinc_options))
+
+    # The K2 fragments of the source sets, which the worker passes to the compiler with the flags above.
+    if fragments:
+        fragments.add_args(args, flag_prefix = "--kotlin_passthrough_flags")
     args.add_all("--javacopts", javac_options_to_flags(javac_options))
 
     # Associates contribute their own jars to the classpath, and which flavor (compile jar or class
@@ -847,7 +891,7 @@ def _kt_jvm_produce_jar_actions(ctx, rule_kind, extra_resources = {}):
         ctx,
         toolchains = _compiler_toolchains(ctx),
         associate_deps = associates,
-        deps = deps,
+        deps = deps + _source_set_deps(ctx),
         exports = getattr(ctx.attr, "exports", []),
         runtime_deps = getattr(ctx.attr, "runtime_deps", []),
     )
@@ -887,14 +931,25 @@ def _kt_jvm_produce_output_jar_actions(
     toolchains = _compiler_toolchains(ctx)
     srcs = _partitioned_srcs(ctx.files.srcs)
 
+    # With source sets, the Kotlin sources of the target are the leaf fragment of the compilation.
+    fragments = _collect_fragments(ctx, getattr(ctx.attr, "source_sets", []), compile_deps.module_name, srcs.kt)
+    if fragments.enabled:
+        srcs = _fragment_srcs(ctx, srcs, fragments)
+
     annotation_processors = _plugin_mappers.targets_to_annotation_processors(ctx.attr.plugins + ctx.attr.deps)
     ksp_annotation_processors = _plugin_mappers.targets_to_ksp_annotation_processors(ctx.attr.plugins + ctx.attr.deps)
     ksp_options = _plugin_mappers.targets_to_ksp_options(ctx.attr.plugins + ctx.attr.deps)
     transitive_runtime_jars = _plugin_mappers.targets_to_transitive_runtime_jars(ctx.attr.plugins + ctx.attr.deps)
     ksp_transitive_runtime_jars = _plugin_mappers.targets_to_ksp_transitive_runtime_jars(ctx.attr.plugins + ctx.attr.deps)
     plugins = _new_plugins_from(ctx.attr.plugins + _exported_plugins(deps = ctx.attr.deps))
+    if fragments.enabled:
+        # The sources the processors generate would belong to no fragment.
+        if annotation_processors:
+            fail("%s: source_sets cannot be combined with kapt: the sources it generates belong to no fragment" % ctx.label)
+        if ksp_annotation_processors:
+            fail("%s: source_sets cannot be combined with KSP: the sources it generates belong to no fragment" % ctx.label)
 
-    deps_artifacts = _deps_artifacts(toolchains, ctx.attr.deps + ctx.attr.associates)
+    deps_artifacts = _deps_artifacts(toolchains, ctx.attr.deps + fragments.deps + ctx.attr.associates)
 
     generated_src_jars = []
     annotation_processing = None
@@ -920,6 +975,7 @@ def _kt_jvm_produce_output_jar_actions(
         plugins = plugins,
         compile_jar = compile_jar,
         output_jdeps = output_jdeps,
+        fragments = fragments,
     )
     output_jars = outputs_struct.output_jars
     generated_src_jars = outputs_struct.generated_src_jars
@@ -976,7 +1032,7 @@ def _kt_jvm_produce_output_jar_actions(
     instrumented_files = coverage_common.instrumented_files_info(
         ctx,
         source_attributes = ["srcs"],
-        dependency_attributes = ["associates", "deps", "exports", "runtime_deps", "data"],
+        dependency_attributes = ["associates", "deps", "exports", "runtime_deps", "data", "source_sets"],
         extensions = ["kt", "java"],
     )
 
@@ -1025,7 +1081,8 @@ def _run_kt_java_builder_actions(
         ksp_transitive_runtime_jars,
         plugins,
         compile_jar,
-        output_jdeps):
+        output_jdeps,
+        fragments = None):
     """Runs the necessary KotlinBuilder and JavaBuilder actions to compile a jar
 
     Returns:
@@ -1113,6 +1170,7 @@ def _run_kt_java_builder_actions(
             outputs = outputs,
             build_kotlin = True,
             mnemonic = "KotlinCompile",
+            fragments = fragments,
         )
 
         compile_jars.append(kt_compile_jar)
@@ -1349,4 +1407,5 @@ compile = struct(
     export_only_providers = _export_only_providers,
     kt_jvm_produce_output_jar_actions = _kt_jvm_produce_output_jar_actions,
     kt_jvm_produce_jar_actions = _kt_jvm_produce_jar_actions,
+    source_set_deps = _source_set_deps,
 )

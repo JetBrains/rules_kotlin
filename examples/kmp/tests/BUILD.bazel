@@ -1,0 +1,76 @@
+load("@bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# --- JVM: the common code with the JVM actuals ---
+# On a host whose konan target a native group of //shared lists, the build's platform selects the
+# native library for the alias //shared, so a JVM target depends on //shared:shared_jvm.
+
+kt_jvm_test(
+    name = "greeting_jvm_test",
+    srcs = ["GreetingJvmTest.kt"],
+    test_class = "examples.kmp.tests.GreetingJvmTest",
+    deps = [
+        "//shared:shared_jvm",
+        "@maven_rules_kotlin_example//:junit_junit",
+        "@rules_kotlin//kotlin/compiler:kotlin-test",
+    ],
+)
+
+# --- native: the common code with the actuals of the host's group, through the alias ---
+
+kt_native_test(
+    name = "greeting_native_test",
+    srcs = ["GreetingNativeTest.kt"],
+    deps = ["//shared"],
+)
+
+# --- klibs: the native library for every konan target of //shared, whatever the host ---
+# Every exec host compiles klibs for the Linux targets, but only a macOS one for the Apple targets,
+# so those are skipped elsewhere.
+
+# konan target: the constraints the host must meet to compile for it.
+KONAN_TARGETS = {
+    "ios_arm64": ["@platforms//os:macos"],
+    "ios_simulator_arm64": ["@platforms//os:macos"],
+    "linux_arm64": [],
+    "linux_x64": [],
+    "macos_arm64": ["@platforms//os:macos"],
+}
+
+[
+    platform_transition_filegroup(
+        name = "shared_native_" + target,
+        srcs = ["//shared:shared_native"],
+        target_compatible_with = compatible_with,
+        target_platform = "@rules_kotlin//kotlin/native/platforms:" + target,
+    )
+    for target, compatible_with in KONAN_TARGETS.items()
+]
+
+[
+    sh_test(
+        name = "shared_%s_klib_test" % target,
+        srcs = ["//:validate_klib.sh"],
+        args = [
+            "$(rootpath :shared_native_%s)" % target,
+            target,
+            "shared-shared_native",
+        ],
+        data = [":shared_native_" + target],
+        target_compatible_with = compatible_with,
+    )
+    for target, compatible_with in KONAN_TARGETS.items()
+]
+
+# --- the JVM and Android libraries build ---
+
+build_test(
+    name = "shared_libraries_build_test",
+    targets = [
+        "//shared:shared_android",
+        "//shared:shared_jvm",
+    ],
+)

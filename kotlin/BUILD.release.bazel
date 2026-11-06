@@ -28,7 +28,11 @@ filegroup(
     name = "kotlin",
     srcs = glob(
         ["*.bzl"],
-        exclude = ["android.bzl"],
+        # They load the Android rules.
+        exclude = [
+            "android.bzl",
+            "kmp.bzl",
+        ],
     ),
     visibility = ["//visibility:public"],
 )

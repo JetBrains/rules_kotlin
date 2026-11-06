@@ -1,0 +1,36 @@
+common --java_runtime_version=remotejdk_21
+common --tool_java_runtime_version=remotejdk_21
+
+# The Android build tools of shared_android use Java 17 language features, and abseil-cpp, which
+# they build, C++17 (as in examples/android).
+common --tool_java_language_version=17
+common --repo_env=ACCEPTED_ANDROID_SDK_LICENSE_VERSION=35
+build --cxxopt=-std=c++17
+build --host_cxxopt=-std=c++17
+
+# The actions must not need the network: the compilers, the Android SDK and the Kotlin/Native
+# distribution come from Bazel repositories, fetched before any action runs.
+build --sandbox_default_allow_network=false
+test --test_output=errors
+
+# The integration test runner passes every test of the example to `bazel coverage` by name,
+# including those a Linux host cannot build, such as the checks of the Apple klibs: skip them, as
+# `bazel test //...` does, rather than fail.
+build --skip_incompatible_explicit_targets
+
+# Engage path mapping, as examples/native does: the Kotlin actions declare support for it, so the
+# fragment flags of the multiplatform compilations are mapped like their sources. Workers run
+# singleplex and sandboxed: a multiplex worker does not resolve the paths of its requests under path
+# mapping. Linux and macOS only, the exec hosts of Kotlin/Native.
+common --enable_platform_specific_config
+build:linux --experimental_output_paths=strip
+build:linux --worker_sandboxing
+build:linux --noworker_multiplex
+build:macos --experimental_output_paths=strip
+build:macos --worker_sandboxing
+build:macos --noworker_multiplex
+
+# The Go actions of rules_go, which builds tools of the Android rules, support path mapping, but get
+# the C compiler of apple_support, which is built from source, by its unmapped path in their
+# environment: they would not find it. Keep them unmapped.
+build:macos --modify_execution_info=Go.*=-supports-path-mapping

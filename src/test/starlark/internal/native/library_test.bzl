@@ -6,6 +6,7 @@ See common.bzl for the fake toolchains.
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_java//java:defs.bzl", "java_library")
 load("//kotlin:core.bzl", "kt_compiler_plugin")
+load("//kotlin:kmp.bzl", "kt_source_set")
 load("//kotlin:native.bzl", "KtKlibInfo", "kt_native_library")
 load(
     ":common.bzl",
@@ -17,10 +18,14 @@ load(
     "fake_klib",
     "for_target",
     "launcher_arguments",
+    "libraries",
     "not_on_windows",
     "single_action",
     "tool_arguments",
 )
+
+# The prefix of the module and fragment names derived from the labels of the package.
+_NAMES = "src_test_starlark_internal_native-"
 
 def _basenames(files):
     return sorted([f.basename for f in files])
@@ -197,7 +202,55 @@ def _klib_platform_mismatch_test_impl(ctx):
 def _source_sets_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    asserts.expect_failure(env, "source_sets are reserved for Kotlin Multiplatform source sets")
+    action = single_action(env, "KotlinNativeKlibCompile")
+    info = analysistest.target_under_test(env)[KtKlibInfo]
+    tool = tool_arguments(action.argv)
+    common = PACKAGE + "/testdata/common.kt"
+    actual = PACKAGE + "/testdata/actual.kt"
+    greeter = PACKAGE + "/testdata/greeter.kt"
+    fragments = [_NAMES + "ss_common", _NAMES + "ss_actual", _NAMES + "source_sets_linux_arm64"]
+
+    # The source sets, each after those it refines, and the srcs of the library, the leaf fragment
+    # named after its module. Their flags follow the common ones, before the libraries.
+    asserts.equals(env, fragments[2], argument_after(tool, "-module-name"))
+    start = tool.index("-Xmulti-platform")
+    asserts.equals(env, "-Xdebug-prefix-map=__EXECROOT__=.", tool[start - 1])
+    asserts.equals(
+        env,
+        [
+            "-Xmulti-platform",
+            "-Xexpect-actual-classes",
+            "-Xfragments=" + ",".join(fragments),
+            "-Xfragment-sources=%s:%s" % (fragments[0], common),
+            "-Xfragment-sources=%s:%s" % (fragments[1], actual),
+            "-Xfragment-sources=%s:%s" % (fragments[2], greeter),
+            "-Xfragment-refines=%s:%s" % (fragments[1], fragments[0]),
+            "-Xfragment-refines=%s:%s" % (fragments[2], fragments[1]),
+            "-l",
+        ],
+        tool[start:start + 9],
+    )
+
+    # Every source of the fragments compiles, those of the leaf last, and is an input.
+    asserts.equals(env, [info.klib.path, common, actual, greeter], tool[tool.index("-o") + 1:])
+    inputs = [f.path for f in action.inputs.to_list()]
+    for src in [common, actual, greeter]:
+        asserts.true(env, src in inputs, "%s should be an input" % src)
+
+    # The deps of the source sets are deps of the library.
+    asserts.equals(env, ["fake_linux_arm64_klib.klib"], [path.rpartition("/")[2] for path in libraries(tool)])
+    asserts.equals(
+        env,
+        ["fake_linux_arm64_klib.klib", "source_sets_linux_arm64.klib"],
+        _basenames(info.transitive_klibs.to_list()),
+    )
+
+    return analysistest.end(env)
+
+def _source_set_dep_not_a_klib_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    asserts.expect_failure(env, "provides no KtKlibInfo; a Kotlin/Native consumer needs klibs of its konan target")
 
     return analysistest.end(env)
 
@@ -230,8 +283,9 @@ klib_platform_mismatch_test = analysistest.make(
     config_settings = for_target("linux_arm64"),
     expect_failure = True,
 )
-source_sets_test = analysistest.make(
-    _source_sets_test_impl,
+source_sets_test = analysistest.make(_source_sets_test_impl, config_settings = for_target("linux_arm64"))
+source_set_dep_not_a_klib_test = analysistest.make(
+    _source_set_dep_not_a_klib_test_impl,
     config_settings = for_target("linux_arm64"),
     expect_failure = True,
 )
@@ -341,10 +395,55 @@ def native_library_test_suite(name):
         tags = ["manual"],
         deps = [":fake_js_klib"],
     )
+
+    # source_sets_linux_arm64: ss_actual refines ss_common, which has a klib dep.
+    fake_klib(
+        name = "fake_linux_arm64_klib",
+        konan_target = "linux_arm64",
+        tags = ["manual"],
+    )
+    kt_source_set(
+        name = "ss_common",
+        srcs = ["testdata/common.kt"],
+        tags = ["manual"],
+        deps = [":fake_linux_arm64_klib"],
+    )
+    kt_source_set(
+        name = "ss_actual",
+        srcs = ["testdata/actual.kt"],
+        depends_on = [":ss_common"],
+        tags = ["manual"],
+    )
     kt_native_library(
         name = "source_sets_linux_arm64",
         srcs = ["testdata/greeter.kt"],
-        source_sets = [":base_linux_arm64"],
+        source_sets = [":ss_actual"],
+        tags = ["manual"],
+    )
+
+    # A dep of a source set is a dep of the library, for its konan target.
+    kt_source_set(
+        name = "ss_linux_x64_dep",
+        srcs = ["testdata/common.kt"],
+        tags = ["manual"],
+        deps = [":fake_linux_x64_klib"],
+    )
+    kt_native_library(
+        name = "ss_mismatched_linux_arm64",
+        srcs = ["testdata/actual.kt"],
+        source_sets = [":ss_linux_x64_dep"],
+        tags = ["manual"],
+    )
+    kt_source_set(
+        name = "ss_jvm_dep",
+        srcs = ["testdata/common.kt"],
+        tags = ["manual"],
+        deps = [":plugin_lib"],
+    )
+    kt_native_library(
+        name = "ss_jvm_dep_linux_arm64",
+        srcs = ["testdata/actual.kt"],
+        source_sets = [":ss_jvm_dep"],
         tags = ["manual"],
     )
 
@@ -391,8 +490,18 @@ def native_library_test_suite(name):
         target_compatible_with = not_on_windows(),
     )
     source_sets_test(
-        name = "klib_source_sets_unsupported_test",
+        name = "klib_source_sets_test",
         target_under_test = ":source_sets_linux_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+    klib_target_mismatch_test(
+        name = "klib_source_set_dep_target_mismatch_test",
+        target_under_test = ":ss_mismatched_linux_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+    source_set_dep_not_a_klib_test(
+        name = "klib_source_set_dep_not_a_klib_test",
+        target_under_test = ":ss_jvm_dep_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
 
@@ -404,7 +513,9 @@ def native_library_test_suite(name):
             ":klib_platform_mismatch_test",
             ":klib_plugins_test",
             ":klib_provider_test",
-            ":klib_source_sets_unsupported_test",
+            ":klib_source_set_dep_not_a_klib_test",
+            ":klib_source_set_dep_target_mismatch_test",
+            ":klib_source_sets_test",
             ":klib_target_mismatch_test",
             ":unstaged_klib_compile_inputs_test",
         ],

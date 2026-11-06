@@ -2,20 +2,33 @@
 
 The konan target is the one of the resolved toolchain (the build's --platforms), not a rule
 attribute. The klib action is the shared one of klib.bzl; linking is handled separately by
-kt_native_binary, kt_native_test and kt_native_framework (see link.bzl).
+kt_native_binary, kt_native_test and kt_native_framework (see link.bzl). With source_sets, the
+sources of the Kotlin Multiplatform source sets compile with the srcs, as K2 fragments (see
+//kotlin/internal/kmp:fragments.bzl).
 """
 
+load("//kotlin/internal/kmp:fragments.bzl", "collect_fragments")
+load("//kotlin/internal/kmp:source_set.bzl", "KtSourceSetInfo")
 load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
-load(":klib.bzl", "collect_klib_deps", "kt_native_compile", "native_module_name")
+load(
+    ":klib.bzl",
+    "SOURCE_SETS_DOC",
+    "collect_klib_deps",
+    "kt_native_compile",
+    "native_module_name",
+    "source_set_klib_deps",
+)
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 
 def _kt_native_library_impl(ctx):
-    if ctx.attr.source_sets:
-        fail("source_sets are reserved for Kotlin Multiplatform source sets, which kt_native_library does not support yet")
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
     module_name = native_module_name(ctx)
-    klib_deps = collect_klib_deps(tc.konan_target, ctx.attr.deps + ctx.attr.exports)
+    fragments = collect_fragments(ctx, ctx.attr.source_sets, module_name, ctx.files.srcs)
+    klib_deps = collect_klib_deps(
+        tc.konan_target,
+        ctx.attr.deps + ctx.attr.exports + source_set_klib_deps(ctx),
+    )
 
     klib = ctx.actions.declare_file(ctx.label.name + ".klib")
     kt_native_compile(
@@ -26,6 +39,7 @@ def _kt_native_library_impl(ctx):
         module_name = module_name,
         plugins = ctx.attr.plugins,
         opts = ctx.attr.opts,
+        fragments = fragments,
         progress_message = "Compiling Kotlin/Native klib %{label} (" + tc.konan_target + ")",
     )
 
@@ -77,7 +91,8 @@ kt_native_library = rule(
             cfg = "exec",
         ),
         "source_sets": attr.label_list(
-            doc = "Reserved for the Kotlin Multiplatform source sets to compile with the sources; not supported yet.",
+            doc = SOURCE_SETS_DOC,
+            providers = [KtSourceSetInfo],
         ),
         "srcs": attr.label_list(
             doc = "Kotlin sources.",

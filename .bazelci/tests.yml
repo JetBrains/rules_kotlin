@@ -36,6 +36,7 @@
     - "-//examples:deps"
     # Kotlin/Native has no Windows exec host (see EXEC_HOSTS in kotlin/internal/native/targets.bzl).
     - "-//examples:native"
+    - "-//examples:kmp"
 
 # Common platform configurations.
 .ubuntu2404: &ubuntu2404
@@ -77,6 +78,7 @@ tasks:
     <<: *macos
     name: "Integration Tests (Kotlin/Native)"
     test_targets:
+      - //examples:kmp
       - //examples:native
   ubuntu2404_unittests:
     <<: [ *ubuntu2404, *unittests ]

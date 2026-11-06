@@ -23,7 +23,6 @@ def _kt_native_framework_impl(ctx):
     framework = ctx.actions.declare_directory(ctx.label.name + ".framework")
     link_native(
         ctx,
-        rule_kind = "kt_native_framework",
         produce = "framework",
         output = framework,
         extra_deps = ctx.attr.exports,

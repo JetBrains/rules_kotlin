@@ -152,7 +152,7 @@ def _kt_android_produce_jar_actions(
         ctx,
         toolchains = _compile.compiler_toolchains(ctx),
         associate_deps = associates,
-        deps = deps,
+        deps = deps + _compile.source_set_deps(ctx),
         deps_java_infos = android_java_infos,
         exports = exports,
         runtime_deps = runtime_deps,
@@ -165,7 +165,7 @@ def _kt_android_produce_jar_actions(
         compile_deps = compile_deps,
         outputs = outputs,
         extra_resources = extra_resources,
-    ) if ctx.attr.srcs else _compile.export_only_providers(
+    ) if ctx.attr.srcs or ctx.attr.source_sets else _compile.export_only_providers(
         ctx = ctx,
         actions = ctx.actions,
         outputs = outputs,

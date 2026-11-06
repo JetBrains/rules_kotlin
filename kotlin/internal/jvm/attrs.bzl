@@ -28,6 +28,7 @@ load(
     _JavacOptions = "JavacOptions",
     _KotlincOptions = "KotlincOptions",
 )
+load("//kotlin/internal/kmp:source_set.bzl", "KtSourceSetInfo")
 load("//kotlin/internal/utils:utils.bzl", "utils")
 
 _implicit_deps = {
@@ -154,8 +155,8 @@ _common_attr = utils.add_dicts(
         They follow the `Target-Label` and `Injecting-Rule-Kind` attributes the rules write. A line that repeats them,
         `Manifest-Version` or `Created-By` is rejected. As in the `deploy_manifest_lines` attribute of `java_binary`,
         `Multi-Release`, `Add-Exports` and `Add-Opens` lines are not copied as they are: singlejar merges them and writes
-        them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs` and `resources`
-        has no jar of its own and rejects the attribute.""",
+        them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs`, `source_sets`
+        and `resources` has no jar of its own and rejects the attribute.""",
             default = [],
         ),
         "module_name": attr.string(
@@ -197,6 +198,16 @@ _common_attr = utils.add_dicts(
         appear on the runtime classpath, but unlike them, not on the compile-time classpath.""",
             default = [],
             allow_files = False,
+        ),
+        "source_sets": attr.label_list(
+            doc = """Kotlin Multiplatform source sets (`kt_source_set`) to compile with the srcs. The Kotlin sources of the
+        source sets, and of those they refine, compile with the srcs in one compilation, as K2 fragments
+        (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. The
+        deps of the source sets are deps of the target, and must be JVM libraries. A target with source sets cannot have
+        .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in
+        Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.""",
+            default = [],
+            providers = [KtSourceSetInfo],
         ),
         "srcs": attr.label_list(
             doc = """The list of source files that are processed to create the target, this can contain both Java and Kotlin

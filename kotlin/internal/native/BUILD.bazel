@@ -18,6 +18,7 @@ bzl_library(
         "//src/main/starlark/core/repositories:__pkg__",
     ],
     deps = [
+        "//kotlin/internal/kmp",
         "//kotlin/internal/utils",
         "//src/main/starlark/core/plugin",
         "@bazel_skylib//lib:dicts",

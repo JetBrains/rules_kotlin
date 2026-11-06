@@ -29,6 +29,7 @@ release_archive(
     },
     deps = [
         "//kotlin/internal/jvm:pkg",
+        "//kotlin/internal/kmp:pkg",
         "//kotlin/internal/lint:pkg",
         "//kotlin/internal/native:pkg",
         "//kotlin/internal/utils:pkg",

@@ -1,0 +1,38 @@
+load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("//src/main/starlark/release:packager.bzl", "release_archive")
+
+release_archive(
+    name = "pkg",
+    srcs = glob(["*.bzl"]),
+    src_map = {
+        "BUILD.release.bazel": "BUILD.bazel",
+    },
+)
+
+# The source sets and their fragments, which the JVM and Kotlin/Native rules load.
+bzl_library(
+    name = "kmp",
+    srcs = [
+        "fragments.bzl",
+        "source_set.bzl",
+    ],
+    visibility = ["//kotlin:__subpackages__"],
+    deps = ["//kotlin/internal/utils"],
+)
+
+# The macro, apart: it loads the JVM, Android and Kotlin/Native rules, which load the source sets.
+bzl_library(
+    name = "multiplatform",
+    srcs = ["multiplatform.bzl"],
+    visibility = ["//kotlin:__subpackages__"],
+    deps = [
+        ":kmp",
+        "//kotlin/internal/jvm",
+        "//kotlin/internal/native",
+    ],
+)
+
+exports_files(
+    glob(["*.bzl"]),
+    visibility = ["//visibility:public"],
+)

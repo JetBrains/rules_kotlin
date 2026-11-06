@@ -1,0 +1,60 @@
+module(name = "rules_kotlin_kmp_example")
+
+bazel_dep(name = "rules_kotlin", version = "2.2.0")
+local_path_override(
+    module_name = "rules_kotlin",
+    path = "../..",
+)
+
+bazel_dep(name = "bazel_lib", version = "3.1.0")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_android", version = "0.8.0")
+bazel_dep(name = "rules_java", version = "9.3.0")
+bazel_dep(name = "rules_jvm_external", version = "7.1")
+bazel_dep(name = "rules_shell", version = "0.6.1")
+
+# The Android SDK of shared_android, as in examples/android.
+bazel_dep(name = "hermetic_android_toolchains", version = "0.5.0", dev_dependency = True)
+
+android = use_extension("@hermetic_android_toolchains//:extensions.bzl", "android", dev_dependency = True)
+android.sdk(
+    build_tools_version = "35.0.0",
+    version = "35",
+)
+use_repo(android, "androidsdk")
+
+android_sdk_repository_extension = use_extension(
+    "@rules_android//rules/android_sdk_repository:rule.bzl",
+    "android_sdk_repository_extension",
+    dev_dependency = True,
+)
+
+override_repo(android_sdk_repository_extension, "androidsdk")
+
+register_toolchains(
+    "@androidsdk//:all",
+    dev_dependency = True,
+)
+
+# JUnit, for the JVM tests.
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+maven.install(
+    name = "maven_rules_kotlin_example",
+    artifacts = [
+        "junit:junit:4.13",
+    ],
+    lock_file = "//:maven_install.json",
+    repositories = [
+        "https://repo1.maven.org/maven2",
+    ],
+)
+use_repo(maven, "maven_rules_kotlin_example")
+
+# The native tests link for the konan target of the exec host: linux_x64 or macos_arm64. The klibs
+# compile for every target, the iOS ones included, without link dependencies.
+kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
+kotlin_native.targets(targets = [
+    "linux_x64",
+    "macos_arm64",
+])
