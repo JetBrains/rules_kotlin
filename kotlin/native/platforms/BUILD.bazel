@@ -11,6 +11,7 @@ release_archive(
 )
 
 # A platform per Kotlin/Native target, e.g.
-# --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64, and an is_<target>
-# config_setting to select() on.
+# --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64, and config_settings to
+# select() on: is_<target> on the platform alone, native_<target> on the platform of a Kotlin/Native
+# consumer (see define_konan_platforms), and native for any Kotlin/Native consumer.
 define_konan_platforms()

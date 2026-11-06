@@ -4,16 +4,21 @@ load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
-# --- JVM: the common code with the JVM actuals ---
-# On a host whose konan target a native group of //shared lists, the build's platform selects the
-# native library for the alias //shared, so a JVM target depends on //shared:shared_jvm.
+# The alias of kotlinx.coroutines, which the common code of //shared uses and the tests call.
+COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
+
+# --- JVM: the common code with the JVM actuals, through the alias ---
+# The aliases //shared and COROUTINES select a klib for the Kotlin/Native rules only, which set the
+# Kotlin platform type to native, so a JVM target gets shared_jvm and the JVM variant of
+# kotlinx.coroutines on any host, even one whose konan target a native group of //shared lists.
 
 kt_jvm_test(
     name = "greeting_jvm_test",
     srcs = ["GreetingJvmTest.kt"],
     test_class = "examples.kmp.tests.GreetingJvmTest",
     deps = [
-        "//shared:shared_jvm",
+        COROUTINES,
+        "//shared",
         "@maven_rules_kotlin_example//:junit_junit",
         "@rules_kotlin//kotlin/compiler:kotlin-test",
     ],
@@ -24,12 +29,15 @@ kt_jvm_test(
 kt_native_test(
     name = "greeting_native_test",
     srcs = ["GreetingNativeTest.kt"],
-    deps = ["//shared"],
+    deps = [
+        COROUTINES,
+        "//shared",
+    ],
 )
 
 # --- klibs: the native library for every konan target of //shared, whatever the host ---
 # Every exec host compiles klibs for the Linux targets, but only a macOS one for the Apple targets,
-# so those are skipped elsewhere.
+# so those are skipped elsewhere. Each klib depends on the klib of kotlinx.coroutines of its target.
 
 # konan target: the constraints the host must meet to compile for it.
 KONAN_TARGETS = {
@@ -58,6 +66,7 @@ KONAN_TARGETS = {
             "$(rootpath :shared_native_%s)" % target,
             target,
             "shared-shared_native",
+            "org.jetbrains.kotlinx:kotlinx-coroutines-core",
         ],
         data = [":shared_native_" + target],
         target_compatible_with = compatible_with,

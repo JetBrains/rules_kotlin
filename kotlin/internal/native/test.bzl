@@ -13,6 +13,7 @@ load(":klib.bzl", "native_module_name")
 load(":link.bzl", "LINK_ATTRS", "link_native")
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
+load(":transition.bzl", "kt_native_transition")
 
 def _kt_native_test_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
@@ -53,6 +54,7 @@ kt_native_test = rule(
             allow_files = [".kt"],
         ),
     }),
+    cfg = kt_native_transition,
     test = True,
     toolchains = [KT_NATIVE_TOOLCHAIN_TYPE],
 )

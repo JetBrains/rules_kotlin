@@ -1,6 +1,8 @@
-"""Tests for kt_multiplatform_library: the targets it declares, and the library its alias selects per platform.
+"""Tests for kt_multiplatform_library: the targets it declares, and the library its alias selects per consumer.
 
 The native tests use the fake toolchains of //src/test/starlark/internal/native (see common.bzl there).
+The alias is the native library below the Kotlin/Native rules, which set the Kotlin platform type
+to native: the tests of the alias alone set it as such a consumer does.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
@@ -20,6 +22,7 @@ load(
 
 _PACKAGE = "src/test/starlark/internal/kmp"
 _NAMES = "src_test_starlark_internal_kmp-"
+_KOTLIN_PLATFORM_TYPE = str(Label("//kotlin/settings:kotlin_platform_type"))
 
 def _basenames(paths):
     return [path.rpartition("/")[2] for path in paths]
@@ -112,7 +115,13 @@ native_macos_arm64_test = analysistest.make(
     attrs = _NATIVE_ATTRS,
     config_settings = for_target("macos_arm64"),
 )
-alias_native_test = analysistest.make(_alias_native_test_impl, config_settings = for_target("linux_arm64"))
+alias_native_test = analysistest.make(
+    _alias_native_test_impl,
+    config_settings = dict(for_target("linux_arm64"), **{_KOTLIN_PLATFORM_TYPE: "native"}),
+)
+
+# A JVM consumer on a host of a konan target of the groups: the platform alone selects no native library.
+alias_jvm_on_native_host_test = analysistest.make(_alias_jvm_test_impl, config_settings = for_target("linux_arm64"))
 alias_jvm_test = analysistest.make(
     _alias_jvm_test_impl,
     config_settings = {
@@ -243,6 +252,11 @@ def multiplatform_test_suite(name):
         target_under_test = ":mpp",
         target_compatible_with = not_on_windows(),
     )
+    alias_jvm_on_native_host_test(
+        name = "multiplatform_alias_jvm_on_native_host_test",
+        target_under_test = ":mpp",
+        target_compatible_with = not_on_windows(),
+    )
     alias_jvm_test(
         name = "multiplatform_alias_jvm_test",
         target_under_test = ":mpp",
@@ -264,6 +278,7 @@ def multiplatform_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
+            ":multiplatform_alias_jvm_on_native_host_test",
             ":multiplatform_alias_jvm_test",
             ":multiplatform_alias_native_test",
             ":multiplatform_declarations",

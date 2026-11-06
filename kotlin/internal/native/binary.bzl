@@ -7,6 +7,7 @@ deps (see link.bzl). The konan target is the one of the resolved toolchain (the 
 
 load(":link.bzl", "LINK_ATTRS", "link_native")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
+load(":transition.bzl", "kt_native_transition")
 
 def _kt_native_binary_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
@@ -26,6 +27,7 @@ kt_native_binary = rule(
     must be staged: see kotlin_native.targets(...).""",
     implementation = _kt_native_binary_impl,
     attrs = LINK_ATTRS,
+    cfg = kt_native_transition,
     executable = True,
     toolchains = [KT_NATIVE_TOOLCHAIN_TYPE],
 )

@@ -2,10 +2,13 @@ package examples.kmp.tests
 
 import examples.kmp.shared.PlatformInfo
 import examples.kmp.shared.greeting
+import examples.kmp.shared.greetingAfter
 import examples.kmp.shared.platformName
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 
 class GreetingNativeTest {
   @Test
@@ -20,5 +23,11 @@ class GreetingNativeTest {
     val info = PlatformInfo()
     assertEquals(platformName(), info.name)
     assertTrue(info.is64Bit)
+  }
+
+  @Test
+  fun greetsAfterADelay() {
+    // The common code runs on the klib of kotlinx.coroutines of the host's konan target.
+    assertEquals(greeting(), runBlocking { greetingAfter(10.milliseconds) })
   }
 }

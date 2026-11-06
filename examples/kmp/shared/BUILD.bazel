@@ -3,7 +3,9 @@ load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
 # The common source set declares platformName() and PlatformInfo with `expect`; each platform
 # implements them with `actual` and compiles them with the common code, as K2 fragments. The macro
 # declares shared_common, shared_jvm, shared_android, shared_apple, shared_linux, shared_native,
-# shared_srcs and the alias shared, which selects the library of the build's platform.
+# shared_srcs and the alias shared, which selects the library of its consumer: shared_native for a
+# Kotlin/Native rule, shared_android for an Android platform, shared_jvm otherwise. The common code
+# uses kotlinx.coroutines, whose alias of @kmp_maven (see MODULE.bazel) selects the same way.
 kt_multiplatform_library(
     name = "shared",
     android = dict(
@@ -11,6 +13,7 @@ kt_multiplatform_library(
         custom_package = "examples.kmp.shared",
         manifest = "android/AndroidManifest.xml",
     ),
+    common_deps = ["@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"],
     common_srcs = [
         "common/Greeting.kt",
         "common/Platform.kt",

@@ -1,4 +1,4 @@
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_list_flag")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag", "string_list_flag")
 
 # Copyright 2020 The Bazel Authors. All rights reserved.
 #
@@ -70,5 +70,20 @@ config_setting(
 bool_flag(
     name = "experimental_ksp2_psi_resolution",
     build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+# The Kotlin platform a target is built for, the Bazel form of the Gradle attribute
+# org.jetbrains.kotlin.platform.type: jvm (the JVM and Android rules) or native. The Kotlin/Native
+# rules set it to native for themselves and their deps with a rule transition, so it needs no setting
+# on the command line. A select() tells a Kotlin/Native consumer from a JVM one with the
+# config_settings @rules_kotlin//kotlin/native/platforms:native and native_<konan target>.
+string_flag(
+    name = "kotlin_platform_type",
+    build_setting_default = "jvm",
+    values = [
+        "jvm",
+        "native",
+    ],
     visibility = ["//visibility:public"],
 )

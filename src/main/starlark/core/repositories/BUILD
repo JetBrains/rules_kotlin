@@ -24,6 +24,8 @@ release_archive(
         "bzlmod_impl.bzl",
         "bzlmod_setup.bzl",
         "compiler.bzl",
+        "kmp_maven.bzl",
+        "kmp_maven_impl.bzl",
         "ksp.bzl",
         "native.bzl",
         "native_compiler.bzl",

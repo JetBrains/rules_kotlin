@@ -4,7 +4,8 @@ The konan target is the one of the resolved toolchain (the build's --platforms),
 attribute. The klib action is the shared one of klib.bzl; linking is handled separately by
 kt_native_binary, kt_native_test and kt_native_framework (see link.bzl). With source_sets, the
 sources of the Kotlin Multiplatform source sets compile with the srcs, as K2 fragments (see
-//kotlin/internal/kmp:fragments.bzl).
+//kotlin/internal/kmp:fragments.bzl). Like every Kotlin/Native rule, it builds with the Kotlin
+platform type native (see transition.bzl).
 """
 
 load("//kotlin/internal/kmp:fragments.bzl", "collect_fragments")
@@ -20,6 +21,7 @@ load(
 )
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
+load(":transition.bzl", "TRANSITION_ATTRS", "kt_native_transition")
 
 def _kt_native_library_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
@@ -67,7 +69,7 @@ kt_native_library = rule(
     `--platforms=@rules_kotlin//kotlin/native/platforms:linux_x64`; the host platform builds for the
     host's target.""",
     implementation = _kt_native_library_impl,
-    attrs = {
+    attrs = dict(TRANSITION_ATTRS, **{
         "deps": attr.label_list(
             doc = "The klibs the sources compile against, e.g. kt_native_library targets. They are for the same konan target.",
             providers = [KtKlibInfo],
@@ -98,7 +100,8 @@ kt_native_library = rule(
             doc = "Kotlin sources.",
             allow_files = [".kt"],
         ),
-    },
+    }),
+    cfg = kt_native_transition,
     toolchains = [KT_NATIVE_TOOLCHAIN_TYPE],
     provides = [KtKlibInfo],
 )

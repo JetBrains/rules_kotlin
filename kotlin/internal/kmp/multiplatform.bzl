@@ -21,12 +21,15 @@ declares:
 - shared_native: a kt_native_library that compiles, for the konan target of the build's platform,
   the source set of the group of that target; it is incompatible with other platforms;
 - shared_srcs: a filegroup of the sources of every source set and platform;
-- shared: an alias of shared_android for an Android platform, of shared_native for the konan
-  targets of the groups, and otherwise of shared_jvm, or of the only platform declared.
+- shared: an alias of shared_native for a Kotlin/Native consumer building for a konan target of the
+  groups, of shared_android for an Android platform, and otherwise of shared_jvm, or of the only
+  platform declared.
 
-The alias selects on the build's platform, and a konan target is selected by the platform too, so
-on a host whose konan target a group lists, the alias is the native library: a JVM target built for
-such a host depends on shared_jvm.
+The alias selects on //kotlin/native/platforms:native_<konan target>, which only matches below the
+Kotlin/Native rules: they set //kotlin/settings:kotlin_platform_type to native for themselves and
+their deps. So on a macOS or Linux host, whose platform is also the one of a konan target, the alias
+is shared_jvm for a JVM consumer and shared_native for a native one. The native source sets and the
+compatibility of shared_native select on the platform only (`is_<konan target>`).
 """
 
 load("//kotlin/internal/jvm:kt_android_library.bzl", "kt_android_library")
@@ -45,6 +48,9 @@ _DEFAULT = "//conditions:default"
 
 def _is_konan_target(konan_target):
     return str(Label("//kotlin/native/platforms:is_" + konan_target))
+
+def _native_konan_target(konan_target):
+    return str(Label("//kotlin/native/platforms:native_" + konan_target))
 
 # The parameter `native` of the macro hides the module.
 def _filegroup(**kwargs):
@@ -114,7 +120,9 @@ def kt_multiplatform_library(
       name: the name of the alias, and the prefix of the names of the other targets.
       common_srcs: the Kotlin sources of the common source set, `<name>_common`.
       common_deps: the deps of the common source set, which every platform compiles against. A dep
-        that differs per platform is an alias that selects on the platform.
+        that differs per platform is an alias that selects its klib on
+        `@rules_kotlin//kotlin/native/platforms:native_<konan target>`, its Android library on
+        `@platforms//os:android` and its JVM library by default.
       jvm: the attributes of the kt_jvm_library `<name>_jvm`, e.g. `dict(srcs = [...], deps = [...])`,
         or None for no JVM library. Its source_sets are the common source set and those it lists.
       android: the attributes of the kt_android_library `<name>_android`, e.g. `srcs` and `manifest`,
@@ -204,7 +212,7 @@ def kt_multiplatform_library(
     if android != None:
         actual[str(Label("@platforms//os:android"))] = ":%s_android" % name
     for target in native_targets:
-        actual[_is_konan_target(target)] = ":%s_native" % name
+        actual[_native_konan_target(target)] = ":%s_native" % name
     if jvm != None:
         actual[_DEFAULT] = ":%s_jvm" % name
     elif android != None:
