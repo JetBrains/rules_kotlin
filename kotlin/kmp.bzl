@@ -12,7 +12,8 @@ Experimental:
 - KtSourceSetInfo: the provider of a source set.
 
 kt_multiplatform_library declares a kt_android_library when it has an `android` platform, so this
-file loads the Android rules. See examples/kmp for usage.
+file loads the Android rules. See examples/kmp and examples/kmp_app for usage, and docs/kmp.md
+for the guide.
 """
 
 load(

@@ -14,7 +14,10 @@ For more information about release and changelogs please see [Changelog](CHANGEL
 
 **rules_kotlin** supports the basic paradigm of `*_binary`, `*_library`, `*_test` of other Bazel 
 language rules. It also supports `jvm`, `android`, and `js` flavors, with the prefix `kt_jvm`
-and `kt_android` typically applied to the rules.
+and `kt_android` typically applied to the rules. Experimental Kotlin/Native rules, with the prefix
+`kt_native`, build klibs, native executables and Apple frameworks, and Kotlin Multiplatform rules
+share common code between the JVM, Android and native targets: see
+[Kotlin Multiplatform](#kotlin-multiplatform-experimental).
 
 Support for kotlin's -Xfriend-paths via the `associates=` attribute in the jvm allow access to
 `internal` members.
@@ -448,6 +451,49 @@ rules_kotlin_extensions.ksp_version(
 )
 use_repo(rules_kotlin_extensions, "com_github_google_ksp", "com_github_jetbrains_kotlin", "com_github_jetbrains_kotlin_git", "com_github_pinterest_ktlint", "kotlinx_serialization_core_jvm", "kotlinx_serialization_json", "kotlinx_serialization_json_jvm")
 ```
+
+# Kotlin Multiplatform (experimental)
+
+On Linux x86_64 and macOS arm64 hosts, the Kotlin/Native rules of `@rules_kotlin//kotlin:native.bzl`
+(`kt_native_library`, `kt_native_binary`, `kt_native_test`, `kt_native_framework`, `kt_klib_import`)
+build klibs, executables, test runners and static Apple frameworks for the konan target of the
+build's platform: `linux_x64`, `linux_arm64`, `macos_arm64`, `ios_arm64` or `ios_simulator_arm64`.
+`kt_multiplatform_library` (`@rules_kotlin//kotlin:kmp.bzl`) declares a Kotlin Multiplatform module
+as the Kotlin Gradle plugin does: a library per platform, which compiles the common code with the
+`actual` declarations of the platform, behind one label. The rules are experimental and may change.
+
+```python
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
+
+kt_multiplatform_library(
+    name = "shared",
+    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]),
+    common_deps = ["@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"],
+    android = dict(
+        srcs = glob(["src/androidMain/kotlin/**/*.kt"]),
+        custom_package = "org.example.kmpapp",
+        manifest = "src/androidMain/AndroidManifest.xml",
+    ),
+    jvm = dict(srcs = glob(["src/jvmMain/kotlin/**/*.kt"])),
+    native = {
+        "ios": dict(
+            srcs = glob(["src/iosMain/kotlin/**/*.kt"]),
+            targets = ["ios_arm64", "ios_simulator_arm64"],
+        ),
+    },
+)
+```
+
+`//shared` is then the JVM library for a JVM consumer, the Android library for an Android one and the
+klib of the konan target for the Kotlin/Native rules, e.g. the `kt_native_framework` an iOS app links.
+
+* [docs/kmp.md](docs/kmp.md): the guide: setup, platforms, rules, from Gradle to Bazel, the Android
+  and iOS apps, limitations.
+* [docs/kmp_dependencies.md](docs/kmp_dependencies.md): the Maven dependencies of multiplatform code,
+  with the `kmp_maven` module extension.
+* [docs/kotlin.md](docs/kotlin.md): the API reference of the rules.
+* Examples: [examples/native](examples/native), [examples/kmp](examples/kmp) and
+  [examples/kmp_app](examples/kmp_app), an Android app and an iOS app sharing one module.
 
 # Kotlin compiler plugins
 

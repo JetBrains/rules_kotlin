@@ -666,3 +666,351 @@ libraries they need, and the internal compiler plugins in the embeddable dialect
 | <a id="define_kt_toolchain-target_settings"></a>target_settings |  <p align="center"> - </p>   |  `None` |
 
 
+<!-- Generated with Stardoc: http://skydoc.bazel.build -->
+
+Public API for Kotlin/Native rules.
+
+Experimental:
+- kt_native_library: compile .kt -> .klib for the resolved konan target.
+- kt_native_binary: link .kt sources + klib deps into a native executable (`bazel run`).
+- kt_native_test: link .kt tests + klib deps into a test runner (`bazel test`) for the exec host.
+- kt_native_framework: link .kt sources + klib deps into a static Apple framework. Its output
+  group `framework_files` holds the files of the framework, which rules_apple's
+  apple_static_framework_import imports.
+- kt_klib_import: a prebuilt .klib of a konan target (e.g. from Maven) as a klib dep.
+- KtKlibInfo: the provider of a klib.
+
+The konan target is selected by Bazel toolchain resolution (the build's --platforms),
+not a rule attribute; a kt_klib_import names the one of its klib. The rules build with
+the Kotlin platform type native (//kotlin/settings:kotlin_platform_type), so a dep that
+selects on @rules_kotlin//kotlin/native/platforms:native_<konan target> is their klib.
+See examples/native and examples/kmp_app for usage, and docs/kmp.md for the guide.
+
+<a id="kt_klib_import"></a>
+
+## kt_klib_import
+
+<pre>
+load("@rules_kotlin//kotlin:native.bzl", "kt_klib_import")
+
+kt_klib_import(<a href="#kt_klib_import-name">name</a>, <a href="#kt_klib_import-deps">deps</a>, <a href="#kt_klib_import-exports">exports</a>, <a href="#kt_klib_import-klib">klib</a>, <a href="#kt_klib_import-konan_target">konan_target</a>, <a href="#kt_klib_import-module_name">module_name</a>)
+</pre>
+
+Imports a prebuilt klib of a konan target, which the Kotlin/Native rules compile against and link like the klib of a kt_native_library.
+
+Experimental. The klib is for one konan target, e.g. the klib of the `linuxx64` variant of a Kotlin
+Multiplatform library on Maven for `linux_x64`; its deps and exports are klibs of the same target.
+A consumer of another konan target fails. The cinterop klibs of a library are imports of their own,
+deps of the import of its main klib, so they follow it wherever it is compiled against or linked.
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="kt_klib_import-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="kt_klib_import-deps"></a>deps |  The klibs the klib depends on, e.g. its cinterop klibs: its consumers compile against them and link them with it. They are for the same konan target.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_klib_import-exports"></a>exports |  Klibs the klib depends on and re-exports: its consumers compile against them as if they listed them in their own deps. They are for the same konan target.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_klib_import-klib"></a>klib |  The .klib file.   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
+| <a id="kt_klib_import-konan_target"></a>konan_target |  The konan target of the klib, e.g. `linux_x64`.   | String | required |  |
+| <a id="kt_klib_import-module_name"></a>module_name |  The module name of the klib, for information: konanc reads the unique_name of a klib from its manifest. By default it is derived from the label, as for the other rules.   | String | optional |  `""`  |
+
+
+<a id="kt_native_binary"></a>
+
+## kt_native_binary
+
+<pre>
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_binary")
+
+kt_native_binary(<a href="#kt_native_binary-name">name</a>, <a href="#kt_native_binary-deps">deps</a>, <a href="#kt_native_binary-srcs">srcs</a>, <a href="#kt_native_binary-link_opts">link_opts</a>, <a href="#kt_native_binary-module_name">module_name</a>, <a href="#kt_native_binary-opts">opts</a>, <a href="#kt_native_binary-plugins">plugins</a>, <a href="#kt_native_binary-source_sets">source_sets</a>)
+</pre>
+
+Links a Kotlin/Native executable, `<name>.kexe`, for the konan target of the build's platform.
+
+Experimental. The entry point, `main`, is in the srcs or in a dep. The link dependencies of the target
+must be staged: see kotlin_native.targets(...).
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="kt_native_binary-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="kt_native_binary-deps"></a>deps |  The klibs to link, e.g. kt_native_library targets, which the srcs compile against. They are for the same konan target.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_binary-srcs"></a>srcs |  Kotlin sources.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_binary-link_opts"></a>link_opts |  More konanc options of the link, e.g. `-opt`. They follow the options of the rule.   | List of strings | optional |  `[]`  |
+| <a id="kt_native_binary-module_name"></a>module_name |  The Kotlin module name of the srcs, the unique_name of the klib they compile into. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
+| <a id="kt_native_binary-opts"></a>opts |  More konanc options of the compilation of the srcs, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`.   | List of strings | optional |  `[]`  |
+| <a id="kt_native_binary-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation of the srcs. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_binary-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (kt_source_set) to compile with the srcs. Their sources, and those of the source sets they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. Their deps are compiled against as deps, and must be klibs of the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+
+
+<a id="kt_native_framework"></a>
+
+## kt_native_framework
+
+<pre>
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_framework")
+
+kt_native_framework(<a href="#kt_native_framework-name">name</a>, <a href="#kt_native_framework-deps">deps</a>, <a href="#kt_native_framework-srcs">srcs</a>, <a href="#kt_native_framework-bundle_id">bundle_id</a>, <a href="#kt_native_framework-exports">exports</a>, <a href="#kt_native_framework-link_opts">link_opts</a>, <a href="#kt_native_framework-module_name">module_name</a>, <a href="#kt_native_framework-opts">opts</a>, <a href="#kt_native_framework-plugins">plugins</a>,
+                    <a href="#kt_native_framework-source_sets">source_sets</a>)
+</pre>
+
+Links a static framework, `<name>.framework`, for the Apple konan target of the build's platform.
+
+Experimental. The framework is a directory, named after the target like the prefix of its Objective-C names.
+The link dependencies of the target must be staged: see kotlin_native.targets(...).
+
+The output group `framework_files` holds the files of the framework, copied out of the directory into
+`_kt_native/<name>.framework/` when a build requests them: the static library `<name>`, the umbrella header
+`Headers/<name>.h`, the module map `Modules/module.modulemap` and `Info.plist`. rules_apple imports a framework
+from its files, so an iOS app links the framework through a filegroup of the group, and the framework follows the
+platform of the app (`--ios_multi_cpus`):
+
+```bzl
+kt_native_framework(
+    name = "Shared",
+    bundle_id = "org.example.Shared",
+    exports = ["//shared"],
+)
+
+filegroup(
+    name = "Shared_files",
+    srcs = [":Shared"],
+    output_group = "framework_files",
+)
+
+apple_static_framework_import(
+    name = "Shared_import",
+    framework_imports = [":Shared_files"],
+    # What the Kotlin/Native runtime links with.
+    sdk_dylibs = ["c++", "objc"],
+    sdk_frameworks = ["Foundation", "UIKit"],
+)
+```
+
+A swift_library then depends on `:Shared_import` and imports the module `Shared`. See examples/kmp_app.
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="kt_native_framework-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="kt_native_framework-deps"></a>deps |  The klibs to link, e.g. kt_native_library targets, which the srcs compile against. They are for the same konan target.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_framework-srcs"></a>srcs |  Kotlin sources.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_framework-bundle_id"></a>bundle_id |  The CFBundleIdentifier of the framework; by default the compiler derives one from the sources.   | String | optional |  `""`  |
+| <a id="kt_native_framework-exports"></a>exports |  Klibs whose API the framework exports in its header, with their own exports. They are deps of the framework too.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_framework-link_opts"></a>link_opts |  More konanc options of the link, e.g. `-opt`. They follow the options of the rule.   | List of strings | optional |  `[]`  |
+| <a id="kt_native_framework-module_name"></a>module_name |  The Kotlin module name of the srcs, the unique_name of the klib they compile into. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
+| <a id="kt_native_framework-opts"></a>opts |  More konanc options of the compilation of the srcs, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`.   | List of strings | optional |  `[]`  |
+| <a id="kt_native_framework-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation of the srcs. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_framework-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (kt_source_set) to compile with the srcs. Their sources, and those of the source sets they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. Their deps are compiled against as deps, and must be klibs of the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+
+
+<a id="kt_native_library"></a>
+
+## kt_native_library
+
+<pre>
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_library")
+
+kt_native_library(<a href="#kt_native_library-name">name</a>, <a href="#kt_native_library-deps">deps</a>, <a href="#kt_native_library-srcs">srcs</a>, <a href="#kt_native_library-exports">exports</a>, <a href="#kt_native_library-module_name">module_name</a>, <a href="#kt_native_library-opts">opts</a>, <a href="#kt_native_library-plugins">plugins</a>, <a href="#kt_native_library-source_sets">source_sets</a>)
+</pre>
+
+Compiles Kotlin sources into a Kotlin/Native klib, for the konan target of the build's platform.
+
+Experimental. Build for a konan target with `--platforms`, e.g.
+`--platforms=@rules_kotlin//kotlin/native/platforms:linux_x64`; the host platform builds for the
+host's target.
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="kt_native_library-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="kt_native_library-deps"></a>deps |  The klibs the sources compile against, e.g. kt_native_library targets. They are for the same konan target.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_library-srcs"></a>srcs |  Kotlin sources.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_library-exports"></a>exports |  Klibs the sources compile against that the library also re-exports: its dependents compile against them as if they listed them in their own deps.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_library-module_name"></a>module_name |  The Kotlin module name, which is the unique_name of the klib. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
+| <a id="kt_native_library-opts"></a>opts |  More konanc options, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`. They follow the options of the rule.   | List of strings | optional |  `[]`  |
+| <a id="kt_native_library-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_library-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (kt_source_set) to compile with the srcs. Their sources, and those of the source sets they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. Their deps are compiled against as deps, and must be klibs of the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+
+
+<a id="kt_native_test"></a>
+
+## kt_native_test
+
+<pre>
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_test")
+
+kt_native_test(<a href="#kt_native_test-name">name</a>, <a href="#kt_native_test-deps">deps</a>, <a href="#kt_native_test-srcs">srcs</a>, <a href="#kt_native_test-associates">associates</a>, <a href="#kt_native_test-link_opts">link_opts</a>, <a href="#kt_native_test-module_name">module_name</a>, <a href="#kt_native_test-opts">opts</a>, <a href="#kt_native_test-plugins">plugins</a>, <a href="#kt_native_test-source_sets">source_sets</a>)
+</pre>
+
+Links the tests of the srcs and source_sets into a Kotlin/Native test runner, `<name>.kexe`, which `bazel test` runs.
+
+Experimental. The tests use kotlin.test, e.g. `@kotlin.test.Test`. The test is for the konan target of the
+exec host, whose link dependencies must be staged: see kotlin_native.targets(...).
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="kt_native_test-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="kt_native_test-deps"></a>deps |  The klibs to link, e.g. kt_native_library targets, which the srcs compile against. They are for the same konan target.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_test-srcs"></a>srcs |  Kotlin sources with the tests.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_test-associates"></a>associates |  kt_native_library targets whose internal declarations the srcs see. They are deps of the test too.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_test-link_opts"></a>link_opts |  More konanc options of the link, e.g. `-opt`. They follow the options of the rule.   | List of strings | optional |  `[]`  |
+| <a id="kt_native_test-module_name"></a>module_name |  The Kotlin module name of the srcs, the unique_name of the klib they compile into. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
+| <a id="kt_native_test-opts"></a>opts |  More konanc options of the compilation of the srcs, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`.   | List of strings | optional |  `[]`  |
+| <a id="kt_native_test-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation of the srcs. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_test-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (kt_source_set) to compile with the srcs. Their sources, and those of the source sets they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. Their deps are compiled against as deps, and must be klibs of the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+
+
+<a id="KtKlibInfo"></a>
+
+## KtKlibInfo
+
+<pre>
+load("@rules_kotlin//kotlin:native.bzl", "KtKlibInfo")
+
+KtKlibInfo(<a href="#KtKlibInfo-cc_info">cc_info</a>, <a href="#KtKlibInfo-exported_klibs">exported_klibs</a>, <a href="#KtKlibInfo-klib">klib</a>, <a href="#KtKlibInfo-konan_target">konan_target</a>, <a href="#KtKlibInfo-module_name">module_name</a>, <a href="#KtKlibInfo-platform">platform</a>, <a href="#KtKlibInfo-transitive_klibs">transitive_klibs</a>)
+</pre>
+
+A Kotlin library compiled to a .klib.
+
+The Kotlin/Native rules produce and consume klibs for a konan target. `platform` leaves room for
+the klibs of other Kotlin platforms (JS, Wasm), which share the format.
+
+**FIELDS**
+
+| Name  | Description |
+| :------------- | :------------- |
+| <a id="KtKlibInfo-cc_info"></a>cc_info |  (CcInfo or None) The C libraries the klib binds, which a binary linking it needs; None until cinterop is supported.    |
+| <a id="KtKlibInfo-exported_klibs"></a>exported_klibs |  (depset[File]) The klibs this target re-exports to its dependents: its exports and theirs.    |
+| <a id="KtKlibInfo-klib"></a>klib |  (File) The .klib this target produces.    |
+| <a id="KtKlibInfo-konan_target"></a>konan_target |  (str or None) The konan target the klib is compiled for, e.g. linux_x64; None for a klib of another platform.    |
+| <a id="KtKlibInfo-module_name"></a>module_name |  (str) The module name, the unique_name of the klib manifest.    |
+| <a id="KtKlibInfo-platform"></a>platform |  (str) The Kotlin platform of the klib: 'native' (later also 'js', 'wasm_js' or 'wasm_wasi').    |
+| <a id="KtKlibInfo-transitive_klibs"></a>transitive_klibs |  (depset[File]) The klib and every klib compiling against it needs: its deps and exports, transitively.    |
+
+
+<!-- Generated with Stardoc: http://skydoc.bazel.build -->
+
+Public API for Kotlin Multiplatform.
+
+Experimental:
+- kt_source_set: a source set, Kotlin sources that the Kotlin/Native, JVM and Android rules listing it
+  in their `source_sets` compile with their own sources, as the K2 fragments of one compilation, so
+  `expect` declarations and their `actual` ones are in one module.
+- kt_multiplatform_library: a multiplatform library from a declaration like the one of the Kotlin
+  Gradle plugin: its source sets, a library per platform and an alias selecting the library of its
+  consumer: the native one for a Kotlin/Native rule
+  (`@rules_kotlin//kotlin/native/platforms:native_<konan target>`), the Android one for an Android
+  platform and the JVM one otherwise.
+- KtSourceSetInfo: the provider of a source set.
+
+kt_multiplatform_library declares a kt_android_library when it has an `android` platform, so this
+file loads the Android rules. See examples/kmp and examples/kmp_app for usage, and docs/kmp.md
+for the guide.
+
+<a id="kt_source_set"></a>
+
+## kt_source_set
+
+<pre>
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_source_set")
+
+kt_source_set(<a href="#kt_source_set-name">name</a>, <a href="#kt_source_set-deps">deps</a>, <a href="#kt_source_set-srcs">srcs</a>, <a href="#kt_source_set-depends_on">depends_on</a>)
+</pre>
+
+A Kotlin Multiplatform source set: Kotlin sources, the libraries they use and the source sets they refine.
+
+Experimental. A source set compiles nothing by itself. The Kotlin/Native, JVM and Android rules
+compile the source sets of their `source_sets` attribute, and those they refine, transitively,
+together with their own `srcs`, as the fragments of one multiplatform compilation
+(`-Xmulti-platform -Xfragments`), the way the Kotlin Gradle plugin compiles a platform: the
+`expect` declarations of a common source set and the `actual` ones in the `srcs` of the rule of a
+platform are in one module. Expect/actual classes are Beta in Kotlin; the rules pass
+`-Xexpect-actual-classes`, which acknowledges it.
+
+The deps are resolved in the configuration of each rule compiling the source set, so they must
+provide what that rule needs: JavaInfo for a JVM or Android rule, a klib of the konan target for a
+Kotlin/Native one. A dep that differs per platform is an `alias` that selects its klib on
+`@rules_kotlin//kotlin/native/platforms:native_<konan target>`, which the Kotlin/Native rules
+match, its Android library on `@platforms//os:android` and its JVM library by default.
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="kt_source_set-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="kt_source_set-deps"></a>deps |  The libraries the sources use. Every rule compiling the source set compiles against them: they are JVM libraries for a JVM or Android rule, klibs for a Kotlin/Native one.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_source_set-srcs"></a>srcs |  Kotlin sources.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_source_set-depends_on"></a>depends_on |  The source sets this one refines, as Gradle's `dependsOn`: e.g. the source set of the Apple targets refines the common one.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+
+
+<a id="KtSourceSetInfo"></a>
+
+## KtSourceSetInfo
+
+<pre>
+load("@rules_kotlin//kotlin:kmp.bzl", "KtSourceSetInfo")
+
+KtSourceSetInfo(<a href="#KtSourceSetInfo-depends_on">depends_on</a>, <a href="#KtSourceSetInfo-deps">deps</a>, <a href="#KtSourceSetInfo-label">label</a>, <a href="#KtSourceSetInfo-name">name</a>, <a href="#KtSourceSetInfo-srcs">srcs</a>, <a href="#KtSourceSetInfo-transitive_source_sets">transitive_source_sets</a>)
+</pre>
+
+A Kotlin Multiplatform source set: a fragment of the compilations of the rules listing it in their `source_sets`.
+
+**FIELDS**
+
+| Name  | Description |
+| :------------- | :------------- |
+| <a id="KtSourceSetInfo-depends_on"></a>depends_on |  tuple of KtSourceSetInfo: the source sets this one refines, Gradle's `dependsOn`.    |
+| <a id="KtSourceSetInfo-deps"></a>deps |  list of Target: the libraries the sources use. They are resolved in the configuration of each rule compiling the source set: a JVM or Android rule needs them to provide JavaInfo, a Kotlin/Native one KtKlibInfo.    |
+| <a id="KtSourceSetInfo-label"></a>label |  Label: the label of the source set.    |
+| <a id="KtSourceSetInfo-name"></a>name |  string: the name of the fragment, derived from the label as module names are: `<package>-<name>`, with `/` replaced by `_`, or `<name>` in the root package.    |
+| <a id="KtSourceSetInfo-srcs"></a>srcs |  list of File: the Kotlin sources of the fragment.    |
+| <a id="KtSourceSetInfo-transitive_source_sets"></a>transitive_source_sets |  depset of KtSourceSetInfo, in postorder: the source sets this one refines, transitively, and this one, each after the source sets it refines. Their own transitive_source_sets is None.    |
+
+
+<a id="kt_multiplatform_library"></a>
+
+## kt_multiplatform_library
+
+<pre>
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
+
+kt_multiplatform_library(<a href="#kt_multiplatform_library-name">name</a>, <a href="#kt_multiplatform_library-common_srcs">common_srcs</a>, <a href="#kt_multiplatform_library-common_deps">common_deps</a>, <a href="#kt_multiplatform_library-jvm">jvm</a>, <a href="#kt_multiplatform_library-android">android</a>, <a href="#kt_multiplatform_library-native">native</a>, <a href="#kt_multiplatform_library-visibility">visibility</a>, <a href="#kt_multiplatform_library-tags">tags</a>,
+                         <a href="#kt_multiplatform_library-testonly">testonly</a>, <a href="#kt_multiplatform_library-kwargs">**kwargs</a>)
+</pre>
+
+Declares a Kotlin Multiplatform library: its source sets, a library per platform and an alias.
+
+Experimental. Each platform compiles the common source set with its own sources, as K2
+fragments (see kt_source_set), so the `expect` declarations of the common sources and the
+`actual` ones of a platform are in one module.
+
+
+**PARAMETERS**
+
+
+| Name  | Description | Default Value |
+| :------------- | :------------- | :------------- |
+| <a id="kt_multiplatform_library-name"></a>name |  the name of the alias, and the prefix of the names of the other targets.   |  none |
+| <a id="kt_multiplatform_library-common_srcs"></a>common_srcs |  the Kotlin sources of the common source set, `<name>_common`.   |  none |
+| <a id="kt_multiplatform_library-common_deps"></a>common_deps |  the deps of the common source set, which every platform compiles against. A dep that differs per platform is an alias that selects its klib on `@rules_kotlin//kotlin/native/platforms:native_<konan target>`, its Android library on `@platforms//os:android` and its JVM library by default.   |  `[]` |
+| <a id="kt_multiplatform_library-jvm"></a>jvm |  the attributes of the kt_jvm_library `<name>_jvm`, e.g. `dict(srcs = [...], deps = [...])`, or None for no JVM library. Its source_sets are the common source set and those it lists.   |  `None` |
+| <a id="kt_multiplatform_library-android"></a>android |  the attributes of the kt_android_library `<name>_android`, e.g. `srcs` and `manifest`, or None for no Android library. Its source_sets are the common source set and those it lists.   |  `None` |
+| <a id="kt_multiplatform_library-native"></a>native |  the groups of konan targets, `{"<group>": dict(srcs = [...], deps = [...], targets = [...])}`. Each group is a source set, `<name>_<group>`, of its srcs and deps, which refines the common one and which `<name>_native` compiles for each of its targets. The other attributes of a group are attributes of `<name>_native` for its targets, e.g. `opts`.   |  `{}` |
+| <a id="kt_multiplatform_library-visibility"></a>visibility |  the visibility of the targets.   |  `None` |
+| <a id="kt_multiplatform_library-tags"></a>tags |  the tags of the targets.   |  `[]` |
+| <a id="kt_multiplatform_library-testonly"></a>testonly |  whether the targets are testonly.   |  `False` |
+| <a id="kt_multiplatform_library-kwargs"></a>kwargs |  more attributes common to every rule, e.g. `features`, of every target.   |  none |
+
+

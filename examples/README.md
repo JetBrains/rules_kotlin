@@ -2,6 +2,12 @@
 
 These are series of code samples useful for configuring a variety of use cases. They also serve as integration tests.
 
+## Kotlin/Native and Kotlin Multiplatform (experimental)
+See [docs/kmp.md](../docs/kmp.md). Kotlin/Native builds on Linux x86_64 and macOS arm64 hosts only, so these examples are skipped on Windows.
+- [native](native): `kt_native_library` klibs for the host and for every konan target, a `kt_native_binary` run end to end, `kt_native_test`s, Linux cross links, and a `kt_native_framework` with its `framework_files` per Apple target. Linux x86_64 and macOS arm64 (the Apple targets on macOS only).
+- [kmp](kmp): a `kt_multiplatform_library` for the JVM, Android, the Apple and the Linux targets, the same kind of module declared with `kt_source_set`, JVM and native tests, and `kotlinx-coroutines-core` from `kmp_maven`. Linux x86_64 and macOS arm64 (the Apple klibs on macOS only); Bazel 8.4.2 or newer.
+- [kmp_app](kmp_app): an Android app (`android_binary`) and an iOS app (`ios_application`) sharing one `kt_multiplatform_library`, laid out like the project of the Kotlin Multiplatform wizard. macOS arm64 builds both apps, Linux x86_64 the Android app; Bazel 8.4.2 or newer; CI runs it on macOS.
+
 ## Adding a new integration test
 1. Create a new workspace in the `examples` directory
 1. Ensure that the `rules_kotlin` repository is named `rules_kotlin`

@@ -8,12 +8,18 @@ load("@io_bazel_stardoc//stardoc:stardoc.bzl", "stardoc")
         input = "//kotlin:%s.bzl" % doc,
         deps = [
             "//kotlin/internal",
+            # The rules_android files that kt_android_library.bzl loads, for kmp.bzl: rules_android keeps
+            # their bzl_library to itself, which the override of rules_android in MODULE.bazel makes
+            # public. Only the docs depend on it, as the override applies when rules_kotlin is the root.
+            "@rules_android//rules/android_library:bzl",
         ],
     )
     for doc in [
         "jvm",
         "lint",
         "core",
+        "native",
+        "kmp",
     ]
 ]
 
@@ -23,6 +29,8 @@ genrule(
         "jvm",
         "lint",
         "core",
+        "native",
+        "kmp",
     ]],
     outs = ["kotlin.md.generated"],
     cmd = """

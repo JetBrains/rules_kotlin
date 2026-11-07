@@ -45,7 +45,9 @@ bzl_library(
     ],
     deps = [
         "//kotlin/internal/jvm",
+        "//kotlin/internal/kmp:multiplatform",
         "//kotlin/internal/lint",
+        "//kotlin/internal/native",
         "//kotlin/internal/utils",
         "//src/main/starlark",
         "//src/main/starlark/core/compile",

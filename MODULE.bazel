@@ -78,9 +78,10 @@ register_toolchains("//src/main/starlark/core/compile:cli_toolchain")
 
 register_toolchains("//kotlin:default_toolchain")
 
-# Kotlin/Native (experimental: kt_native_library + kt_native_binary). The distribution
-# and link-dependency repos are fetched lazily — only when a native target is actually
-# built — so JVM-only consumers are unaffected.
+# Kotlin/Native (experimental: kt_native_library, kt_native_binary, kt_native_test,
+# kt_native_framework, kt_klib_import). The distribution and link-dependency repos are
+# fetched lazily — only when a native target is actually built — so JVM-only consumers
+# are unaffected.
 # The Apple platforms in //kotlin/native/platforms use apple_support's constraints.
 bazel_dep(name = "apple_support", version = "2.5.2", repo_name = "build_bazel_apple_support")
 
@@ -189,6 +190,15 @@ bazel_dep(name = "rules_pkg", version = "1.0.1")
 bazel_dep(name = "stardoc", version = "0.8.1", dev_dependency = True, repo_name = "io_bazel_stardoc")
 bazel_dep(name = "rules_testing", version = "0.9.0", dev_dependency = True)
 bazel_dep(name = "rules_bazel_integration_test", version = "0.37.1", dev_dependency = True)
+
+# The API docs of kmp.bzl (docs/) load kt_android_library, whose rules_android files are in a
+# bzl_library that rules_android keeps to itself: the patch makes it public. Only the overrides of
+# the root module apply, so the patch applies to the development of rules_kotlin, not to its users.
+single_version_override(
+    module_name = "rules_android",
+    patch_strip = 1,
+    patches = ["//third_party:rules_android_bzl_library_visibility.patch"],
+)
 
 bazel_binaries = use_extension("@rules_bazel_integration_test//:extensions.bzl", "bazel_binaries", dev_dependency = True)
 bazel_binaries.download(version = "7.x")
