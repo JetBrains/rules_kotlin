@@ -1,0 +1,36 @@
+diff --git a/rules/BUILD b/rules/BUILD
+index 1e2f331..3568d26 100644
+--- a/rules/BUILD
++++ b/rules/BUILD
+@@ -27,8 +27,10 @@ bzl_library(
+         "aapt.bzl",
+         "acls.bzl",
+         "android_neverlink_aspect.bzl",
++        "android_split_transition.bzl",
+         "apk_packaging.bzl",
+         "attrs.bzl",
++        "baseline_profiles.bzl",
+         "bundletool.bzl",
+         "busybox.bzl",
+         "busybox_compat.bzl",
+@@ -40,6 +42,7 @@ bzl_library(
+         "intellij.bzl",
+         "java.bzl",
+         "migration_tag_DONOTUSE.bzl",
++        "min_sdk_version.bzl",
+         "native_deps.bzl",
+         "path.bzl",
+         "processing_pipeline.bzl",
+diff --git a/rules/android_library/BUILD b/rules/android_library/BUILD
+index d9f6a5d..11463a1 100644
+--- a/rules/android_library/BUILD
++++ b/rules/android_library/BUILD
+@@ -14,7 +14,7 @@ filegroup(
+ bzl_library(
+     name = "bzl",
+     srcs = glob(["*.bzl"]),
+-    visibility = ["//rules:__pkg__"],
++    visibility = ["//visibility:public"],
+     deps = [
+         "//rules:common_bzl",
+         "//rules/flags:bzl",

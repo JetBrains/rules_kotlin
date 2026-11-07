@@ -2,6 +2,7 @@
 
 | Date&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | News                    |
 |:-----------------------------------------------------------------------------------------------------------------|-------------------------|
+| Nov 6, 2026 | Experimental Kotlin/Native and Kotlin Multiplatform support (#1682): the rules `kt_native_library`, `kt_native_binary`, `kt_native_test`, `kt_native_framework` and `kt_klib_import` (`//kotlin:native.bzl`), `kt_source_set` and `kt_multiplatform_library` (`//kotlin:kmp.bzl`), and the `kotlin_native` and `kmp_maven` module extensions. See [docs/kmp.md](docs/kmp.md) |
 | Oct 19, 2026 | The Build Tools API implementation record requires the checksum of `kotlin-tooling-core`: custom `btapi_impl_version` records must add `tooling_core_sha256` |
 | Mar 6, 2026 | Drop support for Java 8 |
 | May 26, 2022  | Released version [v1.6.0-RC-2](https://github.com/bazelbuild/rules_kotlin/releases/tag/v1.6.0-RC-2). |

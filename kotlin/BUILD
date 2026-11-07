@@ -29,6 +29,8 @@ exports_files([
     "jvm.bzl",
     "lint.bzl",
     "core.bzl",
+    "native.bzl",
+    "kmp.bzl",
 ])
 
 release_archive(
