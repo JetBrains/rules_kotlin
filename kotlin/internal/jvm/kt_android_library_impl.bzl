@@ -60,6 +60,7 @@ def _process_jvm(ctx, resources_ctx, **_unused_sub_ctxs):
         value = struct(
             java_info = providers.java,
             kt_info = providers.kt,
+            instrumented_files = providers.instrumented_files,
             providers = [
                 providers.kt,
                 providers.java,
@@ -67,9 +68,24 @@ def _process_jvm(ctx, resources_ctx, **_unused_sub_ctxs):
         ),
     )
 
+def _process_coverage(_ctx, jvm_ctx, **_unused_sub_ctxs):
+    """Custom CoverageProcessor that reports the instrumented files of the Kotlin compilation
+
+    They include the sources of the source sets, which the processor of rules_android leaves out.
+    Declaring the instrumented files of the target a second time would also register its baseline
+    coverage twice, which Bazel 8 reports as conflicting actions when the declarations differ.
+    """
+    return _ProviderInfo(
+        name = "coverage_ctx",
+        value = struct(
+            providers = [jvm_ctx.instrumented_files],
+        ),
+    )
+
 PROCESSORS = _processing_pipeline.replace(
     _BASE_PROCESSORS,
     JvmProcessor = _process_jvm,
+    CoverageProcessor = _process_coverage,
 )
 
 _PROCESSING_PIPELINE = _processing_pipeline.make_processing_pipeline(
