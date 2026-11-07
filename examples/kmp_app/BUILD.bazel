@@ -1,0 +1,13 @@
+# A Kotlin Multiplatform app, laid out as the Kotlin Multiplatform wizard lays out a Gradle project:
+#   //shared      the common code and its Android, iOS and JVM implementations: a kt_multiplatform_library
+#   //androidApp  the Android app: an android_binary of a kt_android_library using //shared
+#   //iosApp      the iOS app: an ios_application of a swift_library using the framework of //shared
+
+# The platform of the Android app: android_binary builds its deps for it (see .bazelrc).
+platform(
+    name = "android_arm64",
+    constraint_values = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:android",
+    ],
+)

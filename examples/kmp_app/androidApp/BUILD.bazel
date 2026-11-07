@@ -1,0 +1,41 @@
+load("@rules_android//android:rules.bzl", "android_binary")
+load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+# The androidApp module of the wizard's project: an activity showing the greeting of //shared.
+# android_binary builds its deps for the Android platform of --android_platforms (see .bazelrc), so
+# //shared and kotlinx.coroutines are their Android variants. `bazel build //androidApp` builds the
+# APK, bazel-bin/androidApp/androidApp.apk, to install with `adb install`.
+
+kt_android_library(
+    name = "lib",
+    srcs = glob(["src/main/kotlin/**/*.kt"]),
+    custom_package = "org.example.kmpapp.android",
+    manifest = "src/main/AndroidManifest.xml",
+    deps = [
+        "//shared",
+        "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core",
+    ],
+)
+
+android_binary(
+    name = "androidApp",
+    custom_package = "org.example.kmpapp.android",
+    manifest = "src/main/AndroidManifest.xml",
+    deps = [":lib"],
+)
+
+# The APK is dexed from the classes of the deploy jar, which has the Android actual of //shared,
+# not the JVM one.
+sh_test(
+    name = "apk_test",
+    srcs = ["check_android_app.sh"],
+    args = [
+        "$(rootpath :androidApp.apk)",
+        "$(rootpath :androidApp_deploy.jar)",
+    ],
+    data = [
+        ":androidApp.apk",
+        ":androidApp_deploy.jar",
+    ],
+)
