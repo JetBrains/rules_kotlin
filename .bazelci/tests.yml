@@ -20,6 +20,9 @@
   test_flags: ${{ integration_shard_flags }}
   test_targets:
     - //examples:all
+    # Its iOS app needs Xcode: it runs in macos_integration_tests. A Linux host builds its Android app,
+    # whose rules examples/kmp covers here.
+    - "-//examples:kmp_app"
 
 .integration_tests_no_android: &integration_tests_no_android
   name: "Integration Tests (no android)"
@@ -37,6 +40,7 @@
     # Kotlin/Native has no Windows exec host (see EXEC_HOSTS in kotlin/internal/native/targets.bzl).
     - "-//examples:native"
     - "-//examples:kmp"
+    - "-//examples:kmp_app"
 
 # Common platform configurations.
 .ubuntu2404: &ubuntu2404
@@ -79,6 +83,8 @@ tasks:
     name: "Integration Tests (Kotlin/Native)"
     test_targets:
       - //examples:kmp
+      # The Android and iOS apps; no 7.x test (see examples/kmp_app/exclude).
+      - //examples:kmp_app
       - //examples:native
   ubuntu2404_unittests:
     <<: [ *ubuntu2404, *unittests ]

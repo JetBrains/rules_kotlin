@@ -1,0 +1,90 @@
+module(name = "rules_kotlin_kmp_app_example")
+
+bazel_dep(name = "rules_kotlin", version = "2.2.0")
+local_path_override(
+    module_name = "rules_kotlin",
+    path = "../..",
+)
+
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_android", version = "0.8.0")
+bazel_dep(name = "rules_apple", version = "5.4.0")
+bazel_dep(name = "rules_java", version = "9.3.0")
+bazel_dep(name = "rules_jvm_external", version = "7.1")
+bazel_dep(name = "rules_shell", version = "0.6.1")
+bazel_dep(name = "rules_swift", version = "4.2.2")
+
+# The Android SDK and NDK of the Android app, downloaded by hermetic_android_toolchains. The NDK
+# provides the C++ toolchain of the Android platform, which android_binary needs even without
+# native code.
+bazel_dep(name = "hermetic_android_toolchains", version = "0.5.0", dev_dependency = True)
+bazel_dep(name = "rules_android_ndk", version = "0.1.5", dev_dependency = True)
+
+android = use_extension("@hermetic_android_toolchains//:extensions.bzl", "android", dev_dependency = True)
+android.sdk(
+    build_tools_version = "35.0.0",
+    version = "35",
+)
+android.ndk(version = "r29")
+use_repo(android, "androidndk", "androidsdk")
+
+android_sdk_repository_extension = use_extension(
+    "@rules_android//rules/android_sdk_repository:rule.bzl",
+    "android_sdk_repository_extension",
+    dev_dependency = True,
+)
+
+override_repo(android_sdk_repository_extension, "androidsdk")
+
+android_ndk_repository_extension = use_extension(
+    "@rules_android_ndk//:extension.bzl",
+    "android_ndk_repository_extension",
+    dev_dependency = True,
+)
+
+override_repo(android_ndk_repository_extension, "androidndk")
+
+register_toolchains(
+    "@androidndk//:all",
+    "@androidsdk//:all",
+    dev_dependency = True,
+)
+
+# JUnit, for the JVM test of the common code.
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+maven.install(
+    name = "maven_rules_kotlin_example",
+    artifacts = [
+        "junit:junit:4.13",
+    ],
+    lock_file = "//:maven_install.json",
+    repositories = [
+        "https://repo1.maven.org/maven2",
+    ],
+)
+use_repo(maven, "maven_rules_kotlin_example")
+
+# The iOS app links the framework of //shared for the iOS simulator (--ios_multi_cpus=sim_arm64 in
+# .bazelrc) or, with --ios_multi_cpus=arm64, for a device. The link dependencies of these targets
+# are those of the macOS exec host (LLVM, libffi): the iOS SDK and linker come from Xcode.
+kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
+kotlin_native.targets(targets = [
+    "ios_arm64",
+    "ios_simulator_arm64",
+])
+
+# kotlinx.coroutines for the common code of //shared, as the commonMain dependencies of a Gradle
+# build: @kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core is the klib of the konan target
+# for the Kotlin/Native rules, the Android variant on Android and the JVM variant otherwise. The
+# install resolves the artifacts for every platform, as examples/kmp does, so kmp_manifest.json is
+# the one of examples/kmp. After changing the install, pin it again with `bazel run @kmp_maven//pin`
+# (see docs/kmp_dependencies.md) and commit it.
+kmp_maven = use_extension("@rules_kotlin//src/main/starlark/core/repositories:kmp_maven.bzl", "kmp_maven")
+kmp_maven.install(
+    name = "kmp_maven",
+    artifacts = [
+        "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+    ],
+    manifest = "//:kmp_manifest.json",
+)
+use_repo(kmp_maven, "kmp_maven")

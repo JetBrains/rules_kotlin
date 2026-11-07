@@ -1,0 +1,76 @@
+load("@rules_apple//apple:apple.bzl", "apple_static_framework_import")
+load("@rules_apple//apple:ios.bzl", "ios_application")
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_framework")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+load("@rules_swift//swift:swift.bzl", "swift_library")
+
+# The iosApp project of the wizard: a SwiftUI app calling the shared code through the framework
+# Shared, which the Gradle build declares with `binaries.framework { baseName = "Shared";
+# isStatic = true }` and Xcode embeds. `bazel run //iosApp` launches it in the simulator.
+#
+# The framework follows the platform of the app: ios_application builds its deps for the iOS
+# platform of --ios_multi_cpus (see .bazelrc), whose konan target, ios_simulator_arm64 or ios_arm64,
+# the framework is linked for. Its glue targets build in that configuration only: a build of //...
+# skips them for the host. `bazel build //iosApp:Shared` builds nothing then; add
+# --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64 to build the framework alone.
+IOS_ONLY = ["@platforms//os:ios"]
+
+kt_native_framework(
+    name = "Shared",
+    bundle_id = "org.example.kmpapp.Shared",
+    target_compatible_with = IOS_ONLY,
+    exports = ["//shared"],
+)
+
+# rules_apple imports a framework from its files: the output group framework_files of the framework.
+filegroup(
+    name = "Shared_files",
+    srcs = [":Shared"],
+    output_group = "framework_files",
+    target_compatible_with = IOS_ONLY,
+)
+
+apple_static_framework_import(
+    name = "Shared_import",
+    framework_imports = [":Shared_files"],
+    # What konanc links an iOS binary with (linkerKonanFlags of konan.properties): the Kotlin/Native
+    # runtime is C++ and Objective-C.
+    sdk_dylibs = [
+        "c++",
+        "objc",
+    ],
+    sdk_frameworks = [
+        "Foundation",
+        "UIKit",
+    ],
+    target_compatible_with = IOS_ONLY,
+)
+
+swift_library(
+    name = "iosApp_lib",
+    srcs = glob(["iosApp/*.swift"]),
+    module_name = "iosApp",
+    target_compatible_with = IOS_ONLY,
+    deps = [":Shared_import"],
+)
+
+ios_application(
+    name = "iosApp",
+    bundle_id = "org.example.kmpapp",
+    families = ["iphone"],
+    infoplists = ["Info.plist"],
+    minimum_os_version = "15.0",
+    deps = [":iosApp_lib"],
+)
+
+# The app links the Kotlin classes of the framework statically, for the iOS simulator.
+sh_test(
+    name = "ipa_test",
+    srcs = ["check_ios_app.sh"],
+    args = [
+        "$(rootpath :iosApp.ipa)",
+        "org.example.kmpapp",
+        "SharedGreeting",
+    ],
+    data = [":iosApp.ipa"],
+)
