@@ -2,7 +2,9 @@
 
 The srcs compile into a private klib, which the link includes in `<name>.framework` with the klibs
 of the deps and exports (see link.bzl). The framework is named after the target, and so is the
-prefix of its Objective-C names. Its header declares the API of the srcs and of the exports.
+prefix of its Objective-C names. Its header declares the API of the srcs and of the exports: the
+exports and their own exports, or the listed exports alone without transitive_exports, as a
+framework of the Kotlin Gradle plugin exports only what its `export()` names.
 
 The framework is a directory, which rules_apple cannot import: apple_static_framework_import takes
 the files of a framework. The output group framework_files copies them out of the directory.
@@ -96,7 +98,7 @@ def _kt_native_framework_impl(ctx):
         extra_deps = ctx.attr.exports,
         export_klibs = depset(
             [export.klib for export in exports],
-            transitive = [export.exported_klibs for export in exports],
+            transitive = [export.exported_klibs for export in exports] if ctx.attr.transitive_exports else [],
         ),
         extra_args = extra_args,
         progress_message = "Linking Kotlin/Native framework %{label} (" + tc.konan_target + ")",
@@ -147,9 +149,17 @@ kt_native_framework = rule(
             doc = "The CFBundleIdentifier of the framework; by default the compiler derives one from the sources.",
         ),
         "exports": attr.label_list(
-            doc = """Klibs whose API the framework exports in its header, with their own exports. They are deps of the
-            framework too.""",
+            doc = """Klibs whose API the framework exports in its header, with their own exports (see transitive_exports).
+            They are deps of the framework too.""",
             providers = [KtKlibInfo],
+        ),
+        "transitive_exports": attr.bool(
+            doc = """Whether the header also declares the API of the exports of the `exports`, transitively (the default),
+            or of the listed klibs alone, as a framework of the Kotlin Gradle plugin exports only the libraries its
+            `export()` names (its `transitiveExport` is off by default): a module whose `api` dependencies are large
+            libraries, like Compose, keeps them out of its Objective-C header this way. Either way the link gets the
+            whole closure.""",
+            default = True,
         ),
     }),
     cfg = kt_native_transition,

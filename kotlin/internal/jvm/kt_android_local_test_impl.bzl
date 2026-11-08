@@ -189,7 +189,7 @@ def _process_jvm(ctx, resources_ctx, **_unused_sub_ctxs):
                 ]
             ),
             associate_deps = getattr(ctx.attr, "associates", []),
-            runtime_deps = getattr(ctx.attr, "runtime_deps", []),
+            runtime_deps = _compile.runtime_deps(ctx),
         ),
         outputs = outputs,
     )

@@ -51,6 +51,25 @@ maven.install(
 )
 use_repo(maven, "maven_rules_kotlin_example")
 
+# rules_android resolves its build tools (d8, bundletool, desugar, ...) with an unpinned coursier
+# resolution of its own install, rules_android_maven, from maven.google.com and Maven Central, which
+# rate-limits the download of its largest artifact (HTTP 429 for
+# org.robolectric:nativeruntime-dist-compat). rules_jvm_external merges the repositories of an
+# install several modules declare, the root module's first, so Google's mirror of Maven Central comes
+# first. The other attributes repeat the ones of rules_android, which a root declaration would
+# otherwise reset.
+maven.install(
+    name = "rules_android_maven",
+    aar_import_bzl_label = "@rules_android//rules:rules.bzl",
+    known_contributing_modules = ["rules_android"],
+    repositories = [
+        "https://maven-central.storage-download.googleapis.com/maven2",
+        "https://maven.google.com",
+        "https://repo1.maven.org/maven2",
+    ],
+    use_starlark_android_rules = True,
+)
+
 # The native tests link for the konan target of the exec host: linux_x64 or macos_arm64. The klibs
 # compile for every target, the iOS ones included, without link dependencies.
 kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")

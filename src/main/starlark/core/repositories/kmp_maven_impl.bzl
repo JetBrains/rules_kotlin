@@ -8,9 +8,11 @@ manifest, the extension generates, without resolving anything itself:
 - a repository per Maven module, `<hub>__<group>_<artifact>_<version>`, which downloads its klibs,
   aar or jar by URL and integrity when a build needs them;
 - the hub repository `<hub>`: per library `<lib>`, a kt_klib_import per klib and konan target, a
-  kt_jvm_import or an aar_import per Android and JVM variant, and an alias `<lib>` that selects the
-  variant of its consumer; or, when the manifest is missing or stale, a package that fails with the
-  command pinning it;
+  kt_jvm_import or an aar_import per Android and JVM variant, an android_library or a
+  kt_jvm_library of exports per redirect variant (a variant without artifact, standing for its
+  dependencies), each named `<lib>.<platform>`, and an alias `<lib>` that selects the variant of
+  its consumer; or, when the manifest is missing or stale, a package that fails with the command
+  pinning it;
 - `@<hub>//pin`, which runs the resolver to write the manifest.
 
 These functions take no repository or module context, so //src/test/starlark:kmp_maven_tests
@@ -67,6 +69,14 @@ _JVM_BZL = str(Label("//kotlin:jvm.bzl"))
 _NATIVE_BZL = str(Label("//kotlin:native.bzl"))
 _ANDROID_BZL = str(Label("@rules_android//rules:rules.bzl"))
 _SH_BINARY_BZL = str(Label("@rules_shell//shell:sh_binary.bzl"))
+
+# The kinds of target of a hub by the .bzl file they load from, in the order of the load statements,
+# each loaded when the hub has a target of the kind.
+_LOADS = [
+    (_ANDROID_BZL, ["aar_import", "android_library"]),
+    (_JVM_BZL, ["kt_jvm_import", "kt_jvm_library"]),
+    (_NATIVE_BZL, ["kt_klib_import"]),
+]
 _BASH_RUNFILES = str(Label("@bazel_tools//tools/bash/runfiles"))
 _NATIVE = str(Label("//kotlin/native/platforms:native"))
 _ANDROID = str(Label("@platforms//os:android"))
@@ -88,7 +98,7 @@ def _is_coordinate(value, parts = 3):
     return len(segments) == parts and all([segment and segment.strip() == segment and " " not in segment for segment in segments])
 
 def library_target_name(name):
-    """The name of the targets of a library: its group:artifact, every character but letters and digits replaced by `_`.
+    """The name of the alias of a library: its group:artifact, every character but letters and digits replaced by `_`.
 
     Args:
       name: a group:artifact, or a group:artifact:version.
@@ -97,6 +107,26 @@ def library_target_name(name):
       The name, e.g. org_jetbrains_kotlinx_kotlinx_coroutines_core.
     """
     return "".join([character if character in _ALPHANUMERICS else "_" for character in name.elems()])
+
+def variant_target_name(library_name, platform):
+    """The name of the target of a variant of a library: `<lib>.<platform>`.
+
+    The `.` keeps the targets of the variants apart from the aliases of the libraries, whose names
+    are letters, digits and `_` only: a library whose artifact ends in `-android` or `-jvm`, as the
+    platform artifact of an AndroidX multiplatform library does when a POM-only library depends on
+    it (`androidx.datastore:datastore-preferences-android` next to
+    `androidx.datastore:datastore-preferences`), would otherwise name the same target as the
+    variant of the library it is named after.
+
+    Args:
+      library_name: the name of the library, from library_target_name.
+      platform: the platform of the variant, `jvm`, `android` or a konan target; or `native`, for the
+        alias of the klibs of the library.
+
+    Returns:
+      The name, e.g. org_jetbrains_kotlinx_kotlinx_coroutines_core.jvm.
+    """
+    return "%s.%s" % (library_name, platform)
 
 def module_repository_name(hub, variant_id):
     """The repository of the files of a Maven module: `<hub>__<group>_<artifact>_<version>`.
@@ -121,7 +151,7 @@ def workspace_path(label):
     """
     return label.package + "/" + label.name if label.package else label.name
 
-def install_error(name, artifacts, repositories, platforms, substitutions, manifest):
+def install_error(name, artifacts, repositories, platforms, substitutions, manifest, extra_dependencies = {}):
     """The error of the attributes of a kmp_maven.install tag, or None when they are valid.
 
     Args:
@@ -131,6 +161,7 @@ def install_error(name, artifacts, repositories, platforms, substitutions, manif
       platforms: its platforms.
       substitutions: its substitutions.
       manifest: the Label of its manifest.
+      extra_dependencies: its extra dependencies, `{"group:artifact": ["group:artifact", ...]}`.
 
     Returns:
       The message of the error, or None.
@@ -159,6 +190,12 @@ def install_error(name, artifacts, repositories, platforms, substitutions, manif
         substituted, separator, substitute = substitution.partition("=")
         if not separator or not _is_coordinate(substituted, parts = 2) or not _is_coordinate(substitute):
             return prefix + "substitution '%s' is not group:artifact=group:artifact:version" % substitution
+    for library, dependencies in extra_dependencies.items():
+        if not _is_coordinate(library, parts = 2):
+            return prefix + "the library '%s' of extra_dependencies is not group:artifact" % library
+        for dependency in dependencies:
+            if not _is_coordinate(dependency, parts = 2):
+                return prefix + "extra dependency '%s' of %s is not group:artifact" % (dependency, library)
     if manifest.repo_name:
         return prefix + "the manifest %s is not a file of the root module, whose workspace the pin target writes it into" % manifest
     return None
@@ -215,8 +252,8 @@ def collect_kmp_maven_config(modules):
 
     Returns:
       struct(installs, resolver): the installs in their order, each a struct(name, inputs, manifest,
-      manifest_path, fetch_sources) with the normalized inputs, and the resolver release (see
-      resolver_release).
+      manifest_path, fetch_sources, extra_dependencies) with the normalized inputs, and the resolver
+      release (see resolver_release).
     """
     installs = []
     names = {}
@@ -228,7 +265,8 @@ def collect_kmp_maven_config(modules):
             if tag.name in names:
                 fail("kmp_maven.install %s is declared twice" % tag.name)
             names[tag.name] = True
-            error = install_error(tag.name, tag.artifacts, tag.repositories, tag.platforms, tag.substitutions, tag.manifest)
+            extra_dependencies = getattr(tag, "extra_dependencies", {})
+            error = install_error(tag.name, tag.artifacts, tag.repositories, tag.platforms, tag.substitutions, tag.manifest, extra_dependencies)
             if error:
                 fail(error)
             installs.append(struct(
@@ -237,6 +275,7 @@ def collect_kmp_maven_config(modules):
                 manifest = tag.manifest,
                 manifest_path = workspace_path(tag.manifest),
                 fetch_sources = tag.fetch_sources,
+                extra_dependencies = {library: sorted(_unique(dependencies)) for library, dependencies in extra_dependencies.items()},
             ))
         for tag in mod.tags.resolver:
             if not mod.is_root:
@@ -327,7 +366,7 @@ def manifest_problem(hub, manifest_path, manifest, inputs):
 def _platform(variant):
     """The platform of a variant: its konan target, android or jvm; None for a platform rules_kotlin does not support."""
     kind = variant.get("type")
-    platform = variant.get("platform") if kind == "klib" else kind
+    platform = variant.get("platform") if kind in ("klib", "redirect") else kind
     return platform if platform in PLATFORM_ORDER else None
 
 def manifest_libraries(manifest):
@@ -378,14 +417,16 @@ def _file_name(artifact):
     return artifact["urls"][0].rpartition("/")[2]
 
 def _variant_artifacts(variant, fetch_sources):
-    """The Maven artifacts of a variant to download: its klibs, aar or jar, and its sources jar when fetched."""
+    """The Maven artifacts of a variant to download: its klibs, aar or jar, and its sources jar when fetched; none for a redirect."""
     kind = variant["type"]
     if kind == "klib":
         artifacts = [klib["artifact"] for klib in variant["klibs"]]
     elif kind == "android":
         artifacts = [variant["artifact"]]
-    else:
+    elif kind == "jvm":
         artifacts = [variant["jar"]]
+    else:
+        artifacts = []
     if fetch_sources and variant.get("sourceJar"):
         artifacts.append(variant["sourceJar"])
     return artifacts
@@ -402,13 +443,17 @@ def module_repositories(hub, manifest, fetch_sources):
       A dict of repository name to a dict of file name to struct(integrity, urls): per Maven module
       (variantId) of the variants of the supported platforms, the klibs of a klib variant, the
       artifact of an android one and the jar of a jvm one, with their sources jars when
-      fetch_sources. The android and jvm variants of a module share its repository.
+      fetch_sources. The android and jvm variants of a module share its repository. A redirect
+      variant has no file, so a module of redirects alone has no repository.
     """
     repositories = {}
     for library in manifest_libraries(manifest).libraries.values():
         for variant in library.variants.values():
+            artifacts = _variant_artifacts(variant, fetch_sources)
+            if not artifacts:
+                continue
             files = repositories.setdefault(module_repository_name(hub, variant["variantId"]), {})
-            for artifact in _variant_artifacts(variant, fetch_sources):
+            for artifact in artifacts:
                 files[_file_name(artifact)] = struct(integrity = artifact["integrity"], urls = artifact["urls"])
     return {name: repositories[name] for name in sorted(repositories.keys())}
 
@@ -465,23 +510,67 @@ def _select_alias(name, branches, no_match_error):
 def _repository_file(hub, variant, artifact):
     return "@%s//:%s" % (module_repository_name(hub, variant["variantId"]), _file_name(artifact))
 
-def _library_targets(hub, library, has_variant, fetch_sources):
-    """The targets of a library, as (name, BUILD text) pairs: its imports, per variant, and its aliases."""
+def _library_targets(hub, library, variant_of, fetch_sources, extra_dependencies = []):
+    """The targets of a library, as (name, BUILD text) pairs: its imports, per variant, and its aliases.
+
+    The extra dependencies, group:artifact each, are deps of every variant of the library, for its
+    platform, as the dependencies of the metadata of the variant are: the dependencies its metadata
+    omits, which the consumer declares (see hub_contents).
+    """
     targets = []
 
     def dependencies_of(group_artifacts, platform):
         names = [library_target_name(group_artifact) for group_artifact in group_artifacts]
-        return sorted([":%s_%s" % (name, platform) for name in _unique(names) if has_variant(name, platform)])
+        return sorted([":" + variant_target_name(name, platform) for name in _unique(names) if variant_of(name, platform)])
+
+    def aar_exports_of(group_artifacts):
+        # The exports of an aar_import can only be imports: an android redirect is replaced by the
+        # targets it forwards to (all its dependencies, as its android_library exports them),
+        # following the redirects among them.
+        names = {}
+        pending = [library_target_name(group_artifact) for group_artifact in group_artifacts]
+        seen = {}
+        for _ in range(len(pending) + 10000):
+            if not pending:
+                break
+            name = pending.pop()
+            if name in seen:
+                continue
+            seen[name] = True
+            variant = variant_of(name, "android")
+            if not variant:
+                continue
+            if variant["type"] == "redirect":
+                pending.extend([
+                    library_target_name(group_artifact)
+                    for group_artifact in variant.get("dependencies", []) + variant.get("exportedDependencies", [])
+                ])
+            else:
+                names[name] = True
+        return sorted([":" + variant_target_name(name, "android") for name in names])
 
     for platform, variant in library.variants.items():
-        name = "%s_%s" % (library.name, platform)
-        dependencies = variant.get("dependencies", [])
+        name = variant_target_name(library.name, platform)
+        dependencies = variant.get("dependencies", []) + extra_dependencies
         exported = variant.get("exportedDependencies", [])
-        if variant["type"] == "klib":
+        if variant["type"] == "redirect":
+            # android_library has no runtime_deps, so it exports every dependency; kt_jvm_library,
+            # which unlike java_library forwards KtJvmInfo too, keeps the runtime-only ones in
+            # runtime_deps. An aar_import exports the imports a redirect stands for (aar_exports_of).
+            if platform == "android":
+                targets.append((name, _target("android_library", name, [
+                    ("exports", dependencies_of(dependencies + exported, platform)),
+                ])))
+            else:
+                targets.append((name, _target("kt_jvm_library", name, [
+                    ("exports", dependencies_of(exported, platform)),
+                    ("runtime_deps", dependencies_of(dependencies, platform)),
+                ])))
+        elif variant["type"] == "klib":
             # The main klib is first; the cinterop klibs are imports of their own, deps of the main one.
             cinterops = []
             for position, klib in enumerate(variant["klibs"][1:]):
-                cinterop = "%s_cinterop_%d" % (name, position)
+                cinterop = "%s.cinterop_%d" % (name, position)
                 cinterops.append(":" + cinterop)
                 targets.append((cinterop, _target("kt_klib_import", cinterop, [
                     ("klib", _repository_file(hub, variant, klib["artifact"])),
@@ -504,31 +593,31 @@ def _library_targets(hub, library, has_variant, fetch_sources):
             targets.append((name, _target(kind, name, [
                 files,
                 ("srcjar", _repository_file(hub, variant, source_jar) if source_jar else None),
-                ("exports", dependencies_of(exported, platform)),
+                ("exports", aar_exports_of(exported) if is_aar else dependencies_of(exported, platform)),
                 ("deps", dependencies_of(dependencies + exported, platform)),
             ])))
 
     platforms = list(library.variants.keys())
     if platforms == ["jvm"]:
-        targets.append((library.name, _target("alias", library.name, [("actual", ":%s_jvm" % library.name)])))
+        targets.append((library.name, _target("alias", library.name, [("actual", ":" + variant_target_name(library.name, "jvm"))])))
         return targets
 
     resolved = "kmp_maven.install(name = \"%s\") resolved it for %s" % (hub, ", ".join(platforms))
     konan_targets = [platform for platform in platforms if platform in KONAN_TARGETS]
     branches = []
     if konan_targets:
-        native = library.name + "_native"
+        native = variant_target_name(library.name, "native")
         branches.append((_NATIVE, ":" + native))
         targets.append((native, _select_alias(
             native,
-            [(_native_setting(target), ":%s_%s" % (library.name, target)) for target in konan_targets],
+            [(_native_setting(target), ":" + variant_target_name(library.name, target)) for target in konan_targets],
             ("%s has no klib for the konan target of this Kotlin/Native target: %s. Add the target to the platforms " +
              "of the install and run 'bazel run @%s//pin', if the library publishes it.") % (library.group_artifact, resolved, hub),
         )))
     if "android" in library.variants:
-        branches.append((_ANDROID, ":%s_android" % library.name))
+        branches.append((_ANDROID, ":" + variant_target_name(library.name, "android")))
     if "jvm" in library.variants:
-        branches.append((_DEFAULT, ":%s_jvm" % library.name))
+        branches.append((_DEFAULT, ":" + variant_target_name(library.name, "jvm")))
     targets.append((library.name, _select_alias(
         library.name,
         branches,
@@ -539,31 +628,40 @@ def _library_targets(hub, library, has_variant, fetch_sources):
     )))
     return targets
 
-def hub_contents(hub, manifest_path, manifest, fetch_sources):
+def hub_contents(hub, manifest_path, manifest, fetch_sources, extra_dependencies = {}):
     """The BUILD file of the hub repository of an install whose manifest is pinned, or why there is none.
 
-    Per library `<lib>`, from its variants:
-    - a kt_klib_import `<lib>_<t>` of the main klib of konan target `<t>`, and a kt_klib_import
-      `<lib>_<t>_cinterop_<n>` per cinterop klib, in the deps of the main one;
-    - an aar_import, or a kt_jvm_import for a jar, `<lib>_android`, and a kt_jvm_import `<lib>_jvm`;
-    - with klib variants, the alias `<lib>_native`, which selects `<lib>_<t>` on
+    Per library `<lib>`, from its variants (the targets of the variants are `<lib>.<platform>`, see
+    variant_target_name):
+    - a kt_klib_import `<lib>.<t>` of the main klib of konan target `<t>`, and a kt_klib_import
+      `<lib>.<t>.cinterop_<n>` per cinterop klib, in the deps of the main one;
+    - an aar_import, or a kt_jvm_import for a jar, `<lib>.android`, and a kt_jvm_import `<lib>.jvm`;
+    - for a redirect variant, a variant without artifact standing for its dependencies (the Android
+      variants of the JetBrains Compose libraries redirect to the AndroidX ones, a POM-only library
+      aggregates others), an android_library `<lib>.android` exporting its dependencies, or a
+      kt_jvm_library `<lib>.jvm` without sources exporting the exported ones and keeping the others
+      at runtime;
+    - with klib variants, the alias `<lib>.native`, which selects `<lib>.<t>` on
       @rules_kotlin//kotlin/native/platforms:native_<t>;
-    - the alias `<lib>`, which selects `<lib>_native` for the Kotlin/Native rules
-      (@rules_kotlin//kotlin/native/platforms:native), `<lib>_android` on @platforms//os:android and
-      `<lib>_jvm` by default; of `<lib>_jvm` alone for a JVM library.
+    - the alias `<lib>`, which selects `<lib>.native` for the Kotlin/Native rules
+      (@rules_kotlin//kotlin/native/platforms:native), `<lib>.android` on @platforms//os:android and
+      `<lib>.jvm` by default; of `<lib>.jvm` alone for a JVM library.
 
     A dependency of a variant is the target of the same platform of its library: the exported ones
-    are the exports of the import, and also its deps for the JVM and Android imports.
+    are the exports of the import, and also its deps for the JVM and Android imports. The extra
+    dependencies of a library, the ones its metadata omits, are deps of each of its variants as the
+    dependencies of the metadata are; they must be libraries of the manifest.
 
     Args:
       hub: the name of the install.
       manifest_path: the path of the manifest in the workspace.
       manifest: the decoded manifest, pinned for the inputs of the install (see manifest_problem).
       fetch_sources: whether the sources jars are the srcjar of the JVM and Android imports.
+      extra_dependencies: the extra dependencies of the install, `{"group:artifact": ["group:artifact", ...]}`.
 
     Returns:
       struct(build_file, error): the content of the BUILD file, or the message of two libraries
-      naming the same target.
+      naming the same target, or of an extra dependency naming a library the manifest lacks.
     """
     prefix = "kmp_maven.install(name = \"%s\"): the manifest %s has " % (hub, manifest_path)
     collected = manifest_libraries(manifest)
@@ -571,8 +669,18 @@ def hub_contents(hub, manifest_path, manifest, fetch_sources):
         return struct(build_file = None, error = prefix + collected.error)
     libraries = collected.libraries
 
-    def has_variant(name, platform):
-        return name in libraries and platform in libraries[name].variants
+    def variant_of(name, platform):
+        return libraries[name].variants.get(platform) if name in libraries else None
+
+    extra_of = {}
+    for group_artifact, dependencies in extra_dependencies.items():
+        for coordinate in [group_artifact] + dependencies:
+            if library_target_name(coordinate) not in libraries:
+                return struct(
+                    build_file = None,
+                    error = prefix + "no library %s, which extra_dependencies names; add it to the artifacts of the install and run 'bazel run @%s//pin'" % (coordinate, hub),
+                )
+        extra_of[library_target_name(group_artifact)] = dependencies
 
     owners = {}
     sections = []
@@ -580,7 +688,7 @@ def hub_contents(hub, manifest_path, manifest, fetch_sources):
     for name in sorted(libraries.keys()):
         library = libraries[name]
         texts = ["# " + ", ".join(library.ids)]
-        for target, text in _library_targets(hub, library, has_variant, fetch_sources):
+        for target, text in _library_targets(hub, library, variant_of, fetch_sources, extra_of.get(name, [])):
             if target in owners:
                 return struct(
                     build_file = None,
@@ -594,16 +702,17 @@ def hub_contents(hub, manifest_path, manifest, fetch_sources):
     lines = [
         "# The libraries of kmp_maven.install(name = \"%s\"), from the manifest %s. Generated by rules_kotlin." % (hub, manifest_path),
     ]
-    for kind, bzl in [("aar_import", _ANDROID_BZL), ("kt_jvm_import", _JVM_BZL), ("kt_klib_import", _NATIVE_BZL)]:
-        if kind in kinds:
-            lines.append("load(%s, %s)" % (repr(bzl), repr(kind)))
+    for bzl, bzl_kinds in _LOADS:
+        loaded = [kind for kind in bzl_kinds if kind in kinds]
+        if loaded:
+            lines.append("load(%s, %s)" % (repr(bzl), ", ".join([repr(kind) for kind in loaded])))
     lines.extend(["", "package(default_visibility = [\"//visibility:public\"])"])
     return struct(
         build_file = "\n".join(lines) + "".join(["\n\n" + section for section in sections]) + "\n",
         error = None,
     )
 
-def hub_build_file(hub, manifest_path, manifest, fetch_sources):
+def hub_build_file(hub, manifest_path, manifest, fetch_sources, extra_dependencies = {}):
     """The BUILD file of the hub repository of an install whose manifest is pinned (see hub_contents).
 
     Args:
@@ -611,11 +720,13 @@ def hub_build_file(hub, manifest_path, manifest, fetch_sources):
       manifest_path: the path of the manifest in the workspace.
       manifest: the decoded manifest, pinned for the inputs of the install (see manifest_problem).
       fetch_sources: whether the sources jars are the srcjar of the JVM and Android imports.
+      extra_dependencies: the extra dependencies of the install (see hub_contents).
 
     Returns:
-      The content of the BUILD file. Fails when two libraries name the same target.
+      The content of the BUILD file. Fails when two libraries name the same target, or when an extra
+      dependency names a library the manifest lacks.
     """
-    contents = hub_contents(hub, manifest_path, manifest, fetch_sources)
+    contents = hub_contents(hub, manifest_path, manifest, fetch_sources, extra_dependencies)
     if contents.error:
         fail(contents.error)
     return contents.build_file

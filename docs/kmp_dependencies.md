@@ -32,6 +32,7 @@ use_repo(kmp_maven, "kmp_maven")
 | `repositories`  | The Maven repositories, in the order the artifacts are looked up in; `https://repo1.maven.org/maven2` by default. Add `https://dl.google.com/dl/android/maven2` for AndroidX libraries.                        |
 | `platforms`     | The platforms to resolve the artifacts for: `jvm`, `android` and the konan targets of `@rules_kotlin//kotlin/native/platforms` (`ios_arm64`, `ios_simulator_arm64`, `linux_arm64`, `linux_x64`, `macos_arm64`); all of them by default. |
 | `substitutions` | Versions forced in the resolution, `group:artifact=group:artifact:version`.                                                                                                                                  |
+| `extra_dependencies` | Dependencies the published metadata of a library omits, `{"group:artifact": ["group:artifact", ...]}`. Each is a dep of every variant of the library, for its platform, as the dependencies of the metadata are, and must be a library of the manifest (an artifact of the install or a dependency of one). The dexing of an `android_binary` desugars each library against its own dependencies and fails on a type they lack, e.g. a Compose type used by a Markdown renderer that does not declare Compose. |
 | `manifest`      | The manifest, a file of a package of the root module. The pin target writes it.                                                                                                                              |
 | `fetch_sources` | Whether to download the sources jars, as the `srcjar` of the JVM and Android imports; `False` by default.                                                                                                    |
 
@@ -56,7 +57,8 @@ Kotlin/Native target: see [the generated targets](#the-generated-targets).
 ## Pinning the manifest
 
 After adding an install, or changing its artifacts, repositories, platforms or substitutions, pin
-its manifest and commit it:
+its manifest and commit it. `extra_dependencies` is not an input of the resolver: changing it does
+not make the manifest stale, and the named libraries must already be in it:
 
 ```shell
 bazel run @kmp_maven//pin
@@ -111,20 +113,43 @@ time it builds a target that uses it, downloading its files from their URLs, che
 
 ## The generated targets
 
-Per library of the manifest, with `<lib>` its name, e.g. `org_jetbrains_kotlinx_kotlinx_coroutines_core`:
+Per library of the manifest, with `<lib>` its name, the group:artifact with every character but
+letters and digits replaced by `_`, e.g. `org_jetbrains_kotlinx_kotlinx_coroutines_core`:
 
 | Target                      | Content                                                                                                                                                                                  |
 |-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `<lib>`                     | The alias of the library: `<lib>_native` for the Kotlin/Native rules, `<lib>_android` on `@platforms//os:android`, `<lib>_jvm` otherwise; `<lib>_jvm` alone for a JVM library.           |
-| `<lib>_native`              | The alias of the klibs of the library: `<lib>_<t>` on `@rules_kotlin//kotlin/native/platforms:native_<t>`.                                                                                |
-| `<lib>_<t>`                 | A `kt_klib_import` of the klib of konan target `<t>`, which exports the libraries the library exposes, and depends on its cinterop klibs and its other dependencies of `<t>`.             |
-| `<lib>_<t>_cinterop_<n>`    | A `kt_klib_import` of the cinterop klib at position `<n>` (from 0) of the library for `<t>`, which binds a C library it uses.                                                              |
-| `<lib>_android`             | An `aar_import` of the Android library, or a `kt_jvm_import` of its jar, with its dependencies of Android.                                                                               |
-| `<lib>_jvm`                 | A `kt_jvm_import` of the JVM jar of the library, with its dependencies of the JVM.                                                                                                       |
+| `<lib>`                     | The alias of the library: `<lib>.native` for the Kotlin/Native rules, `<lib>.android` on `@platforms//os:android`, `<lib>.jvm` otherwise; `<lib>.jvm` alone for a JVM library.           |
+| `<lib>.native`              | The alias of the klibs of the library: `<lib>.<t>` on `@rules_kotlin//kotlin/native/platforms:native_<t>`.                                                                                |
+| `<lib>.<t>`                 | A `kt_klib_import` of the klib of konan target `<t>`, which exports the libraries the library exposes, and depends on its cinterop klibs and its other dependencies of `<t>`.             |
+| `<lib>.<t>.cinterop_<n>`    | A `kt_klib_import` of the cinterop klib at position `<n>` (from 0) of the library for `<t>`, which binds a C library it uses.                                                              |
+| `<lib>.android`             | An `aar_import` of the Android library, or a `kt_jvm_import` of its jar, with its dependencies of Android; an `android_library` exporting its dependencies of Android when the variant has no artifact (see below). |
+| `<lib>.jvm`                 | A `kt_jvm_import` of the JVM jar of the library, with its dependencies of the JVM; a `kt_jvm_library` exporting its dependencies of the JVM when the variant has no artifact (see below). |
+
+The targets of the variants are `<lib>.<platform>`, with a `.` the name of a library never
+contains, so that a library whose artifact ends in `-android` or `-jvm` keeps its own alias: the
+platform artifact of an AndroidX multiplatform library is one when a POM-only library depends on
+it, e.g. `androidx.datastore:datastore-preferences-android`
+(`androidx_datastore_datastore_preferences_android`) next to `androidx.datastore:datastore-preferences`
+(whose Android variant is `androidx_datastore_datastore_preferences.android`).
 
 The alias fails with the library, the platforms it was resolved for and the install when it has no
 variant for its consumer, e.g. a Kotlin/Native target of a konan target missing from `platforms`,
 or a JVM target of a library without JVM variant. `bazel query @kmp_maven//:all` lists the targets.
+
+A library can publish a variant without artifact, which only declares dependencies: the Android
+variants of the JetBrains Compose libraries (`org.jetbrains.compose.runtime:runtime`, …) redirect to
+the AndroidX Compose ones (`androidx.compose.runtime:runtime`, …), and a POM-only library aggregates
+others. The manifest records such a variant as a `redirect`, and its target is an `android_library`
+or a `kt_jvm_library` without sources that exports the libraries it stands for, so that a consumer
+of `@kmp_maven//:org_jetbrains_compose_runtime_runtime` on Android gets the AndroidX AARs, and the
+JVM jar of the JetBrains library otherwise. An `android_library` has no runtime-only dependencies,
+so the Android target exports every dependency of the variant; the `kt_jvm_library` keeps the
+runtime-only ones in its `runtime_deps`. It is a `kt_jvm_library` without sources, which forwards
+`JavaInfo` and `KtJvmInfo` without compiling anything. The `exports` of an `aar_import` can only be
+imports (`aar_import`, `java_import`, `kt_jvm_import`), so an `aar_import` exporting a redirect
+exports the imports the redirect stands for instead (following redirects to redirects), e.g. the
+Android target of Coil's `coil-compose-core` exports `androidx_compose_foundation_foundation.android`
+rather than `org_jetbrains_compose_foundation_foundation.android`; its `deps` keep the redirect.
 
 ## The Kotlin platform type
 

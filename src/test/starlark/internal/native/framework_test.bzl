@@ -135,6 +135,23 @@ def _framework_without_srcs_test_impl(ctx):
 
     return analysistest.end(env)
 
+def _framework_direct_exports_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # Without transitive_exports, the header declares the listed exports alone, as a Gradle framework
+    # exports only what its export() names; the link still gets the closure, deps and re-exports too.
+    tool = tool_arguments(single_action(env, "KotlinNativeLink").argv)
+    asserts.equals(
+        env,
+        ["fw_dep_ios_simulator_arm64.klib", "fw_exported_ios_simulator_arm64.klib", "fw_reexported_ios_simulator_arm64.klib"],
+        _basenames(libraries(tool)),
+    )
+    exported = prefixed(tool, "-Xexport-library=")
+    asserts.equals(env, ["fw_exported_ios_simulator_arm64.klib"], _basenames(exported))
+    asserts.true(env, exported[0] in libraries(tool), "the exported klib should be written as its -l argument")
+
+    return analysistest.end(env)
+
 def _framework_non_apple_test_impl(ctx):
     env = analysistest.begin(ctx)
 
@@ -153,6 +170,10 @@ framework_link_test = analysistest.make(_framework_link_test_impl, config_settin
 framework_files_test = analysistest.make(_framework_files_test_impl, config_settings = for_target("ios_simulator_arm64"))
 framework_without_srcs_test = analysistest.make(
     _framework_without_srcs_test_impl,
+    config_settings = for_target("ios_simulator_arm64"),
+)
+framework_direct_exports_test = analysistest.make(
+    _framework_direct_exports_test_impl,
     config_settings = for_target("ios_simulator_arm64"),
 )
 framework_non_apple_test = analysistest.make(
@@ -202,6 +223,14 @@ def native_framework_test_suite(name):
         exports = [":fw_exported_ios_simulator_arm64"],
     )
     kt_native_framework(
+        name = "DirectExportsKit",
+        srcs = ["testdata/greeter.kt"],
+        tags = ["manual"],
+        transitive_exports = False,
+        exports = [":fw_exported_ios_simulator_arm64"],
+        deps = [":fw_dep_ios_simulator_arm64"],
+    )
+    kt_native_framework(
         name = "LinuxKit",
         srcs = ["testdata/greeter.kt"],
         tags = ["manual"],
@@ -227,6 +256,11 @@ def native_framework_test_suite(name):
         target_under_test = ":ExportsOnlyKit",
         target_compatible_with = not_on_windows(),
     )
+    framework_direct_exports_test(
+        name = "framework_direct_exports_test",
+        target_under_test = ":DirectExportsKit",
+        target_compatible_with = not_on_windows(),
+    )
     framework_non_apple_test(
         name = "framework_non_apple_fails_test",
         target_under_test = ":LinuxKit",
@@ -243,6 +277,7 @@ def native_framework_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
+            ":framework_direct_exports_test",
             ":framework_files_test",
             ":framework_link_test",
             ":framework_non_apple_fails_test",

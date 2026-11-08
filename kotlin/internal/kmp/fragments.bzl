@@ -15,6 +15,18 @@ Every Kotlin source of the compilation must belong to a fragment; Java sources n
 of -Xfragment-sources are those the compiler gets for the sources, relative to the execroot, and
 come from Files, so the arguments support path mapping. The deps of every fragment are visible to
 all of them, as in the unified compilation of the Kotlin Gradle plugin.
+
+The deps of the source sets are deps of the rule, but reachable from it only through `source_sets`
+and `depends_on`, attributes the aspects of other rule sets do not follow: they follow Bazel's
+conventional dependency attributes, `deps`, `exports` and `runtime_deps`. The dexing aspect of the
+android_binary of rules_android is one: it dexes the jars of the targets it reaches and fails on a
+jar of the runtime classpath it did not reach ("Dependencies on .jar artifacts are not allowed in
+Android binaries"). So a JVM or Android rule may list a source set of its compilation in
+`runtime_deps` as well (see without_source_sets): the aspects reach the source set and follow its
+`deps`, while the rule compiles it as before. For the aspects that forward nothing from a target
+without JavaInfo, as the mobile-install of rules_android, a source set provides a JavaInfo of no
+classes of its own that exports its deps (see source_set.bzl); `deps` and `exports`, which take
+libraries, accept it then, and the rules reject it there (see no_source_sets).
 """
 
 load(":source_set.bzl", "KtSourceSetInfo")
@@ -220,6 +232,53 @@ def collect_fragments(ctx, source_sets, leaf_name, leaf_srcs):
         add_args = _add_args,
     )
 
+def without_source_sets(label, runtime_deps, source_sets):
+    """The runtime_deps of a JVM or Android rule without the source sets listed there for the aspects of its consumers.
+
+    A source set adds nothing to the runtime classpath: its deps are deps of the rule through
+    `source_sets` (see the module docstring).
+
+    Args:
+      label: the label of the rule, for the error message.
+      runtime_deps: the targets of the runtime_deps attribute of the rule.
+      source_sets: the targets of the source_sets attribute of the rule, providing KtSourceSetInfo.
+
+    Returns:
+      The targets of `runtime_deps` that are not source sets, in their order. Fails on a source set the
+      rule does not compile: one that is neither in `source_sets` nor refined by one of them.
+    """
+    listed = [dep for dep in runtime_deps if KtSourceSetInfo in dep]
+    if not listed:
+        return runtime_deps
+    compiled = {}
+    for source_set in source_sets:
+        for info in source_set[KtSourceSetInfo].transitive_source_sets.to_list():
+            compiled[info.label] = True
+    for source_set in listed:
+        if source_set[KtSourceSetInfo].label not in compiled:
+            fail(("%s: the source set %s in runtime_deps is none the target compiles: list it in source_sets, or list " +
+                  "there a source set refining it (a source set in runtime_deps only makes its deps reachable to the " +
+                  "aspects of the consumers of the target, which follow deps, exports and runtime_deps, not source_sets)") %
+                 (label, source_set[KtSourceSetInfo].label))
+    return [dep for dep in runtime_deps if KtSourceSetInfo not in dep]
+
+def no_source_sets(label, attr, targets):
+    """Fails on a source set listed in a dependency attribute that takes libraries, as `deps` or `exports`.
+
+    Its JavaInfo (see source_set.bzl) makes those attributes accept it, where it would export its deps
+    and compile none of its sources.
+
+    Args:
+      label: the label of the rule, for the error message.
+      attr: the name of the attribute, for the error message.
+      targets: the targets of the attribute.
+    """
+    for target in targets:
+        if KtSourceSetInfo in target:
+            fail(("%s: %s lists the source set %s, which is compiled, not depended on: list it in source_sets (its deps " +
+                  "are then deps of the target), and in runtime_deps for the aspects of the consumers of the target") %
+                 (label, attr, target.label))
+
 def fragment_deps(label, source_sets, provider, provider_name, consumer):
     """The deps of the source sets of a rule, which it compiles against, each providing `provider`.
 
@@ -241,6 +300,9 @@ def fragment_deps(label, source_sets, provider, provider_name, consumer):
         fail("%s: %s" % (label, walk.error))
     deps = _deps(walk.order)
     for dep, owner in zip(deps.deps, deps.owners):
+        if KtSourceSetInfo in dep:
+            fail("%s: dep %s of source set %s is a source set, which refines another through depends_on, not deps" %
+                 (label, dep.label, owner))
         if provider not in dep:
             fail(("%s: dep %s of source set %s provides no %s; %s (use an alias selecting the klib on " +
                   "@rules_kotlin//kotlin/native/platforms:native_<konan target> and the JVM library by default)") %

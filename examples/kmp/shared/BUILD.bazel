@@ -1,4 +1,13 @@
-load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library", "kt_source_set")
+
+# An intermediate source set, Gradle's nonAndroidMain: it refines the common source set, and the
+# JVM library (source_sets) and the native groups (depends_on) compile it with their own sources,
+# while the Android library does not. Its name is any that the macro does not declare.
+kt_source_set(
+    name = "shared_non_android",
+    srcs = ["non_android/Greeting.nonAndroid.kt"],
+    depends_on = [":shared_common"],
+)
 
 # The common source set declares platformName() and PlatformInfo with `expect`; each platform
 # implements them with `actual` and compiles them with the common code, as K2 fragments. The macro
@@ -18,10 +27,14 @@ kt_multiplatform_library(
         "common/Greeting.kt",
         "common/Platform.kt",
     ],
-    jvm = dict(srcs = ["jvm/Platform.jvm.kt"]),
+    jvm = dict(
+        srcs = ["jvm/Platform.jvm.kt"],
+        source_sets = [":shared_non_android"],
+    ),
     native = {
         "apple": dict(
             srcs = ["apple/Platform.apple.kt"],
+            depends_on = [":shared_non_android"],
             targets = [
                 "ios_arm64",
                 "ios_simulator_arm64",
@@ -30,6 +43,7 @@ kt_multiplatform_library(
         ),
         "linux": dict(
             srcs = ["linux/Platform.linux.kt"],
+            depends_on = [":shared_non_android"],
             targets = [
                 "linux_arm64",
                 "linux_x64",

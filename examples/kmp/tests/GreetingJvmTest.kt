@@ -1,6 +1,7 @@
 package examples.kmp.tests
 
 import examples.kmp.shared.PlatformInfo
+import examples.kmp.shared.detailedGreeting
 import examples.kmp.shared.greeting
 import examples.kmp.shared.greetingAfter
 import examples.kmp.shared.platformName
@@ -20,6 +21,12 @@ class GreetingJvmTest {
   @Test
   fun describesTheJvm() {
     assertEquals(platformName(), PlatformInfo().name)
+  }
+
+  @Test
+  fun greetsInDetail() {
+    // The intermediate source set, which the JVM library compiles with the common one and its own sources.
+    assertEquals("${greeting()}, 64-bit", detailedGreeting())
   }
 
   @Test

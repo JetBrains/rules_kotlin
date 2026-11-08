@@ -38,7 +38,8 @@ and rules_apple 5.x dropped Bazel 7. Windows has no Kotlin/Native toolchain.
 
 - iOS: `bazel run //iosApp` builds the app for the simulator and launches it there.
 - Android: `bazel build //androidApp`, then `adb install bazel-bin/androidApp/androidApp.apk` on a
-  device or an emulator.
+  device or an emulator; or `bazel mobile-install //androidApp` (`--adb=<path>` when adb is not on
+  the PATH), which installs incrementally.
 
 ## How it fits together
 

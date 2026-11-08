@@ -149,7 +149,7 @@ def _kt_android_produce_jar_actions(
     deps = getattr(ctx.attr, "deps", [])
     associates = getattr(ctx.attr, "associates", [])
     exports = getattr(ctx.attr, "exports", [])
-    runtime_deps = getattr(ctx.attr, "runtime_deps", [])
+    runtime_deps = _compile.runtime_deps(ctx)
     _compile.verify_associates_not_duplicated_in_deps(deps = deps, associate_deps = associates)
 
     # Collect the android compile dependencies

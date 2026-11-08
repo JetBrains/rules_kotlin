@@ -137,9 +137,9 @@ kotlin_native_compiler_repository = repository_rule(
 # (not vendorable here).
 _DEPS_BASE = "https://download.jetbrains.com/kotlin/native"
 
-# Every link dependency of KOTLIN_NATIVE_DEPS: name (== archive top dir == konanc dependency
-# dir) : (url, sha256). Only the LLVM archives have a matching `.sha256` file next to them;
-# compute the others by downloading the archive.
+# Every link dependency of KOTLIN_NATIVE_LLVM and KOTLIN_NATIVE_DEPS: name (== archive top dir ==
+# konanc dependency dir) : (url, sha256). Only the LLVM archives have a matching `.sha256` file
+# next to them; compute the others by downloading the archive.
 KOTLIN_NATIVE_ARCHIVES = {
     "aarch64-unknown-linux-gnu-gcc-8.3.0-glibc-2.25-kernel-4.9-2": (_DEPS_BASE + "/aarch64-unknown-linux-gnu-gcc-8.3.0-glibc-2.25-kernel-4.9-2.tar.gz", "a026ede10b5dc2f2dcba91115338040ba62558ca14cf1a18cfba50768b245385"),
     "libffi-3.2.1-2-linux-x86-64": (_DEPS_BASE + "/libffi-3.2.1-2-linux-x86-64.tar.gz", "9d817bbca098a2fa0f1d5a8b9e57674c30d100bb4c6aeceff18d8acc5b9f382c"),
@@ -152,26 +152,40 @@ KOTLIN_NATIVE_ARCHIVES = {
     "x86_64-unknown-linux-gnu-gcc-8.3.0-glibc-2.19-kernel-4.9-2": (_DEPS_BASE + "/x86_64-unknown-linux-gnu-gcc-8.3.0-glibc-2.19-kernel-4.9-2.tar.gz", "a048397d50fb5a2bd6cc0f89d5a30e0b8ff0373ebff9c1d78ce1f1fb7f185a50"),
 }
 
-# The link dependencies of each exec host of EXEC_HOSTS, by name: `host` ones to link for any
-# target (LLVM, libffi) and `targets` ones on top of them for that target (lldb for the host
+# The LLVM each exec host of EXEC_HOSTS links with, per Kotlin/Native release: the essentials
+# build its distribution names in `llvm.<host>.user` of konan.properties, which is
+# `kotlin.native.llvm.default.<host>.essentials` of kotlin-native/gradle.properties at the tag of
+# the release. The LLVM is the link dependency that changes between releases, the others
+# (KOTLIN_NATIVE_DEPS) rarely. A release that is not here stages no LLVM, and its link bundle
+# fails with the one its konan.properties requires when it is fetched: add the release here and
+# its archives to KOTLIN_NATIVE_ARCHIVES (their `.sha256` files are published next to them).
+KOTLIN_NATIVE_LLVM = {
+    "2.4.21": {
+        "linux-x86_64": "llvm-21-x86_64-linux-essentials-116",
+        "macos-aarch64": "llvm-21-aarch64-macos-essentials-97",
+    },
+}
+
+# The link dependencies of each exec host of EXEC_HOSTS besides its LLVM, by name: `host` ones to
+# link for any target (libffi) and `targets` ones on top of them for that target (lldb for the host
 # itself, the *-gcc-* cross-toolchain for Linux, and on a Linux host the qemu emulator of another
 # Linux target, which konanc requires to link although it only runs tests with it). iOS targets
 # add none, as Xcode provides their toolchain and SDK.
 #
-# They must be exactly the ones the `konan/konan.properties` of the host's own distribution asks
-# for (see konan_link_dependencies): each distribution points its host at the essentials LLVM
-# (`llvm.<host>.user`), but other hosts at the dev one. The deps repository checks that when it
-# is fetched; re-check them on every Kotlin release bump.
+# With the LLVM of the release, they must be exactly the ones the `konan/konan.properties` of the
+# host's own distribution asks for (see konan_link_dependencies): each distribution points its
+# host at the essentials LLVM (`llvm.<host>.user`), but other hosts at the dev one. The deps
+# repository checks that when it is fetched; re-check them on every Kotlin release bump.
 KOTLIN_NATIVE_DEPS = {
     "linux-x86_64": struct(
-        host = ["libffi-3.2.1-2-linux-x86-64", "llvm-21-x86_64-linux-essentials-116"],
+        host = ["libffi-3.2.1-2-linux-x86-64"],
         targets = {
             "linux_arm64": ["aarch64-unknown-linux-gnu-gcc-8.3.0-glibc-2.25-kernel-4.9-2", "qemu-aarch64-static-5.1.0-linux-2"],
             "linux_x64": ["lldb-4-linux", "x86_64-unknown-linux-gnu-gcc-8.3.0-glibc-2.19-kernel-4.9-2"],
         },
     ),
     "macos-aarch64": struct(
-        host = ["libffi-3.3-1-macos-arm64", "llvm-21-aarch64-macos-essentials-97"],
+        host = ["libffi-3.3-1-macos-arm64"],
         targets = {
             "ios_arm64": [],
             "ios_simulator_arm64": [],
@@ -250,12 +264,13 @@ def kotlin_native_deps_build_file(views, unstaged_targets):
     return content
 
 _DEPS_MISMATCH = """\
-Kotlin/Native needs other link dependencies on {host} than the ones rules_kotlin pins for \
-Kotlin/Native {version} (KOTLIN_NATIVE_DEPS in src/main/starlark/core/repositories/native_compiler.bzl), \
+Kotlin/Native {version} needs other link dependencies on {host} than the ones rules_kotlin pins \
+(KOTLIN_NATIVE_LLVM and KOTLIN_NATIVE_DEPS in src/main/starlark/core/repositories/native_compiler.bzl), \
 per {properties}:
   {problems}
-Use Kotlin/Native {version}, leave these targets out of kotlin_native.targets(...), or pin the \
-link dependencies of this release in KOTLIN_NATIVE_ARCHIVES and KOTLIN_NATIVE_DEPS."""
+rules_kotlin pins the LLVM of Kotlin/Native {pinned}. Use one of these releases, leave these targets \
+out of kotlin_native.targets(...) to compile klibs only, or pin the link dependencies of this release \
+in KOTLIN_NATIVE_ARCHIVES, KOTLIN_NATIVE_LLVM and KOTLIN_NATIVE_DEPS."""
 
 def _kotlin_native_deps_impl(repository_ctx):
     attr = repository_ctx.attr
@@ -267,7 +282,8 @@ def _kotlin_native_deps_impl(repository_ctx):
         if problems:
             fail(_DEPS_MISMATCH.format(
                 host = attr.konan_host,
-                version = KOTLIN_NATIVE_VERSION,
+                version = attr.version,
+                pinned = ", ".join(sorted(KOTLIN_NATIVE_LLVM.keys())),
                 properties = attr.konan_properties,
                 problems = "\n  ".join(problems),
             ))
@@ -311,6 +327,10 @@ kotlin_native_deps_repository = repository_rule(
         "unstaged_targets": attr.string_list(
             doc = "the konan targets of the host without link dependencies, which get a stub view",
         ),
+        "version": attr.string(
+            doc = "the Kotlin/Native release of the distribution, named in the error of a mismatch",
+            mandatory = True,
+        ),
         "views": attr.string_list_dict(
             doc = "the dependency names each staged konan target of the host links with",
         ),
@@ -337,16 +357,31 @@ def kotlin_native_distribution(host_key, version, sha256):
         strip_prefix = archive,
     )
 
-def kotlin_native_bundle(host_key, targets):
+def kotlin_native_llvm(host_key, version):
+    """The LLVM an exec host links with for a Kotlin/Native release, or None for a release without a pinned one.
+
+    Args:
+      host_key: an exec host of EXEC_HOSTS, e.g. "macos-aarch64".
+      version: the Kotlin/Native release, e.g. "2.4.21".
+
+    Returns:
+      The name of the LLVM archive of KOTLIN_NATIVE_ARCHIVES, or None.
+    """
+    return KOTLIN_NATIVE_LLVM.get(version, {}).get(host_key)
+
+def kotlin_native_bundle(host_key, targets, version = KOTLIN_NATIVE_VERSION):
     """The link-dependency bundle of an exec host for the konan targets to stage.
 
     The bundle holds the dependencies of the requested targets the host builds for, plus the
-    host's own ones (LLVM, libffi) if there is at least one such target. The host's other
-    targets stay unstaged: their klibs still compile, but nothing links for them.
+    host's own ones (the LLVM of the release, libffi) if there is at least one such target. The
+    host's other targets stay unstaged: their klibs still compile, but nothing links for them. A
+    release without a pinned LLVM (KOTLIN_NATIVE_LLVM) stages none, which the link bundle
+    repository reports against konan.properties when it is fetched.
 
     Args:
       host_key: an exec host of EXEC_HOSTS, e.g. "macos-aarch64".
       targets: the konan targets to stage, e.g. collect_kotlin_native_config(...).targets.
+      version: the Kotlin/Native release, e.g. collect_kotlin_native_config(...).version.
 
     Returns:
       struct(archives, views, unstaged): the archives to download as a dict of name to
@@ -354,9 +389,11 @@ def kotlin_native_bundle(host_key, targets):
       names, and the targets of the host without a bundle.
     """
     deps = KOTLIN_NATIVE_DEPS[host_key]
+    llvm = kotlin_native_llvm(host_key, version)
+    host_deps = deps.host + ([llvm] if llvm else [])
     host_targets = EXEC_HOSTS[host_key].targets
     views = {
-        target: sorted(deps.host + deps.targets[target])
+        target: sorted(host_deps + deps.targets[target])
         for target in host_targets
         if target in targets
     }

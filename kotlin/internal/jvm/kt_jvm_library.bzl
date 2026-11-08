@@ -78,7 +78,7 @@ def kt_jvm_library_impl(ctx):
     Returns:
         The list of providers produced by compiling the library.
     """
-    if ctx.attr.neverlink and ctx.attr.runtime_deps:
+    if ctx.attr.neverlink and _compile.runtime_deps(ctx):
         fail("runtime_deps and neverlink is nonsensical.", attr = "runtime_deps")
 
     if not ctx.attr.srcs and not ctx.attr.source_sets and len(ctx.attr.deps) > 0:

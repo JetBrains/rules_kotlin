@@ -195,7 +195,15 @@ _common_attr = utils.add_dicts(
         ),
         "runtime_deps": attr.label_list(
             doc = """Libraries to make available to the final binary or test at runtime only. Like ordinary deps, these will
-        appear on the runtime classpath, but unlike them, not on the compile-time classpath.""",
+        appear on the runtime classpath, but unlike them, not on the compile-time classpath.
+
+        A source set of `source_sets`, or one they refine, may be listed too. It adds nothing to the classpath (its
+        deps are already deps of the target) but makes them reachable to the aspects of the consumers of the target,
+        which follow `deps`, `exports` and `runtime_deps` and not `source_sets`: the dexing of the `android_binary` of
+        rules_android fails on a jar of the runtime classpath it did not reach, and its mobile-install leaves out the
+        classes of a jar it did not reach (a source set provides a JavaInfo of no classes of its own that exports its
+        deps, which such aspects need to go on). `kt_multiplatform_library` lists the source sets of its JVM and
+        Android libraries here.""",
             default = [],
             allow_files = False,
         ),
@@ -205,7 +213,9 @@ _common_attr = utils.add_dicts(
         (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. The
         deps of the source sets are deps of the target, and must be JVM libraries. A target with source sets cannot have
         .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in
-        Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.""",
+        Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it. List the source sets in `runtime_deps`
+        as well for the aspects of the consumers of the target (see there); a source set in `deps` or `exports`, which
+        take libraries, is an error.""",
             default = [],
             providers = [KtSourceSetInfo],
         ),
