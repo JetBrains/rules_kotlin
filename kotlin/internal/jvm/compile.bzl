@@ -61,6 +61,8 @@ load(
     "//kotlin/internal/kmp:fragments.bzl",
     _collect_fragments = "collect_fragments",
     _fragment_deps = "fragment_deps",
+    _no_source_sets = "no_source_sets",
+    _without_source_sets = "without_source_sets",
 )
 load(
     "//kotlin/internal/utils:utils.bzl",
@@ -136,14 +138,40 @@ def _source_set_deps(ctx):
 
     Returns:
         The deps of its source sets and of those they refine, transitively: JVM libraries, or the
-        analysis fails.
+        analysis fails; it fails as well on a source set in deps or exports, which take libraries
+        (see fragments.bzl).
     """
+    _no_library_source_sets(ctx.label, ctx.attr)
     return _fragment_deps(
         ctx.label,
         getattr(ctx.attr, "source_sets", []),
         JavaInfo,
         "JavaInfo",
         "a JVM consumer needs JVM deps",
+    )
+
+def _no_library_source_sets(label, attr):
+    """Fails on a source set in the deps or exports of a JVM or Android target, which take libraries (see fragments.bzl)."""
+    for name in ["deps", "exports"]:
+        _no_source_sets(label, name, getattr(attr, name, []))
+
+def _runtime_deps(ctx):
+    """The runtime_deps of a JVM or Android target: the libraries of its runtime classpath.
+
+    A source set listed there for the aspects of the consumers of the target (see fragments.bzl) is
+    left out: its deps are already deps of the target.
+
+    Args:
+        ctx: the rule context of a target with runtime_deps and source_sets attributes.
+
+    Returns:
+        The targets of runtime_deps that are not source sets; the analysis fails on a source set the
+        target does not compile.
+    """
+    return _without_source_sets(
+        ctx.label,
+        getattr(ctx.attr, "runtime_deps", []),
+        getattr(ctx.attr, "source_sets", []),
     )
 
 def _compiler_toolchains(ctx):
@@ -893,7 +921,7 @@ def _kt_jvm_produce_jar_actions(ctx, rule_kind, extra_resources = {}):
         associate_deps = associates,
         deps = deps + _source_set_deps(ctx),
         exports = getattr(ctx.attr, "exports", []),
-        runtime_deps = getattr(ctx.attr, "runtime_deps", []),
+        runtime_deps = _runtime_deps(ctx),
     )
 
     outputs = struct(
@@ -1346,6 +1374,7 @@ def _export_only_providers(ctx, actions, attr, outputs):
         kt_compiler_result
     """
     toolchains = _compiler_toolchains(ctx)
+    _no_library_source_sets(ctx.label, attr)
 
     # satisfy the outputs requirement. should never execute during normal compilation.
     actions.symlink(
@@ -1371,7 +1400,10 @@ def _export_only_providers(ctx, actions, attr, outputs):
         compile_jar = toolchains.kt.empty_jar,
         deps = [_java_info(d) for d in attr.deps],
         exports = [_java_info(d) for d in getattr(attr, "exports", [])],
-        runtime_deps = [_java_info(d) for d in getattr(attr, "runtime_deps", [])],
+        runtime_deps = [
+            _java_info(d)
+            for d in _without_source_sets(ctx.label, getattr(attr, "runtime_deps", []), getattr(attr, "source_sets", []))
+        ],
         neverlink = getattr(attr, "neverlink", False),
         jdeps = output_jdeps,
     )
@@ -1407,5 +1439,6 @@ compile = struct(
     export_only_providers = _export_only_providers,
     kt_jvm_produce_output_jar_actions = _kt_jvm_produce_output_jar_actions,
     kt_jvm_produce_jar_actions = _kt_jvm_produce_jar_actions,
+    runtime_deps = _runtime_deps,
     source_set_deps = _source_set_deps,
 )

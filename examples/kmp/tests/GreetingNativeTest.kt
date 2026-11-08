@@ -1,6 +1,7 @@
 package examples.kmp.tests
 
 import examples.kmp.shared.PlatformInfo
+import examples.kmp.shared.detailedGreeting
 import examples.kmp.shared.greeting
 import examples.kmp.shared.greetingAfter
 import examples.kmp.shared.platformName
@@ -23,6 +24,12 @@ class GreetingNativeTest {
     val info = PlatformInfo()
     assertEquals(platformName(), info.name)
     assertTrue(info.is64Bit)
+  }
+
+  @Test
+  fun greetsInDetail() {
+    // The intermediate source set, which the group of the host refines besides the common one.
+    assertEquals("${greeting()}, 64-bit", detailedGreeting())
   }
 
   @Test

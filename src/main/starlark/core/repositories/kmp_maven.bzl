@@ -137,7 +137,7 @@ def _kmp_maven_impl(module_ctx):
         if problem:
             build_file = unpinned_build_file(install.name, problem)
         else:
-            build_file = hub_build_file(install.name, install.manifest_path, manifest, install.fetch_sources)
+            build_file = hub_build_file(install.name, install.manifest_path, manifest, install.fetch_sources, install.extra_dependencies)
             for name, files in module_repositories(install.name, manifest, install.fetch_sources).items():
                 kmp_maven_module_repository(
                     name = name,
@@ -166,6 +166,13 @@ _install_tag = tag_class(
         "artifacts": attr.string_list(
             doc = "The Maven coordinates, `group:artifact:version`, e.g. `org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2`.",
             mandatory = True,
+        ),
+        "extra_dependencies": attr.string_list_dict(
+            doc = "Dependencies the published metadata of a library omits, `{\"group:artifact\": [\"group:artifact\", ...]}`, " +
+                  "e.g. the Compose libraries a library compiled against without declaring them. Each is a dep of every " +
+                  "variant of the library, for its platform, as the dependencies of the metadata are, and must be a " +
+                  "library of the manifest: an artifact of the install or a dependency of one. The dexing of an " +
+                  "android_binary desugars each library against its own dependencies, and fails on a type they lack.",
         ),
         "fetch_sources": attr.bool(
             doc = "Whether to download the sources jars, as the srcjar of the JVM and Android imports.",

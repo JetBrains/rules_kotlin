@@ -34,6 +34,7 @@ load(
     "resolver_download",
     "resolver_release",
     "unpinned_build_file",
+    "variant_target_name",
     "workspace_path",
 )
 load(":kmp_maven_manifest.bzl", "COROUTINES_MANIFEST")
@@ -98,6 +99,21 @@ def _synthetic_manifest(libraries):
 def _jvm_variant(library_id, variant_id, file_name, **kwargs):
     return _variant("jvm", library_id, variant_id, jar = _artifact(file_name), **kwargs)
 
+def _android_variant(library_id, variant_id, file_name, **kwargs):
+    packaging = "aar" if file_name.endswith(".aar") else "jar"
+    return _variant("android", library_id, variant_id, artifact = _artifact(file_name), packaging = packaging, **kwargs)
+
+def _redirect_variant(platform, library_id, dependencies = [], exported = []):
+    """A variant without artifact, standing for its dependencies: no sourceJar either."""
+    return dict(
+        type = "redirect",
+        platform = platform,
+        id = library_id,
+        variantId = library_id,
+        dependencies = dependencies,
+        exportedDependencies = exported,
+    )
+
 def _install(
         name = _HUB,
         artifacts = [_COROUTINES],
@@ -105,7 +121,8 @@ def _install(
         platforms = KMP_PLATFORMS,
         substitutions = [],
         manifest = Label("//:kmp_manifest.json"),
-        fetch_sources = False):
+        fetch_sources = False,
+        extra_dependencies = {}):
     return struct(
         name = name,
         artifacts = artifacts,
@@ -114,6 +131,7 @@ def _install(
         substitutions = substitutions,
         manifest = manifest,
         fetch_sources = fetch_sources,
+        extra_dependencies = extra_dependencies,
     )
 
 def _module(name, is_root, install = [], resolver = []):
@@ -271,18 +289,65 @@ def _libraries_naming_the_same_target_fail_test(ctx):
     }))
     asserts.equals(env, "libraries org.example:lib:1 and org.example:lib:2 both have a variant for jvm", same_platform.error)
 
-    # A JVM library named like the jvm import of another one.
-    collision = hub_contents(_HUB, "kmp_manifest.json", _synthetic_manifest({
+    return unittest.end(env)
+
+def _hub_keeps_a_library_named_like_a_variant_apart_test(ctx):
+    """A library whose artifact ends in -jvm or -android has its own alias next to the variants of the library it is named after."""
+    env = unittest.begin(ctx)
+
+    # The platform artifact of an AndroidX multiplatform library, which a POM-only library depends on:
+    # androidx.datastore:datastore-preferences-android next to androidx.datastore:datastore-preferences.
+    preferences = "androidx.datastore:datastore-preferences"
+    preferences_android = preferences + "-android"
+    manifest = _synthetic_manifest({
+        preferences + ":1.1.7": [_variant(
+            "android",
+            preferences + ":1.1.7",
+            preferences + ":1.1.7",
+            artifact = _artifact("datastore-preferences-1.1.7.jar"),
+            packaging = "jar",
+            dependencies = [preferences_android],
+        )],
+        preferences_android + ":1.1.7": [_variant(
+            "android",
+            preferences_android + ":1.1.7",
+            preferences_android + ":1.1.7",
+            artifact = _artifact("datastore-preferences-android-1.1.7.aar"),
+            packaging = "aar",
+        )],
         "org.example:lib-jvm:1": [_jvm_variant("org.example:lib-jvm:1", "org.example:lib-jvm:1", "lib-jvm-1.jar")],
         "org.example:lib:1": [_jvm_variant("org.example:lib:1", "org.example:lib-jvm:1", "lib-jvm-1.jar")],
-    }), False)
-    asserts.equals(env, None, collision.build_file)
-    asserts.equals(
-        env,
-        ("kmp_maven.install(name = \"kmp_maven\"): the manifest kmp_manifest.json has libraries org.example:lib and " +
-         "org.example:lib-jvm that both name the target org_example_lib_jvm"),
-        collision.error,
-    )
+    })
+    asserts.equals(env, "androidx_datastore_datastore_preferences_android", library_target_name(preferences_android))
+    asserts.equals(env, "androidx_datastore_datastore_preferences.android", variant_target_name(library_target_name(preferences), "android"))
+
+    contents = hub_contents(_HUB, "kmp_manifest.json", manifest, False)
+    asserts.equals(env, None, contents.error)
+    _assert_contains(env, contents.build_file, [
+        """kt_jvm_import(
+    name = "androidx_datastore_datastore_preferences.android",
+    jars = ["@kmp_maven__androidx_datastore_datastore_preferences_1_1_7//:datastore-preferences-1.1.7.jar"],
+    deps = [":androidx_datastore_datastore_preferences_android.android"],
+)""",
+        """aar_import(
+    name = "androidx_datastore_datastore_preferences_android.android",
+    aar = "@kmp_maven__androidx_datastore_datastore_preferences_android_1_1_7//:datastore-preferences-android-1.1.7.aar",
+)""",
+        """alias(
+    name = "androidx_datastore_datastore_preferences_android",
+    actual = select(
+        {
+            "%s": ":androidx_datastore_datastore_preferences_android.android",
+        },""" % _ANDROID,
+        """alias(
+    name = "org_example_lib_jvm",
+    actual = ":org_example_lib_jvm.jvm",
+)""",
+        """alias(
+    name = "org_example_lib",
+    actual = ":org_example_lib.jvm",
+)""",
+    ])
 
     return unittest.end(env)
 
@@ -348,60 +413,60 @@ def _hub_imports_the_variants_test(ctx):
         "package(default_visibility = [\"//visibility:public\"])",
         """# org.jetbrains.kotlinx:atomicfu:0.26.1
 kt_klib_import(
-    name = "org_jetbrains_kotlinx_atomicfu_ios_arm64_cinterop_0",
+    name = "org_jetbrains_kotlinx_atomicfu.ios_arm64.cinterop_0",
 """,
         """kt_klib_import(
-    name = "org_jetbrains_kotlinx_atomicfu_linux_x64_cinterop_0",
+    name = "org_jetbrains_kotlinx_atomicfu.linux_x64.cinterop_0",
     klib = "@kmp_maven__org_jetbrains_kotlinx_atomicfu_linuxx64_0_26_1//:atomicfu-linuxx64-0.26.1-cinterop-interop.klib",
     konan_target = "linux_x64",
 )
 
 kt_klib_import(
-    name = "org_jetbrains_kotlinx_atomicfu_linux_x64",
+    name = "org_jetbrains_kotlinx_atomicfu.linux_x64",
     klib = "@kmp_maven__org_jetbrains_kotlinx_atomicfu_linuxx64_0_26_1//:atomicfu-linuxx64-0.26.1.klib",
     konan_target = "linux_x64",
-    deps = [":org_jetbrains_kotlinx_atomicfu_linux_x64_cinterop_0"],
+    deps = [":org_jetbrains_kotlinx_atomicfu.linux_x64.cinterop_0"],
 )
 """,
         """kt_klib_import(
-    name = "org_jetbrains_kotlinx_kotlinx_coroutines_core_linux_x64",
+    name = "org_jetbrains_kotlinx_kotlinx_coroutines_core.linux_x64",
     klib = "@kmp_maven__org_jetbrains_kotlinx_kotlinx_coroutines_core_linuxx64_1_10_2//:kotlinx-coroutines-core-linuxx64-1.10.2.klib",
     konan_target = "linux_x64",
-    exports = [":org_jetbrains_kotlinx_atomicfu_linux_x64"],
+    exports = [":org_jetbrains_kotlinx_atomicfu.linux_x64"],
 )
 """,
         """kt_jvm_import(
-    name = "org_jetbrains_kotlinx_kotlinx_coroutines_core_android",
+    name = "org_jetbrains_kotlinx_kotlinx_coroutines_core.android",
     jars = ["@kmp_maven__org_jetbrains_kotlinx_kotlinx_coroutines_core_jvm_1_10_2//:kotlinx-coroutines-core-jvm-1.10.2.jar"],
     exports = [
-        ":org_jetbrains_annotations_android",
-        ":org_jetbrains_kotlin_kotlin_stdlib_android",
+        ":org_jetbrains_annotations.android",
+        ":org_jetbrains_kotlin_kotlin_stdlib.android",
     ],
     deps = [
-        ":org_jetbrains_annotations_android",
-        ":org_jetbrains_kotlin_kotlin_stdlib_android",
+        ":org_jetbrains_annotations.android",
+        ":org_jetbrains_kotlin_kotlin_stdlib.android",
     ],
 )
 """,
         """kt_jvm_import(
-    name = "org_jetbrains_kotlinx_kotlinx_coroutines_core_jvm",
+    name = "org_jetbrains_kotlinx_kotlinx_coroutines_core.jvm",
     jars = ["@kmp_maven__org_jetbrains_kotlinx_kotlinx_coroutines_core_jvm_1_10_2//:kotlinx-coroutines-core-jvm-1.10.2.jar"],
 """,
         """kt_jvm_import(
-    name = "org_jetbrains_annotations_jvm",
+    name = "org_jetbrains_annotations.jvm",
     jars = ["@kmp_maven__org_jetbrains_annotations_23_0_0//:annotations-23.0.0.jar"],
 )
 """,
         # kotlin-stdlib has no klib variant: the native imports do not depend on it.
         """kt_jvm_import(
-    name = "org_jetbrains_kotlin_kotlin_stdlib_jvm",
+    name = "org_jetbrains_kotlin_kotlin_stdlib.jvm",
     jars = ["@kmp_maven__org_jetbrains_kotlin_kotlin_stdlib_2_1_0//:kotlin-stdlib-2.1.0.jar"],
-    exports = [":org_jetbrains_annotations_jvm"],
-    deps = [":org_jetbrains_annotations_jvm"],
+    exports = [":org_jetbrains_annotations.jvm"],
+    deps = [":org_jetbrains_annotations.jvm"],
 )
 """,
     ])
-    for absent in ["aar_import", "srcjar", "wasm", "stdlib_linux_x64", "stdlib_ios_arm64"]:
+    for absent in ["aar_import", "srcjar", "wasm", "stdlib.linux_x64", "stdlib.ios_arm64"]:
         asserts.false(env, absent in build_file, absent)
 
     return unittest.end(env)
@@ -414,11 +479,11 @@ def _hub_aliases_select_the_variant_of_the_consumer_test(ctx):
     resolved = "kmp_maven.install(name = \\\"kmp_maven\\\") resolved it for"
     _assert_contains(env, build_file, [
         """alias(
-    name = "org_jetbrains_kotlinx_kotlinx_coroutines_core_native",
+    name = "org_jetbrains_kotlinx_kotlinx_coroutines_core.native",
     actual = select(
         {
-            "%s": ":org_jetbrains_kotlinx_kotlinx_coroutines_core_ios_arm64",
-            "%s": ":org_jetbrains_kotlinx_kotlinx_coroutines_core_linux_x64",
+            "%s": ":org_jetbrains_kotlinx_kotlinx_coroutines_core.ios_arm64",
+            "%s": ":org_jetbrains_kotlinx_kotlinx_coroutines_core.linux_x64",
         },
         no_match_error = "org.jetbrains.kotlinx:kotlinx-coroutines-core has no klib for the konan target of this Kotlin/Native target: %s ios_arm64, linux_x64, android, jvm. Add the target to the platforms of the install and run 'bazel run @kmp_maven//pin', if the library publishes it.",
     ),
@@ -427,9 +492,9 @@ def _hub_aliases_select_the_variant_of_the_consumer_test(ctx):
     name = "org_jetbrains_kotlinx_kotlinx_coroutines_core",
     actual = select(
         {
-            "%s": ":org_jetbrains_kotlinx_kotlinx_coroutines_core_native",
-            "%s": ":org_jetbrains_kotlinx_kotlinx_coroutines_core_android",
-            "//conditions:default": ":org_jetbrains_kotlinx_kotlinx_coroutines_core_jvm",
+            "%s": ":org_jetbrains_kotlinx_kotlinx_coroutines_core.native",
+            "%s": ":org_jetbrains_kotlinx_kotlinx_coroutines_core.android",
+            "//conditions:default": ":org_jetbrains_kotlinx_kotlinx_coroutines_core.jvm",
         },
     ),
 )""" % (_NATIVE, _ANDROID),
@@ -438,7 +503,7 @@ def _hub_aliases_select_the_variant_of_the_consumer_test(ctx):
     name = "org_jetbrains_kotlinx_atomicfu",
     actual = select(
         {
-            "%s": ":org_jetbrains_kotlinx_atomicfu_native",
+            "%s": ":org_jetbrains_kotlinx_atomicfu.native",
         },
         no_match_error = "org.jetbrains.kotlinx:atomicfu has no variant for this target: %s ios_arm64, linux_x64. A Kotlin/Native target takes its klib, an Android target its android variant, any other target its jvm variant.",
     ),
@@ -448,8 +513,8 @@ def _hub_aliases_select_the_variant_of_the_consumer_test(ctx):
     name = "org_jetbrains_annotations",
     actual = select(
         {
-            "%s": ":org_jetbrains_annotations_android",
-            "//conditions:default": ":org_jetbrains_annotations_jvm",
+            "%s": ":org_jetbrains_annotations.android",
+            "//conditions:default": ":org_jetbrains_annotations.jvm",
         },
     ),
 )""" % _ANDROID,
@@ -462,7 +527,7 @@ def _hub_aliases_select_the_variant_of_the_consumer_test(ctx):
     _assert_contains(env, jvm_only, [
         """alias(
     name = "org_jetbrains_annotations",
-    actual = ":org_jetbrains_annotations_jvm",
+    actual = ":org_jetbrains_annotations.jvm",
 )""",
     ])
     asserts.false(env, "kt_klib_import" in jvm_only, jvm_only)
@@ -498,18 +563,253 @@ def _hub_imports_sources_and_aars_test(ctx):
     _assert_contains(env, aar, [
         "load(%s, \"aar_import\")\nload(%s, \"kt_jvm_import\")\n" % (repr(_ANDROID_BZL), repr(_JVM_BZL)),
         """aar_import(
-    name = "org_example_widget_android",
+    name = "org_example_widget.android",
     aar = "@kmp_maven__org_example_widget_android_1_0//:widget-android-1.0.aar",
-    deps = [":org_jetbrains_kotlin_kotlin_stdlib_android"],
+    deps = [":org_jetbrains_kotlin_kotlin_stdlib.android"],
 )""",
         # A library with only an android variant fails for the other consumers.
         """    actual = select(
         {
-            "%s": ":org_example_widget_android",
+            "%s": ":org_example_widget.android",
         },
         no_match_error = "org.example:widget has no variant for this target:""" % _ANDROID,
     ])
     asserts.false(env, "kt_klib_import" in aar, aar)
+
+    return unittest.end(env)
+
+def _hub_redirects_the_variants_without_artifact_test(ctx):
+    """A redirect variant is an android_library or a kt_jvm_library of its dependencies, without repository; the alias selects it."""
+    env = unittest.begin(ctx)
+
+    compose = "org.jetbrains.compose.runtime:runtime:1.11.0-beta01"
+    androidx = "androidx.compose.runtime:runtime:1.11.0-beta01"
+    stdlib = "org.jetbrains.kotlin:kotlin-stdlib:2.1.0"
+    runtime_only = "org.example:runtime-only:1"
+    aggregate = "org.example:aggregate:1"
+    manifest = _synthetic_manifest({
+        # The Android variant of the JetBrains Compose runtime redirects to the AndroidX one.
+        compose: [
+            _redirect_variant(
+                "android",
+                compose,
+                dependencies = ["org.example:runtime-only"],
+                exported = ["androidx.compose.runtime:runtime", "org.jetbrains.kotlin:kotlin-stdlib"],
+            ),
+            _jvm_variant(compose, "org.jetbrains.compose.runtime:runtime-desktop:1.11.0-beta01", "runtime-desktop-1.11.0-beta01.jar"),
+        ],
+        androidx: [_android_variant(androidx, "androidx.compose.runtime:runtime-android:1.11.0-beta01", "runtime-android-1.11.0-beta01.aar")],
+        stdlib: [_android_variant(stdlib, stdlib, "kotlin-stdlib-2.1.0.jar"), _jvm_variant(stdlib, stdlib, "kotlin-stdlib-2.1.0.jar")],
+        runtime_only: [_android_variant(runtime_only, runtime_only, "runtime-only-1.jar"), _jvm_variant(runtime_only, runtime_only, "runtime-only-1.jar")],
+        # A POM-only library aggregating others.
+        aggregate: [_redirect_variant("jvm", aggregate, dependencies = ["org.example:runtime-only"], exported = ["org.jetbrains.kotlin:kotlin-stdlib"])],
+    })
+
+    libraries = manifest_libraries(manifest)
+    asserts.equals(env, None, libraries.error)
+    asserts.equals(env, ["android", "jvm"], list(libraries.libraries["org_jetbrains_compose_runtime_runtime"].variants.keys()))
+    asserts.equals(env, ["jvm"], list(libraries.libraries["org_example_aggregate"].variants.keys()))
+
+    # A redirect has nothing to download: its module has no repository unless another variant has files.
+    repositories = module_repositories(_HUB, manifest, True)
+    asserts.equals(
+        env,
+        [
+            "kmp_maven__androidx_compose_runtime_runtime_android_1_11_0_beta01",
+            "kmp_maven__org_example_runtime_only_1",
+            "kmp_maven__org_jetbrains_compose_runtime_runtime_desktop_1_11_0_beta01",
+            "kmp_maven__org_jetbrains_kotlin_kotlin_stdlib_2_1_0",
+        ],
+        repositories.keys(),
+    )
+
+    build_file = hub_contents(_HUB, "kmp_manifest.json", manifest, False).build_file
+    _assert_contains(env, build_file, [
+        # The JVM redirect is a kt_jvm_library, not a java_library: it forwards KtJvmInfo too.
+        "load(%s, \"aar_import\", \"android_library\")\nload(%s, \"kt_jvm_import\", \"kt_jvm_library\")\n" % (
+            repr(_ANDROID_BZL),
+            repr(_JVM_BZL),
+        ),
+        # android_library has no runtime_deps: every dependency is exported.
+        """android_library(
+    name = "org_jetbrains_compose_runtime_runtime.android",
+    exports = [
+        ":androidx_compose_runtime_runtime.android",
+        ":org_example_runtime_only.android",
+        ":org_jetbrains_kotlin_kotlin_stdlib.android",
+    ],
+)
+
+kt_jvm_import(
+    name = "org_jetbrains_compose_runtime_runtime.jvm",
+    jars = ["@kmp_maven__org_jetbrains_compose_runtime_runtime_desktop_1_11_0_beta01//:runtime-desktop-1.11.0-beta01.jar"],
+)
+
+alias(
+    name = "org_jetbrains_compose_runtime_runtime",
+    actual = select(
+        {
+            "%s": ":org_jetbrains_compose_runtime_runtime.android",
+            "//conditions:default": ":org_jetbrains_compose_runtime_runtime.jvm",
+        },
+    ),
+)""" % _ANDROID,
+        """kt_jvm_library(
+    name = "org_example_aggregate.jvm",
+    exports = [":org_jetbrains_kotlin_kotlin_stdlib.jvm"],
+    runtime_deps = [":org_example_runtime_only.jvm"],
+)
+
+alias(
+    name = "org_example_aggregate",
+    actual = ":org_example_aggregate.jvm",
+)""",
+        """aar_import(
+    name = "androidx_compose_runtime_runtime.android",
+    aar = "@kmp_maven__androidx_compose_runtime_runtime_android_1_11_0_beta01//:runtime-android-1.11.0-beta01.aar",
+)""",
+    ])
+    for absent in ["kt_klib_import", "java_library", "org_jetbrains_compose_runtime_runtime_1_11_0_beta01", "org_example_aggregate_1"]:
+        asserts.false(env, absent in build_file, absent)
+
+    return unittest.end(env)
+
+def _hub_aar_exports_the_targets_of_a_redirect_test(ctx):
+    """aar_import only exports imports: an android redirect in its exports is replaced by the imports it forwards to, through nested redirects."""
+    env = unittest.begin(ctx)
+
+    coil = "io.coil-kt.coil3:coil-compose-core-android:3.4.0"
+    foundation = "org.jetbrains.compose.foundation:foundation:1.11.0-beta01"
+    runtime = "org.jetbrains.compose.runtime:runtime:1.11.0-beta01"
+    androidx_foundation = "androidx.compose.foundation:foundation:1.11.0-beta01"
+    androidx_runtime = "androidx.compose.runtime:runtime:1.11.0-beta01"
+    stdlib = "org.jetbrains.kotlin:kotlin-stdlib:2.1.0"
+    manifest = _synthetic_manifest({
+        coil: [_android_variant(coil, coil, "coil-compose-core-android-3.4.0.aar", exported = [
+            "org.jetbrains.compose.foundation:foundation",
+            "org.jetbrains.kotlin:kotlin-stdlib",
+        ])],
+        # Redirects to AndroidX and to another redirect, which redirects back (a cycle is followed once).
+        foundation: [_redirect_variant("android", foundation, exported = [
+            "androidx.compose.foundation:foundation",
+            "org.jetbrains.compose.runtime:runtime",
+        ])],
+        runtime: [_redirect_variant("android", runtime, dependencies = [
+            "org.jetbrains.compose.foundation:foundation",
+            "org.example:missing",
+        ], exported = ["androidx.compose.runtime:runtime"])],
+        androidx_foundation: [_android_variant(androidx_foundation, "androidx.compose.foundation:foundation-android:1.11.0-beta01", "foundation-android-1.11.0-beta01.aar")],
+        androidx_runtime: [_android_variant(androidx_runtime, "androidx.compose.runtime:runtime-android:1.11.0-beta01", "runtime-android-1.11.0-beta01.aar")],
+        stdlib: [_android_variant(stdlib, stdlib, "kotlin-stdlib-2.1.0.jar")],
+    })
+
+    build_file = hub_contents(_HUB, "kmp_manifest.json", manifest, False).build_file
+    _assert_contains(env, build_file, [
+        """aar_import(
+    name = "io_coil_kt_coil3_coil_compose_core_android.android",
+    aar = "@kmp_maven__io_coil_kt_coil3_coil_compose_core_android_3_4_0//:coil-compose-core-android-3.4.0.aar",
+    exports = [
+        ":androidx_compose_foundation_foundation.android",
+        ":androidx_compose_runtime_runtime.android",
+        ":org_jetbrains_kotlin_kotlin_stdlib.android",
+    ],
+    deps = [
+        ":org_jetbrains_compose_foundation_foundation.android",
+        ":org_jetbrains_kotlin_kotlin_stdlib.android",
+    ],
+)""",
+    ])
+
+    return unittest.end(env)
+
+def _hub_adds_the_extra_dependencies_test(ctx):
+    """The extra dependencies of a library are deps of each of its variants, for its platform; one the manifest lacks is an error."""
+    env = unittest.begin(ctx)
+
+    markdown = "com.mikepenz:multiplatform-markdown-renderer:0.39.2"
+    foundation = "org.jetbrains.compose.foundation:foundation:1.11.0-beta01"
+    runtime = "org.jetbrains.compose.runtime:runtime:1.11.0-beta01"
+    stdlib = "org.jetbrains.kotlin:kotlin-stdlib:2.1.0"
+    manifest = _synthetic_manifest({
+        # The metadata of the markdown renderer declares the standard library alone.
+        markdown: [
+            _jvm_variant(markdown, "com.mikepenz:multiplatform-markdown-renderer-jvm:0.39.2", "multiplatform-markdown-renderer-jvm-0.39.2.jar", exported = ["org.jetbrains.kotlin:kotlin-stdlib"]),
+            _android_variant(markdown, "com.mikepenz:multiplatform-markdown-renderer-android:0.39.2", "multiplatform-markdown-renderer-android-0.39.2.aar", exported = ["org.jetbrains.kotlin:kotlin-stdlib"]),
+            _variant("klib", markdown, "com.mikepenz:multiplatform-markdown-renderer-iosarm64:0.39.2", platform = "ios_arm64", klibs = [{"artifact": _artifact("multiplatform-markdown-renderer-iosarm64-0.39.2.klib")}]),
+        ],
+        foundation: [
+            _jvm_variant(foundation, "org.jetbrains.compose.foundation:foundation-desktop:1.11.0-beta01", "foundation-desktop-1.11.0-beta01.jar"),
+            _android_variant(foundation, "org.jetbrains.compose.foundation:foundation-android:1.11.0-beta01", "foundation-android-1.11.0-beta01.aar"),
+            _variant("klib", foundation, "org.jetbrains.compose.foundation:foundation-uikitarm64:1.11.0-beta01", platform = "ios_arm64", klibs = [{"artifact": _artifact("foundation-uikitarm64-1.11.0-beta01.klib")}]),
+        ],
+        # A library without klib: the klib of the markdown renderer gets no dep on it.
+        runtime: [_jvm_variant(runtime, "org.jetbrains.compose.runtime:runtime-desktop:1.11.0-beta01", "runtime-desktop-1.11.0-beta01.jar")],
+        stdlib: [
+            _jvm_variant(stdlib, stdlib, "kotlin-stdlib-2.1.0.jar"),
+            _android_variant(stdlib, stdlib, "kotlin-stdlib-2.1.0.jar"),
+        ],
+    })
+    extra_dependencies = {"com.mikepenz:multiplatform-markdown-renderer": [
+        "org.jetbrains.compose.runtime:runtime",
+        "org.jetbrains.compose.foundation:foundation",
+    ]}
+
+    build_file = hub_contents(_HUB, "kmp_manifest.json", manifest, False, extra_dependencies).build_file
+    _assert_contains(env, build_file, [
+        """kt_jvm_import(
+    name = "com_mikepenz_multiplatform_markdown_renderer.jvm",
+    jars = ["@kmp_maven__com_mikepenz_multiplatform_markdown_renderer_jvm_0_39_2//:multiplatform-markdown-renderer-jvm-0.39.2.jar"],
+    exports = [":org_jetbrains_kotlin_kotlin_stdlib.jvm"],
+    deps = [
+        ":org_jetbrains_compose_foundation_foundation.jvm",
+        ":org_jetbrains_compose_runtime_runtime.jvm",
+        ":org_jetbrains_kotlin_kotlin_stdlib.jvm",
+    ],
+)""",
+        """aar_import(
+    name = "com_mikepenz_multiplatform_markdown_renderer.android",
+    aar = "@kmp_maven__com_mikepenz_multiplatform_markdown_renderer_android_0_39_2//:multiplatform-markdown-renderer-android-0.39.2.aar",
+    exports = [":org_jetbrains_kotlin_kotlin_stdlib.android"],
+    deps = [
+        ":org_jetbrains_compose_foundation_foundation.android",
+        ":org_jetbrains_kotlin_kotlin_stdlib.android",
+    ],
+)""",
+        """kt_klib_import(
+    name = "com_mikepenz_multiplatform_markdown_renderer.ios_arm64",
+    klib = "@kmp_maven__com_mikepenz_multiplatform_markdown_renderer_iosarm64_0_39_2//:multiplatform-markdown-renderer-iosarm64-0.39.2.klib",
+    konan_target = "ios_arm64",
+    deps = [":org_jetbrains_compose_foundation_foundation.ios_arm64"],
+)""",
+    ])
+
+    # The other libraries keep their deps.
+    _assert_contains(env, build_file, [
+        """aar_import(
+    name = "org_jetbrains_compose_foundation_foundation.android",
+    aar = "@kmp_maven__org_jetbrains_compose_foundation_foundation_android_1_11_0_beta01//:foundation-android-1.11.0-beta01.aar",
+)""",
+    ])
+
+    # Without extra dependencies, the metadata alone.
+    plain = hub_contents(_HUB, "kmp_manifest.json", manifest, False).build_file
+    _assert_contains(env, plain, [
+        """aar_import(
+    name = "com_mikepenz_multiplatform_markdown_renderer.android",
+    aar = "@kmp_maven__com_mikepenz_multiplatform_markdown_renderer_android_0_39_2//:multiplatform-markdown-renderer-android-0.39.2.aar",
+    exports = [":org_jetbrains_kotlin_kotlin_stdlib.android"],
+    deps = [":org_jetbrains_kotlin_kotlin_stdlib.android"],
+)""",
+    ])
+
+    # A library the manifest lacks, as a dependency or as the library with extra dependencies.
+    prefix = "kmp_maven.install(name = \"kmp_maven\"): the manifest kmp_manifest.json has no library "
+    pin = "; add it to the artifacts of the install and run 'bazel run @kmp_maven//pin'"
+    missing_dependency = hub_contents(_HUB, "kmp_manifest.json", manifest, False, {"com.mikepenz:multiplatform-markdown-renderer": ["org.example:missing"]})
+    asserts.equals(env, None, missing_dependency.build_file)
+    asserts.equals(env, prefix + "org.example:missing, which extra_dependencies names" + pin, missing_dependency.error)
+    missing_library = hub_contents(_HUB, "kmp_manifest.json", manifest, False, {"org.example:missing": ["org.jetbrains.compose.runtime:runtime"]})
+    asserts.equals(env, prefix + "org.example:missing, which extra_dependencies names" + pin, missing_library.error)
 
     return unittest.end(env)
 
@@ -643,9 +943,20 @@ def _install_attributes_are_validated_test(ctx):
 
     def error(**kwargs):
         tag = _install(**kwargs)
-        return install_error(tag.name, tag.artifacts, tag.repositories, tag.platforms, tag.substitutions, tag.manifest)
+        return install_error(tag.name, tag.artifacts, tag.repositories, tag.platforms, tag.substitutions, tag.manifest, tag.extra_dependencies)
 
     asserts.equals(env, None, error())
+    asserts.equals(env, None, error(extra_dependencies = {"org.example:a": ["org.example:b", "org.example:c"]}))
+    asserts.equals(
+        env,
+        "kmp_maven.install(name = \"kmp_maven\"): the library 'org.example:a:1' of extra_dependencies is not group:artifact",
+        error(extra_dependencies = {"org.example:a:1": ["org.example:b"]}),
+    )
+    asserts.equals(
+        env,
+        "kmp_maven.install(name = \"kmp_maven\"): extra dependency 'org.example:b:1' of org.example:a is not group:artifact",
+        error(extra_dependencies = {"org.example:a": ["org.example:b:1"]}),
+    )
     asserts.equals(env, None, error(substitutions = ["org.example:a=org.example:b:1"], manifest = Label("//third_party:kmp_manifest.json")))
     prefix = "kmp_maven.install(name = \"kmp_maven\"): "
     asserts.equals(env, prefix + "platform 'wasmjs' is not supported yet: rules_kotlin has no Kotlin/Wasm rules", error(platforms = ["jvm", "wasmjs"]))
@@ -688,7 +999,12 @@ def _config_reads_the_root_tags_test(ctx):
             True,
             install = [
                 _install(platforms = ["jvm", "linux_x64", "jvm"]),
-                _install(name = "tools", manifest = Label("//tools:kmp_manifest.json"), fetch_sources = True),
+                _install(
+                    name = "tools",
+                    manifest = Label("//tools:kmp_manifest.json"),
+                    fetch_sources = True,
+                    extra_dependencies = {"org.example:a": ["org.example:c", "org.example:b", "org.example:c"]},
+                ),
             ],
             resolver = [struct(version = "0.5.0", sha256 = {"macos-arm64": "abc"})],
         ),
@@ -701,9 +1017,14 @@ def _config_reads_the_root_tags_test(ctx):
     asserts.equals(env, "kmp_manifest.json", first.manifest_path)
     asserts.equals(env, Label("//:kmp_manifest.json"), first.manifest)
     asserts.false(env, first.fetch_sources)
+    asserts.equals(env, {}, first.extra_dependencies)
     asserts.equals(env, "tools/kmp_manifest.json", config.installs[1].manifest_path)
     asserts.equals(env, PLATFORM_ORDER, config.installs[1].inputs.platforms)
     asserts.true(env, config.installs[1].fetch_sources)
+
+    # The extra dependencies of a library are sorted, each once; they are no input of the resolution.
+    asserts.equals(env, {"org.example:a": ["org.example:b", "org.example:c"]}, config.installs[1].extra_dependencies)
+    asserts.equals(env, [_COROUTINES], config.installs[1].inputs.coordinates)
     asserts.equals(env, struct(version = "0.5.0", sha256 = {"macos-arm64": "abc"}), config.resolver)
 
     return unittest.end(env)
@@ -716,10 +1037,14 @@ unusable_manifest_tells_to_pin_test = unittest.make(_unusable_manifest_tells_to_
 names_test = unittest.make(_names_test)
 libraries_merge_versions_and_skip_wasm_test = unittest.make(_libraries_merge_versions_and_skip_wasm_test)
 libraries_naming_the_same_target_fail_test = unittest.make(_libraries_naming_the_same_target_fail_test)
+hub_keeps_a_library_named_like_a_variant_apart_test = unittest.make(_hub_keeps_a_library_named_like_a_variant_apart_test)
 module_repositories_group_the_files_of_a_module_test = unittest.make(_module_repositories_group_the_files_of_a_module_test)
 hub_imports_the_variants_test = unittest.make(_hub_imports_the_variants_test)
 hub_aliases_select_the_variant_of_the_consumer_test = unittest.make(_hub_aliases_select_the_variant_of_the_consumer_test)
 hub_imports_sources_and_aars_test = unittest.make(_hub_imports_sources_and_aars_test)
+hub_redirects_the_variants_without_artifact_test = unittest.make(_hub_redirects_the_variants_without_artifact_test)
+hub_aar_exports_the_targets_of_a_redirect_test = unittest.make(_hub_aar_exports_the_targets_of_a_redirect_test)
+hub_adds_the_extra_dependencies_test = unittest.make(_hub_adds_the_extra_dependencies_test)
 unpinned_hub_fails_with_the_problem_test = unittest.make(_unpinned_hub_fails_with_the_problem_test)
 pin_runs_the_resolver_with_the_inputs_test = unittest.make(_pin_runs_the_resolver_with_the_inputs_test)
 resolver_is_the_release_asset_of_the_host_test = unittest.make(_resolver_is_the_release_asset_of_the_host_test)
@@ -737,10 +1062,14 @@ def kmp_maven_test_suite(name):
         names_test,
         libraries_merge_versions_and_skip_wasm_test,
         libraries_naming_the_same_target_fail_test,
+        hub_keeps_a_library_named_like_a_variant_apart_test,
         module_repositories_group_the_files_of_a_module_test,
         hub_imports_the_variants_test,
         hub_aliases_select_the_variant_of_the_consumer_test,
         hub_imports_sources_and_aars_test,
+        hub_redirects_the_variants_without_artifact_test,
+        hub_aar_exports_the_targets_of_a_redirect_test,
+        hub_adds_the_extra_dependencies_test,
         unpinned_hub_fails_with_the_problem_test,
         pin_runs_the_resolver_with_the_inputs_test,
         resolver_is_the_release_asset_of_the_host_test,

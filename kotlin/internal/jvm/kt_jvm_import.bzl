@@ -46,9 +46,10 @@ exported_plugins, this is not transitive""",
 Exported libraries.
 
 Deps listed here will be made available to other rules, as if the parents explicitly depended on
-these deps. This is not true for regular (non-exported) deps.""",
+these deps. This is not true for regular (non-exported) deps. Any JVM library qualifies, as for
+`kt_jvm_library`: a `java_import` or an `aar_import` as well as a Kotlin target.""",
         default = [],
-        providers = [JavaInfo, _KtJvmInfo],
+        providers = [JavaInfo],
     ),
     "jar": attr.label(
         doc = """The jar listed here is equivalent to an export attribute.""",

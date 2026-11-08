@@ -1,7 +1,10 @@
+load(":aspect_deps_test.bzl", "aspect_deps_test_suite")
 load(":fragments_test.bzl", "fragments_test_suite")
 load(":multiplatform_test.bzl", "multiplatform_test_suite")
 load(":platform_type_test.bzl", "platform_type_test_suite")
 load(":source_set_test.bzl", "source_set_test_suite")
+
+aspect_deps_test_suite(name = "aspect_deps_tests")
 
 fragments_test_suite(name = "fragments_tests")
 

@@ -19,6 +19,7 @@ load(
     "//src/main/starlark/core/repositories:native_compiler.bzl",
     "KOTLIN_NATIVE_ARCHIVES",
     "KOTLIN_NATIVE_DEPS",
+    "KOTLIN_NATIVE_LLVM",
     "KOTLIN_NATIVE_PREBUILT",
     "KOTLIN_NATIVE_VERSION",
     "check_bundle_against_properties",
@@ -28,6 +29,7 @@ load(
     "kotlin_native_compiler_build_file",
     "kotlin_native_deps_build_file",
     "kotlin_native_distribution",
+    "kotlin_native_llvm",
     "parse_konan_properties",
 )
 
@@ -141,6 +143,10 @@ _LLVM_LINUX_DEV = "llvm-21-x86_64-linux-dev-116"
 _LLVM_MACOS = "llvm-21-aarch64-macos-essentials-97"
 _QEMU_AARCH64 = "qemu-aarch64-static-5.1.0-linux-2"
 
+# A release rules_kotlin pins no LLVM for, and the LLVM its konan.properties would name.
+_UNPINNED_RELEASE = "2.5.0"
+_LLVM_MACOS_UNPINNED = "llvm-22-aarch64-macos-essentials-1"
+
 # An excerpt of the konan/konan.properties of the macOS distribution of Kotlin/Native 2.4.21,
 # copied verbatim: the entries the link dependencies of the supported exec hosts and targets
 # resolve through, and a few of their neighbors.
@@ -217,6 +223,14 @@ _KONAN_PROPERTIES_2_4_21 = {
     "macos-aarch64": _KONAN_PROPERTIES_MACOS_2_4_21,
 }
 
+# The konan.properties of the macOS distribution of a release linking with another LLVM.
+_KONAN_PROPERTIES_MACOS_UNPINNED = _KONAN_PROPERTIES_MACOS_2_4_21.replace(_LLVM_MACOS, _LLVM_MACOS_UNPINNED)
+
+# The konan.properties of each release with a pinned LLVM, per exec host.
+_KONAN_PROPERTIES = {
+    "2.4.21": _KONAN_PROPERTIES_2_4_21,
+}
+
 def _native_module(name, is_root, version = None, targets = None):
     return struct(
         name = name,
@@ -225,34 +239,55 @@ def _native_module(name, is_root, version = None, targets = None):
     )
 
 def _tables_belong_to_the_default_release_test(ctx):
-    """The pinned tables and the konan.properties excerpt belong to the default release.
+    """The pinned tables and the konan.properties excerpts cover the default release.
 
     A Kotlin release bump changes the distributions: update KOTLIN_NATIVE_PREBUILT,
-    KOTLIN_NATIVE_ARCHIVES, KOTLIN_NATIVE_DEPS and the excerpt together with it.
+    KOTLIN_NATIVE_ARCHIVES, KOTLIN_NATIVE_LLVM, KOTLIN_NATIVE_DEPS and the excerpts together with it.
     """
     env = unittest.begin(ctx)
 
     asserts.equals(env, "2.4.21", KOTLIN_NATIVE_VERSION, "update the Kotlin/Native tables for the new release")
+    asserts.true(env, KOTLIN_NATIVE_VERSION in KOTLIN_NATIVE_LLVM, "pin the LLVM of the new release")
+    asserts.equals(env, sorted(KOTLIN_NATIVE_LLVM.keys()), sorted(_KONAN_PROPERTIES.keys()))
+    asserts.false(env, _UNPINNED_RELEASE in KOTLIN_NATIVE_LLVM)
 
     return unittest.end(env)
 
 def _deps_cover_every_exec_host_target_test(ctx):
-    """Every exec host has a distribution and pinned link dependencies for exactly its targets."""
+    """Every exec host has a distribution, an LLVM per pinned release and pinned link dependencies for exactly its targets."""
     env = unittest.begin(ctx)
 
     asserts.equals(env, sorted(EXEC_HOSTS.keys()), sorted(KOTLIN_NATIVE_PREBUILT.keys()))
     asserts.equals(env, sorted(EXEC_HOSTS.keys()), sorted(KOTLIN_NATIVE_DEPS.keys()))
     used = {}
+    for version, llvm in KOTLIN_NATIVE_LLVM.items():
+        asserts.equals(env, sorted(EXEC_HOSTS.keys()), sorted(llvm.keys()), version)
+        for key, name in llvm.items():
+            asserts.true(env, name.startswith("llvm-"), "%s: %s is not an LLVM" % (version, name))
+            asserts.true(env, name in KOTLIN_NATIVE_ARCHIVES, "%s: %s is not pinned" % (key, name))
+            used[name] = None
     for key, host in EXEC_HOSTS.items():
         deps = KOTLIN_NATIVE_DEPS[key]
         asserts.equals(env, host.targets, sorted(deps.targets.keys()), key)
         for name in deps.host + [name for names in deps.targets.values() for name in names]:
+            asserts.false(env, name.startswith("llvm-"), "%s: the LLVM %s belongs in KOTLIN_NATIVE_LLVM" % (key, name))
             asserts.true(env, name in KOTLIN_NATIVE_ARCHIVES, "%s: %s is not pinned" % (key, name))
             used[name] = None
         for target in host.targets:
             if KONAN_TARGETS[target].is_apple and target != host.konan_host:
                 asserts.equals(env, [], deps.targets[target], "%s: %s links with Xcode" % (key, target))
     asserts.equals(env, sorted(KOTLIN_NATIVE_ARCHIVES.keys()), sorted(used.keys()))
+
+    return unittest.end(env)
+
+def _llvm_follows_the_release_test(ctx):
+    """The pinned release has its LLVM per exec host; another release has none."""
+    env = unittest.begin(ctx)
+
+    asserts.equals(env, _LLVM_MACOS, kotlin_native_llvm("macos-aarch64", KOTLIN_NATIVE_VERSION))
+    asserts.equals(env, _LLVM_LINUX, kotlin_native_llvm("linux-x86_64", "2.4.21"))
+    asserts.equals(env, None, kotlin_native_llvm("macos-aarch64", _UNPINNED_RELEASE))
+    asserts.equals(env, None, kotlin_native_llvm("linux-x86_64", _UNPINNED_RELEASE))
 
     return unittest.end(env)
 
@@ -361,19 +396,20 @@ def _link_dependencies_add_the_emulator_test(ctx):
     return unittest.end(env)
 
 def _link_dependencies_match_the_table_test(ctx):
-    """konan.properties of 2.4.21 requires exactly the table's dependencies for every host and target."""
+    """konan.properties of each pinned release requires exactly the tables' dependencies for every host and target."""
     env = unittest.begin(ctx)
 
-    for key, host in EXEC_HOSTS.items():
-        properties = parse_konan_properties(_KONAN_PROPERTIES_2_4_21[key])
-        deps = KOTLIN_NATIVE_DEPS[key]
-        for target in host.targets:
-            asserts.equals(
-                env,
-                sorted(deps.host + deps.targets[target]),
-                konan_link_dependencies(properties, host.konan_host, target),
-                "%s -> %s" % (key, target),
-            )
+    for version, properties_of in _KONAN_PROPERTIES.items():
+        for key, host in EXEC_HOSTS.items():
+            properties = parse_konan_properties(properties_of[key])
+            deps = KOTLIN_NATIVE_DEPS[key]
+            for target in host.targets:
+                asserts.equals(
+                    env,
+                    sorted(deps.host + [KOTLIN_NATIVE_LLVM[version][key]] + deps.targets[target]),
+                    konan_link_dependencies(properties, host.konan_host, target),
+                    "%s: %s -> %s" % (version, key, target),
+                )
 
     linux = parse_konan_properties(_KONAN_PROPERTIES_2_4_21["linux-x86_64"])
     asserts.equals(
@@ -397,16 +433,51 @@ def _link_dependencies_match_the_table_test(ctx):
     for target in ["ios_arm64", "ios_simulator_arm64"]:
         asserts.equals(env, [_LIBFFI_MACOS, _LLVM_MACOS], konan_link_dependencies(macos, "macos_arm64", target))
 
+    # The LLVM follows konan.properties: another release links with its own and otherwise the same dependencies.
+    other = parse_konan_properties(_KONAN_PROPERTIES_MACOS_UNPINNED)
+    asserts.equals(env, [_LIBFFI_MACOS, _LLVM_MACOS_UNPINNED], konan_link_dependencies(other, "macos_arm64", "ios_arm64"))
+    asserts.equals(env, [_GCC_AARCH64, _LIBFFI_MACOS, _LLVM_MACOS_UNPINNED], konan_link_dependencies(other, "macos_arm64", "linux_arm64"))
+
     return unittest.end(env)
 
 def _cross_check_accepts_the_bundles_test(ctx):
-    """The bundles of every exec host pass the cross-check against konan.properties of 2.4.21."""
+    """The bundles of every exec host pass the cross-check against konan.properties of their release."""
     env = unittest.begin(ctx)
 
+    for version, properties_of in _KONAN_PROPERTIES.items():
+        for key, host in EXEC_HOSTS.items():
+            properties = parse_konan_properties(properties_of[key])
+            views = kotlin_native_bundle(key, host.targets, version).views
+            asserts.equals(env, [], check_bundle_against_properties(properties, host.konan_host, views), "%s: %s" % (version, key))
+
+    # The default bundle is the one of the pinned release.
     for key, host in EXEC_HOSTS.items():
-        properties = parse_konan_properties(_KONAN_PROPERTIES_2_4_21[key])
-        views = kotlin_native_bundle(key, host.targets).views
-        asserts.equals(env, [], check_bundle_against_properties(properties, host.konan_host, views), key)
+        asserts.equals(env, kotlin_native_bundle(key, host.targets, KOTLIN_NATIVE_VERSION).views, kotlin_native_bundle(key, host.targets).views, key)
+
+    return unittest.end(env)
+
+def _cross_check_rejects_the_llvm_of_another_release_test(ctx):
+    """A bundle of one release checked against the konan.properties of another reports both LLVMs."""
+    env = unittest.begin(ctx)
+
+    properties = parse_konan_properties(_KONAN_PROPERTIES_MACOS_UNPINNED)
+    views = kotlin_native_bundle("macos-aarch64", ["ios_arm64"], "2.4.21").views
+    asserts.equals(
+        env,
+        [
+            "ios_arm64: konan.properties requires %s, which rules_kotlin does not stage" % _LLVM_MACOS_UNPINNED,
+            "ios_arm64: rules_kotlin stages %s, which konan.properties does not require" % _LLVM_MACOS,
+        ],
+        check_bundle_against_properties(properties, "macos_arm64", views),
+    )
+
+    # A release without a pinned LLVM stages none, which the check reports as the one to pin.
+    views = kotlin_native_bundle("macos-aarch64", ["ios_arm64"], _UNPINNED_RELEASE).views
+    asserts.equals(
+        env,
+        ["ios_arm64: konan.properties requires %s, which rules_kotlin does not stage" % _LLVM_MACOS_UNPINNED],
+        check_bundle_against_properties(properties, "macos_arm64", views),
+    )
 
     return unittest.end(env)
 
@@ -466,6 +537,29 @@ def _bundle_stages_the_requested_targets_test(ctx):
     asserts.equals(env, [_LIBFFI_MACOS, _LLDB_MACOS, _LLVM_MACOS], example.views["macos_arm64"])
     for name, archive in example.archives.items():
         asserts.equals(env, list(KOTLIN_NATIVE_ARCHIVES[name]), archive, name)
+
+    return unittest.end(env)
+
+def _bundle_stages_the_llvm_of_the_release_test(ctx):
+    """A bundle of the pinned release holds its LLVM; one of an unpinned release holds none."""
+    env = unittest.begin(ctx)
+
+    ios = kotlin_native_bundle("macos-aarch64", ["ios_arm64", "ios_simulator_arm64"], "2.4.21")
+    asserts.equals(env, [_LIBFFI_MACOS, _LLVM_MACOS], sorted(ios.archives.keys()))
+    asserts.equals(
+        env,
+        {"ios_arm64": [_LIBFFI_MACOS, _LLVM_MACOS], "ios_simulator_arm64": [_LIBFFI_MACOS, _LLVM_MACOS]},
+        ios.views,
+    )
+    asserts.equals(env, ["linux_arm64", "linux_x64", "macos_arm64"], ios.unstaged)
+    asserts.equals(env, list(KOTLIN_NATIVE_ARCHIVES[_LLVM_MACOS]), ios.archives[_LLVM_MACOS])
+
+    unpinned = kotlin_native_bundle("macos-aarch64", ["ios_arm64"], _UNPINNED_RELEASE)
+    asserts.equals(env, [_LIBFFI_MACOS], sorted(unpinned.archives.keys()))
+    asserts.equals(env, {"ios_arm64": [_LIBFFI_MACOS]}, unpinned.views)
+
+    # Without targets, no release downloads anything.
+    asserts.equals(env, {}, kotlin_native_bundle("macos-aarch64", [], _UNPINNED_RELEASE).archives)
 
     return unittest.end(env)
 
@@ -596,6 +690,7 @@ ios_platforms_match_apple_support_test = unittest.make(_ios_platforms_match_appl
 apple_support_platforms_satisfy_the_targets_test = unittest.make(_apple_support_platforms_satisfy_the_targets_test)
 tables_belong_to_the_default_release_test = unittest.make(_tables_belong_to_the_default_release_test)
 deps_cover_every_exec_host_target_test = unittest.make(_deps_cover_every_exec_host_target_test)
+llvm_follows_the_release_test = unittest.make(_llvm_follows_the_release_test)
 archives_are_pinned_test = unittest.make(_archives_are_pinned_test)
 parser_follows_java_properties_test = unittest.make(_parser_follows_java_properties_test)
 parser_reads_konan_properties_test = unittest.make(_parser_reads_konan_properties_test)
@@ -605,7 +700,9 @@ link_dependencies_match_the_table_test = unittest.make(_link_dependencies_match_
 cross_check_accepts_the_bundles_test = unittest.make(_cross_check_accepts_the_bundles_test)
 cross_check_reports_differences_test = unittest.make(_cross_check_reports_differences_test)
 cross_check_needs_the_host_distribution_test = unittest.make(_cross_check_needs_the_host_distribution_test)
+cross_check_rejects_the_llvm_of_another_release_test = unittest.make(_cross_check_rejects_the_llvm_of_another_release_test)
 bundle_stages_the_requested_targets_test = unittest.make(_bundle_stages_the_requested_targets_test)
+bundle_stages_the_llvm_of_the_release_test = unittest.make(_bundle_stages_the_llvm_of_the_release_test)
 bundle_stages_every_target_by_default_test = unittest.make(_bundle_stages_every_target_by_default_test)
 config_defaults_test = unittest.make(_config_defaults_test)
 config_reads_the_root_tags_test = unittest.make(_config_reads_the_root_tags_test)
@@ -625,6 +722,7 @@ def native_repositories_test_suite(name):
         apple_support_platforms_satisfy_the_targets_test,
         tables_belong_to_the_default_release_test,
         deps_cover_every_exec_host_target_test,
+        llvm_follows_the_release_test,
         archives_are_pinned_test,
         parser_follows_java_properties_test,
         parser_reads_konan_properties_test,
@@ -634,7 +732,9 @@ def native_repositories_test_suite(name):
         cross_check_accepts_the_bundles_test,
         cross_check_reports_differences_test,
         cross_check_needs_the_host_distribution_test,
+        cross_check_rejects_the_llvm_of_another_release_test,
         bundle_stages_the_requested_targets_test,
+        bundle_stages_the_llvm_of_the_release_test,
         bundle_stages_every_target_by_default_test,
         config_defaults_test,
         config_reads_the_root_tags_test,
