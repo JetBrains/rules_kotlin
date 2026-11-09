@@ -67,9 +67,10 @@ def _inputs(
         artifacts = [_COROUTINES],
         repositories = KMP_DEFAULT_REPOSITORIES,
         platforms = ["jvm", "android", "linux_x64", "ios_arm64"],
-        substitutions = []):
+        substitutions = [],
+        ignore_published_checksums = []):
     """The normalized inputs of an install; by default the ones the manifest is pinned for."""
-    return normalized_inputs(artifacts, repositories, platforms, substitutions)
+    return normalized_inputs(artifacts, repositories, platforms, substitutions, ignore_published_checksums)
 
 def _artifact(file_name):
     return {
@@ -122,7 +123,9 @@ def _install(
         substitutions = [],
         manifest = Label("//:kmp_manifest.json"),
         fetch_sources = False,
-        extra_dependencies = {}):
+        extra_dependencies = {},
+        ignore_published_checksums = [],
+        excluded_artifacts = []):
     return struct(
         name = name,
         artifacts = artifacts,
@@ -132,6 +135,8 @@ def _install(
         manifest = manifest,
         fetch_sources = fetch_sources,
         extra_dependencies = extra_dependencies,
+        ignore_published_checksums = ignore_published_checksums,
+        excluded_artifacts = excluded_artifacts,
     )
 
 def _module(name, is_root, install = [], resolver = []):
@@ -150,7 +155,7 @@ def _platforms_follow_the_manifest_order_test(ctx):
     return unittest.end(env)
 
 def _inputs_are_normalized_as_the_inputs_hash_test(ctx):
-    """Platforms in platform order, coordinates sorted, repositories in order, without duplicates; substitutions sorted, the last one wins."""
+    """Platforms in platform order, coordinates sorted, repositories in order, without duplicates; substitutions and ignored checksums sorted, the last substitution wins."""
     env = unittest.begin(ctx)
 
     inputs = normalized_inputs(
@@ -158,11 +163,14 @@ def _inputs_are_normalized_as_the_inputs_hash_test(ctx):
         ["https://r2.example", "https://r1.example", "https://r2.example"],
         ["jvm", "linux_x64", "android", "ios_arm64", "jvm"],
         ["org.example:y=org.example:y:2", "org.example:a=org.example:a:3", "org.example:y=org.example:y:4"],
+        ["org.example:z:1", "org.example:b:1", "org.example:z:1"],
     )
     asserts.equals(env, ["ios_arm64", "linux_x64", "android", "jvm"], inputs.platforms)
     asserts.equals(env, ["org.example:a:1", "org.example:b:1"], inputs.coordinates)
     asserts.equals(env, ["https://r2.example", "https://r1.example"], inputs.repositories)
     asserts.equals(env, ["org.example:a=org.example:a:3", "org.example:y=org.example:y:4"], inputs.substitutions)
+    asserts.equals(env, ["org.example:b:1", "org.example:z:1"], inputs.ignored_published_checksums)
+    asserts.equals(env, [], normalized_inputs(["org.example:a:1"], [], ["jvm"], []).ignored_published_checksums)
 
     return unittest.end(env)
 
@@ -207,6 +215,17 @@ def _stale_manifest_names_the_field_test(ctx):
     )
     asserts.true(env, "is stale: its askedSubstitutions is []" in substitutions, substitutions)
     asserts.true(env, substitutions.endswith(_PIN + " and commit it"), substitutions)
+
+    # The resolver leaves askedIgnoredPublishedChecksums out of the manifests ignoring none: absent is empty.
+    asserts.false(env, "askedIgnoredPublishedChecksums" in manifest, "the pinned manifest ignores no published checksum")
+    ignored = ["me.tatarka.inject:kotlin-inject-runtime-iosarm64:0.9.0"]
+    stale = manifest_problem(_HUB, "kmp_manifest.json", manifest, _inputs(ignore_published_checksums = ignored))
+    asserts.true(env, "is stale: its askedIgnoredPublishedChecksums is [], but" in stale, stale)
+    asserts.true(env, "declares [\"me.tatarka.inject:kotlin-inject-runtime-iosarm64:0.9.0\"]" in stale, stale)
+    ignoring = dict(manifest, askedIgnoredPublishedChecksums = ignored)
+    asserts.equals(env, None, manifest_problem(_HUB, "kmp_manifest.json", ignoring, _inputs(ignore_published_checksums = ignored)))
+    no_longer = manifest_problem(_HUB, "kmp_manifest.json", ignoring, _inputs())
+    asserts.true(env, "is stale: its askedIgnoredPublishedChecksums is [\"me.tatarka.inject:kotlin-inject-runtime-iosarm64:0.9.0\"], but" in no_longer, no_longer)
 
     return unittest.end(env)
 
@@ -813,6 +832,75 @@ def _hub_adds_the_extra_dependencies_test(ctx):
 
     return unittest.end(env)
 
+def _hub_leaves_out_the_excluded_artifacts_test(ctx):
+    """An excluded library has no targets and no other variant depends on it; one the manifest lacks is an error."""
+    env = unittest.begin(ctx)
+
+    vlcj = "uk.co.caprica:vlcj:4.12.1"
+    natives = "uk.co.caprica:vlcj-natives:4.12.0"
+    jna_jpms = "net.java.dev.jna:jna-jpms:5.16.0"
+    jna_platform_jpms = "net.java.dev.jna:jna-platform-jpms:5.16.0"
+    filekit = "io.github.vinceglb:filekit-dialogs:0.16.0"
+    jna = "net.java.dev.jna:jna:5.19.1"
+    manifest = _synthetic_manifest({
+        vlcj: [_jvm_variant(vlcj, vlcj, "vlcj-4.12.1.jar", exported = ["uk.co.caprica:vlcj-natives"])],
+        natives: [_jvm_variant(natives, natives, "vlcj-natives-4.12.0.jar", dependencies = ["net.java.dev.jna:jna-jpms", "net.java.dev.jna:jna-platform-jpms"])],
+        jna_platform_jpms: [_jvm_variant(jna_platform_jpms, jna_platform_jpms, "jna-platform-jpms-5.16.0.jar", dependencies = ["net.java.dev.jna:jna-jpms"])],
+        jna_jpms: [_jvm_variant(jna_jpms, jna_jpms, "jna-jpms-5.16.0.jar")],
+        filekit: [
+            _jvm_variant(filekit, "io.github.vinceglb:filekit-dialogs-jvm:0.16.0", "filekit-dialogs-jvm-0.16.0.jar", dependencies = ["net.java.dev.jna:jna"]),
+            _android_variant(filekit, "io.github.vinceglb:filekit-dialogs-android:0.16.0", "filekit-dialogs-android-0.16.0.aar"),
+        ],
+        jna: [_jvm_variant(jna, jna, "jna-5.19.1.jar")],
+    })
+    excluded = ["net.java.dev.jna:jna-jpms", "net.java.dev.jna:jna-platform-jpms"]
+
+    build_file = hub_contents(_HUB, "kmp_manifest.json", manifest, False, {}, excluded).build_file
+    _assert_contains(env, build_file, [
+        """kt_jvm_import(
+    name = "uk_co_caprica_vlcj_natives.jvm",
+    jars = ["@kmp_maven__uk_co_caprica_vlcj_natives_4_12_0//:vlcj-natives-4.12.0.jar"],
+)""",
+        """kt_jvm_import(
+    name = "io_github_vinceglb_filekit_dialogs.jvm",
+    jars = ["@kmp_maven__io_github_vinceglb_filekit_dialogs_jvm_0_16_0//:filekit-dialogs-jvm-0.16.0.jar"],
+    deps = [":net_java_dev_jna_jna.jvm"],
+)""",
+        """kt_jvm_import(
+    name = "net_java_dev_jna_jna.jvm",
+""",
+    ])
+    asserts.false(env, "jna_jpms" in build_file, build_file)
+    asserts.false(env, "jna_platform_jpms" in build_file, build_file)
+
+    # Without exclusions, the metadata alone.
+    plain = hub_contents(_HUB, "kmp_manifest.json", manifest, False).build_file
+    _assert_contains(env, plain, [
+        """kt_jvm_import(
+    name = "uk_co_caprica_vlcj_natives.jvm",
+    jars = ["@kmp_maven__uk_co_caprica_vlcj_natives_4_12_0//:vlcj-natives-4.12.0.jar"],
+    deps = [
+        ":net_java_dev_jna_jna_jpms.jvm",
+        ":net_java_dev_jna_jna_platform_jpms.jvm",
+    ],
+)""",
+        """kt_jvm_import(
+    name = "net_java_dev_jna_jna_jpms.jvm",
+""",
+    ])
+
+    # A library the manifest lacks.
+    missing = hub_contents(_HUB, "kmp_manifest.json", manifest, False, {}, ["org.example:missing"])
+    asserts.equals(env, None, missing.build_file)
+    asserts.equals(
+        env,
+        "kmp_maven.install(name = \"kmp_maven\"): the manifest kmp_manifest.json has no library org.example:missing, which excluded_artifacts names; " +
+        "only a library of the manifest, a dependency of an artifact of the install, can be excluded",
+        missing.error,
+    )
+
+    return unittest.end(env)
+
 def _unpinned_hub_fails_with_the_problem_test(ctx):
     """The BUILD file of an unpinned hub fails with the message of the manifest problem."""
     env = unittest.begin(ctx)
@@ -866,6 +954,13 @@ def _pin_runs_the_resolver_with_the_inputs_test(ctx):
     _assert_contains(env, quoted, [
         "manifest=\"$BUILD_WORKSPACE_DIRECTORY\"/'third party/kmp manifest.json'\n",
         "  '--repository=https://maven.example/repo?a=1&b=2' \\\n",
+    ])
+
+    # Ignored published checksums are passed after the substitutions, and not at all when there are none.
+    asserts.false(env, "--ignore-published-checksums" in script, script)
+    ignoring = pin_script(_HUB, "kmp_manifest.json", _inputs(ignore_published_checksums = ["me.tatarka.inject:kotlin-inject-runtime-iosarm64:0.9.0"]))
+    _assert_contains(env, ignoring, [
+        "  --platform=jvm \\\n  --ignore-published-checksums=me.tatarka.inject:kotlin-inject-runtime-iosarm64:0.9.0 \\\n  \"$@\"\n",
     ])
 
     return unittest.end(env)
@@ -943,9 +1038,25 @@ def _install_attributes_are_validated_test(ctx):
 
     def error(**kwargs):
         tag = _install(**kwargs)
-        return install_error(tag.name, tag.artifacts, tag.repositories, tag.platforms, tag.substitutions, tag.manifest, tag.extra_dependencies)
+        return install_error(tag.name, tag.artifacts, tag.repositories, tag.platforms, tag.substitutions, tag.manifest, tag.extra_dependencies, tag.ignore_published_checksums, tag.excluded_artifacts)
 
     asserts.equals(env, None, error())
+    asserts.equals(env, None, error(excluded_artifacts = ["net.java.dev.jna:jna-jpms"]))
+    asserts.equals(
+        env,
+        "kmp_maven.install(name = \"kmp_maven\"): the library 'net.java.dev.jna:jna-jpms:5.16.0' of excluded_artifacts is not group:artifact",
+        error(excluded_artifacts = ["net.java.dev.jna:jna-jpms:5.16.0"]),
+    )
+    asserts.equals(
+        env,
+        "kmp_maven.install(name = \"kmp_maven\"): the library 'org.example:b' is excluded, yet extra_dependencies names it",
+        error(excluded_artifacts = ["org.example:b"], extra_dependencies = {"org.example:a": ["org.example:b"]}),
+    )
+    asserts.equals(
+        env,
+        "kmp_maven.install(name = \"kmp_maven\"): the library 'org.example:a' is excluded, yet extra_dependencies names it",
+        error(excluded_artifacts = ["org.example:a"], extra_dependencies = {"org.example:a": ["org.example:b"]}),
+    )
     asserts.equals(env, None, error(extra_dependencies = {"org.example:a": ["org.example:b", "org.example:c"]}))
     asserts.equals(
         env,
@@ -959,6 +1070,12 @@ def _install_attributes_are_validated_test(ctx):
     )
     asserts.equals(env, None, error(substitutions = ["org.example:a=org.example:b:1"], manifest = Label("//third_party:kmp_manifest.json")))
     prefix = "kmp_maven.install(name = \"kmp_maven\"): "
+    asserts.equals(env, None, error(ignore_published_checksums = ["me.tatarka.inject:kotlin-inject-runtime-iosarm64:0.9.0"]))
+    asserts.equals(
+        env,
+        prefix + "the library 'me.tatarka.inject:kotlin-inject-runtime' of ignore_published_checksums is not group:artifact:version",
+        error(ignore_published_checksums = ["me.tatarka.inject:kotlin-inject-runtime"]),
+    )
     asserts.equals(env, prefix + "platform 'wasmjs' is not supported yet: rules_kotlin has no Kotlin/Wasm rules", error(platforms = ["jvm", "wasmjs"]))
     asserts.equals(
         env,
@@ -1004,6 +1121,7 @@ def _config_reads_the_root_tags_test(ctx):
                     manifest = Label("//tools:kmp_manifest.json"),
                     fetch_sources = True,
                     extra_dependencies = {"org.example:a": ["org.example:c", "org.example:b", "org.example:c"]},
+                    excluded_artifacts = ["org.example:e", "org.example:d", "org.example:e"],
                 ),
             ],
             resolver = [struct(version = "0.5.0", sha256 = {"macos-arm64": "abc"})],
@@ -1018,12 +1136,14 @@ def _config_reads_the_root_tags_test(ctx):
     asserts.equals(env, Label("//:kmp_manifest.json"), first.manifest)
     asserts.false(env, first.fetch_sources)
     asserts.equals(env, {}, first.extra_dependencies)
+    asserts.equals(env, [], first.excluded_artifacts)
     asserts.equals(env, "tools/kmp_manifest.json", config.installs[1].manifest_path)
     asserts.equals(env, PLATFORM_ORDER, config.installs[1].inputs.platforms)
     asserts.true(env, config.installs[1].fetch_sources)
 
     # The extra dependencies of a library are sorted, each once; they are no input of the resolution.
     asserts.equals(env, {"org.example:a": ["org.example:b", "org.example:c"]}, config.installs[1].extra_dependencies)
+    asserts.equals(env, ["org.example:d", "org.example:e"], config.installs[1].excluded_artifacts)
     asserts.equals(env, [_COROUTINES], config.installs[1].inputs.coordinates)
     asserts.equals(env, struct(version = "0.5.0", sha256 = {"macos-arm64": "abc"}), config.resolver)
 
@@ -1045,6 +1165,7 @@ hub_imports_sources_and_aars_test = unittest.make(_hub_imports_sources_and_aars_
 hub_redirects_the_variants_without_artifact_test = unittest.make(_hub_redirects_the_variants_without_artifact_test)
 hub_aar_exports_the_targets_of_a_redirect_test = unittest.make(_hub_aar_exports_the_targets_of_a_redirect_test)
 hub_adds_the_extra_dependencies_test = unittest.make(_hub_adds_the_extra_dependencies_test)
+hub_leaves_out_the_excluded_artifacts_test = unittest.make(_hub_leaves_out_the_excluded_artifacts_test)
 unpinned_hub_fails_with_the_problem_test = unittest.make(_unpinned_hub_fails_with_the_problem_test)
 pin_runs_the_resolver_with_the_inputs_test = unittest.make(_pin_runs_the_resolver_with_the_inputs_test)
 resolver_is_the_release_asset_of_the_host_test = unittest.make(_resolver_is_the_release_asset_of_the_host_test)
@@ -1070,6 +1191,7 @@ def kmp_maven_test_suite(name):
         hub_redirects_the_variants_without_artifact_test,
         hub_aar_exports_the_targets_of_a_redirect_test,
         hub_adds_the_extra_dependencies_test,
+        hub_leaves_out_the_excluded_artifacts_test,
         unpinned_hub_fails_with_the_problem_test,
         pin_runs_the_resolver_with_the_inputs_test,
         resolver_is_the_release_asset_of_the_host_test,

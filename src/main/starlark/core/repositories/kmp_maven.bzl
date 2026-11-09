@@ -137,7 +137,7 @@ def _kmp_maven_impl(module_ctx):
         if problem:
             build_file = unpinned_build_file(install.name, problem)
         else:
-            build_file = hub_build_file(install.name, install.manifest_path, manifest, install.fetch_sources, install.extra_dependencies)
+            build_file = hub_build_file(install.name, install.manifest_path, manifest, install.fetch_sources, install.extra_dependencies, install.excluded_artifacts)
             for name, files in module_repositories(install.name, manifest, install.fetch_sources).items():
                 kmp_maven_module_repository(
                     name = name,
@@ -161,11 +161,17 @@ _install_tag = tag_class(
 
     Only the root module may declare installs, each with its own name: the hub repository to
     `use_repo`. Run `bazel run @<name>//pin` to write the manifest after adding the tag or changing
-    its artifacts, repositories, platforms or substitutions, and commit it.""",
+    its artifacts, repositories, platforms, substitutions or ignored published checksums, and commit it.""",
     attrs = {
         "artifacts": attr.string_list(
             doc = "The Maven coordinates, `group:artifact:version`, e.g. `org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2`.",
             mandatory = True,
+        ),
+        "excluded_artifacts": attr.string_list(
+            doc = "Libraries of the manifest the hub leaves out, `group:artifact` each, as the `exclude` of a Gradle " +
+                  "configuration: the library has no targets and the variants of the other libraries have no dep on it, " +
+                  "e.g. `net.java.dev.jna:jna-jpms`, which the natives of vlcj depend on and which carries the packages of " +
+                  "the `jna` other libraries depend on. No input of the resolver: changing it does not make the manifest stale.",
         ),
         "extra_dependencies": attr.string_list_dict(
             doc = "Dependencies the published metadata of a library omits, `{\"group:artifact\": [\"group:artifact\", ...]}`, " +
@@ -176,6 +182,13 @@ _install_tag = tag_class(
         ),
         "fetch_sources": attr.bool(
             doc = "Whether to download the sources jars, as the srcjar of the JVM and Android imports.",
+        ),
+        "ignore_published_checksums": attr.string_list(
+            doc = "Libraries whose artifacts do not match the checksums their repository publishes, `group:artifact:version` " +
+                  "of the exact library (the platform-specific variant of a KMP library, e.g. " +
+                  "`me.tatarka.inject:kotlin-inject-runtime-iosarm64:0.9.0`, not its umbrella). The pin ignores the mismatch " +
+                  "of these libraries only, and records the sha256 of the content it downloads as the integrity of their " +
+                  "artifacts, which Bazel verifies every download against. Every other library keeps failing on a mismatch.",
         ),
         "manifest": attr.label(
             doc = "The manifest, a file of a package of the root module, e.g. `//:kmp_manifest.json`. The pin target writes it.",

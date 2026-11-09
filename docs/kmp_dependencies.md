@@ -33,6 +33,8 @@ use_repo(kmp_maven, "kmp_maven")
 | `platforms`     | The platforms to resolve the artifacts for: `jvm`, `android` and the konan targets of `@rules_kotlin//kotlin/native/platforms` (`ios_arm64`, `ios_simulator_arm64`, `linux_arm64`, `linux_x64`, `macos_arm64`); all of them by default. |
 | `substitutions` | Versions forced in the resolution, `group:artifact=group:artifact:version`.                                                                                                                                  |
 | `extra_dependencies` | Dependencies the published metadata of a library omits, `{"group:artifact": ["group:artifact", ...]}`. Each is a dep of every variant of the library, for its platform, as the dependencies of the metadata are, and must be a library of the manifest (an artifact of the install or a dependency of one). The dexing of an `android_binary` desugars each library against its own dependencies and fails on a type they lack, e.g. a Compose type used by a Markdown renderer that does not declare Compose. |
+| `excluded_artifacts` | Libraries of the manifest the hub leaves out, `group:artifact` each, as the `exclude` of a Gradle configuration: the library has no targets and the variants of the other libraries have no dep on it. E.g. `net.java.dev.jna:jna-jpms`, which the natives of vlcj depend on and which carries the packages of the `jna` other libraries depend on: shipping both leaves the winner to the classpath order. Not an input of the resolver, like `extra_dependencies`; the library must be in the manifest. |
+| `ignore_published_checksums` | Libraries whose artifacts do not match the checksums their repository publishes, `group:artifact:version` of the exact library (the platform-specific variant of a KMP library, e.g. `me.tatarka.inject:kotlin-inject-runtime-iosarm64:0.9.0`, not its umbrella). The pin ignores the mismatch of these libraries only, and records the sha256 of the content it downloads as the integrity of their artifacts, which Bazel verifies every download against; the manifest lists them as `askedIgnoredPublishedChecksums`. Every other library keeps failing on a mismatch. |
 | `manifest`      | The manifest, a file of a package of the root module. The pin target writes it.                                                                                                                              |
 | `fetch_sources` | Whether to download the sources jars, as the `srcjar` of the JVM and Android imports; `False` by default.                                                                                                    |
 
@@ -57,8 +59,9 @@ Kotlin/Native target: see [the generated targets](#the-generated-targets).
 ## Pinning the manifest
 
 After adding an install, or changing its artifacts, repositories, platforms or substitutions, pin
-its manifest and commit it. `extra_dependencies` is not an input of the resolver: changing it does
-not make the manifest stale, and the named libraries must already be in it:
+its manifest and commit it. `extra_dependencies` and `excluded_artifacts` are no inputs of the
+resolver: changing them does not make the manifest stale, and the named libraries must already be
+in it:
 
 ```shell
 bazel run @kmp_maven//pin
@@ -225,3 +228,8 @@ the analysis, as for `kt_native_library`.
   `org.jetbrains.kotlin:kotlin-stdlib=org.jetbrains.kotlin:kotlin-stdlib:2.4.21`.
 - The klibs of Maven libraries are built by the Kotlin release of each library, which the Kotlin/Native
   compiler of the toolchain must be able to read.
+- A pin fails with `Hashes do not match` on a library published with checksums its files do not
+  match (Gradle, verifying nothing, resolves it anyway). Check the file against its published
+  checksum (`curl -s <url> | shasum -a 256` vs `<url>.sha256`) and, if the publisher is at fault,
+  list that exact library in `ignore_published_checksums`: its mismatch alone is ignored, and the
+  manifest pins the sha256 of the downloaded content.
