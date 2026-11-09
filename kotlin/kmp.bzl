@@ -17,6 +17,11 @@ for the guide.
 """
 
 load(
+    "//kotlin/internal/kmp:ksp.bzl",
+    _kt_jvm_ksp_sources = "kt_jvm_ksp_sources",
+    _kt_native_ksp_sources = "kt_native_ksp_sources",
+)
+load(
     "//kotlin/internal/kmp:multiplatform.bzl",
     _kt_multiplatform_library = "kt_multiplatform_library",
 )
@@ -26,6 +31,8 @@ load(
     _kt_source_set = "kt_source_set",
 )
 
+kt_jvm_ksp_sources = _kt_jvm_ksp_sources
+kt_native_ksp_sources = _kt_native_ksp_sources
 kt_source_set = _kt_source_set
 kt_multiplatform_library = _kt_multiplatform_library
 KtSourceSetInfo = _KtSourceSetInfo

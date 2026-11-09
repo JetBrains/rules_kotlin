@@ -43,6 +43,8 @@ maven.install(
     name = "maven_rules_kotlin_example",
     artifacts = [
         "junit:junit:4.13",
+        # The KSP processor of the DI fixture (//shared:shared_ksp_*): its runtime classpath.
+        "me.tatarka.inject:kotlin-inject-compiler-ksp:0.9.0",
     ],
     lock_file = "//:maven_install.json",
     repositories = [
@@ -89,6 +91,22 @@ kmp_maven.install(
     name = "kmp_maven",
     artifacts = [
         "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+        # The annotations of the DI fixture, which the KSP processor reads from the klibs and jars.
+        "me.tatarka.inject:kotlin-inject-runtime-kmp:0.9.0",
+    ],
+    # The iOS klibs of kotlin-inject 0.9.0 are published with checksums of another build: the pin
+    # records the sha256 of the content it downloads, which Bazel verifies on every fetch.
+    ignore_published_checksums = [
+        "me.tatarka.inject:kotlin-inject-runtime-iosarm64:0.9.0",
+        "me.tatarka.inject:kotlin-inject-runtime-iossimulatorarm64:0.9.0",
+        "me.tatarka.inject:kotlin-inject-runtime-macosarm64:0.9.0",
+        "me.tatarka.inject:kotlin-inject-runtime-linuxarm64:0.9.0",
+        "me.tatarka.inject:kotlin-inject-runtime-linuxx64:0.9.0",
+        "me.tatarka.inject:kotlin-inject-runtime-kmp-iosarm64:0.9.0",
+        "me.tatarka.inject:kotlin-inject-runtime-kmp-iossimulatorarm64:0.9.0",
+        "me.tatarka.inject:kotlin-inject-runtime-kmp-macosarm64:0.9.0",
+        "me.tatarka.inject:kotlin-inject-runtime-kmp-linuxarm64:0.9.0",
+        "me.tatarka.inject:kotlin-inject-runtime-kmp-linuxx64:0.9.0",
     ],
     manifest = "//:kmp_manifest.json",
     platforms = [

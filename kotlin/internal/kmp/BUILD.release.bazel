@@ -1,8 +1,15 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 bzl_library(
     name = "kmp",
     srcs = glob(["*.bzl"]),
+    visibility = ["//visibility:public"],
+)
+
+sh_binary(
+    name = "ksp_run",
+    srcs = ["ksp_run.sh"],
     visibility = ["//visibility:public"],
 )
 

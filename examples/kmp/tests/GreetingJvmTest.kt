@@ -1,6 +1,8 @@
 package examples.kmp.tests
 
 import examples.kmp.shared.PlatformInfo
+import examples.kmp.shared.di.injectedGreeting
+import examples.kmp.shared.di.injectedNow
 import examples.kmp.shared.detailedGreeting
 import examples.kmp.shared.greeting
 import examples.kmp.shared.greetingAfter
@@ -33,5 +35,17 @@ class GreetingJvmTest {
   fun greetsAfterADelay() {
     // The common code runs on the JVM variant of kotlinx.coroutines.
     assertEquals(greeting(), runBlocking { greetingAfter(10.milliseconds) })
+  }
+
+  @Test
+  fun injectsTheGreetingRepository() {
+    // JvmComponent is a kotlin-inject @Component of the JVM sources; KSP generated its create().
+    assertEquals("${greeting()} (injected, ${platformName()})", injectedGreeting())
+  }
+
+  @Test
+  fun injectsTheActualOfAnExpectClass() {
+    // Clock is an `@Inject expect class` of the common sources: KSP bound the JVM actual's constructor.
+    assertTrue(injectedNow() > 0L)
   }
 }

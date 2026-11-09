@@ -1,6 +1,8 @@
 package examples.kmp.tests
 
 import examples.kmp.shared.PlatformInfo
+import examples.kmp.shared.di.injectedGreeting
+import examples.kmp.shared.di.injectedNow
 import examples.kmp.shared.detailedGreeting
 import examples.kmp.shared.greeting
 import examples.kmp.shared.greetingAfter
@@ -36,5 +38,22 @@ class GreetingNativeTest {
   fun greetsAfterADelay() {
     // The common code runs on the klib of kotlinx.coroutines of the host's konan target.
     assertEquals(greeting(), runBlocking { greetingAfter(10.milliseconds) })
+  }
+
+  @Test
+  fun injectsTheGreetingRepository() {
+    // AppleComponent is a kotlin-inject @Component of the Apple group; KSP generated its create(). The
+    // Linux group has no component.
+    if (platformName() == "macOS") {
+      assertEquals("${greeting()} (injected, macOS)", injectedGreeting())
+    } else {
+      assertEquals(greeting(), injectedGreeting())
+    }
+  }
+
+  @Test
+  fun injectsTheActualOfAnExpectClass() {
+    // Clock is an `@Inject expect class` of the common sources; on macOS KSP bound the Apple actual's constructor.
+    assertTrue(injectedNow() >= 0L)
   }
 }

@@ -324,6 +324,78 @@ and a `kt_native_framework` gets `shared_native`. The aliases of `@kmp_maven` se
 and so does a dependency written by hand: see
 [The Kotlin platform type](kmp_dependencies.md#the-kotlin-platform-type).
 
+### KSP for the source sets
+
+A target with `source_sets` cannot run the KSP compiler plugin (`kt_ksp_plugin` in `plugins`, see the
+limitations), and Kotlin/Native has no such plugin. To process the common sources and those of a
+platform together, as the Kotlin Gradle plugin does for a multiplatform module (`KSPJvmMain` of
+`ksp2` for the JVM and Android, `KSPNativeMain` for a konan target), a **separate action** runs the
+KSP command-line tool of the KSP release the rules pin and declares the Kotlin files it generates:
+
+```starlark
+load("@rules_kotlin//kotlin:core.bzl", "kt_ksp_plugin")
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_jvm_ksp_sources", "kt_multiplatform_library", "kt_native_ksp_sources")
+
+kt_ksp_plugin(
+    name = "kotlin_inject_ksp",
+    processor_class = "me.tatarka.inject.compiler.ksp.InjectProcessorProvider",
+    deps = ["@maven//:me_tatarka_inject_kotlin_inject_compiler_ksp"],
+)
+
+kt_jvm_ksp_sources(  # android = True for an Android target: its SDK jar is a library of KSP
+    name = "shared_ksp_jvm",
+    srcs = COMMON_SRCS + ["jvm/JvmComponent.kt"],       # what the platform library compiles
+    common_srcs = COMMON_SRCS,                          # the common ones, for `expect`/`actual`
+    deps = ["@kmp_maven//:me_tatarka_inject_kotlin_inject_runtime_kmp"],
+    generated = ["com/example/InjectJvmComponent.kt"],  # the plain files the processor writes
+    processors = [":kotlin_inject_ksp"],
+)
+
+kt_native_ksp_sources(
+    name = "shared_ksp_apple",
+    srcs = COMMON_SRCS + ["apple/AppleComponent.kt"],
+    common_srcs = COMMON_SRCS,
+    deps = ["@kmp_maven//:me_tatarka_inject_kotlin_inject_runtime_kmp"],
+    generated = ["com/example/InjectAppleComponent.kt"],
+    processors = [":kotlin_inject_ksp"],
+)
+
+kt_multiplatform_library(
+    name = "shared",
+    common_srcs = COMMON_SRCS,
+    jvm = dict(srcs = ["jvm/JvmComponent.kt", ":shared_ksp_jvm"]),
+    native = {"apple": dict(srcs = ["apple/AppleComponent.kt", ":shared_ksp_apple"], targets = [...])},
+)
+```
+
+- The generated files are listed in `generated`, relative to the output root of KSP (the directory of the
+  package and the file name), and are outputs of the target under a directory of its name. They go in
+  the `srcs` of the platform: the leaf fragment (or the group's source set) compiles them with the
+  platform's own sources and the common ones, so they use the `@Inject` classes of the common code.
+  No `.srcjar` and no directory is an output: JVM and Android targets with `source_sets` reject
+  srcjars, and a Kotlin/Native fragment needs concrete source paths.
+- The action fails on a file the processors write that is not declared, on one declared that is not
+  written (both are named in the message; run it once and list the files it names), on KSP errors, and
+  on generated Java sources, classes or resources, which these rules do not compile.
+- KSP sees the common sources and the platform's as one module, not as a multiplatform compilation,
+  so an `expect` declaration and its `actual` are two declarations of the same name and the one in the
+  first source root wins: the action lists the platform sources before `common_srcs` (whatever the
+  order of `srcs`), as the KSP Gradle plugin does, so an `@Inject expect class` or an `expect`
+  interface with `@Provides` resolves to the `actual` of the platform.
+- The symbols are resolved against the libraries of the platform. For the JVM and Android, the compile
+  jars of `deps` and the Kotlin standard library, plus the Android SDK jar with `android = True`. For a
+  konan target, the klibs of `deps` of that target (the target of the build's `--platforms`, resolved
+  by the aliases of `kmp_maven` below the Kotlin/Native transition, cinterop klibs included), the
+  standard library and the platform libraries of the distribution; never JVM jars.
+- `processors` are `kt_ksp_plugin` targets, whose runtime classpath KSP loads the processors from, and
+  whose options (and `processor_options`) are passed on. The language and API versions, and the JVM
+  target, are those of the Kotlin toolchain unless set on the rule.
+
+This is a deliberate exception, not inline KSP: it is one KSP run per platform, which does not give the
+processors the sources other compiler plugins generate. The compiler plugin still does not work with
+`source_sets`, and no generated `.srcjar` is supported by them. `examples/kmp` shows it with
+kotlin-inject 0.9.0 components in the `jvm`, `android` and `apple` sources.
+
 ### From Gradle to Bazel
 
 | Gradle (the Kotlin Multiplatform plugin)                                                             | Bazel (rules_kotlin)                                                                                                                                             |
@@ -582,7 +654,11 @@ the `releaseFramework` task.
   the source sets included; the Kotlin/Native rules do not instrument theirs. An `ios_application`
   does not link the profile runtime of instrumented Swift code, so `examples/kmp_app` leaves its
   Swift app out of `--instrumentation_filter`.
-- A JVM or Android target with `source_sets` cannot have `.srcjar` sources, kapt or KSP.
+- A JVM or Android target with `source_sets` cannot have `.srcjar` sources, kapt or the KSP compiler
+  plugin; [KSP for the source sets](#ksp-for-the-source-sets) is a separate action with declared plain
+  `.kt` outputs, which they compile. KSP of a native target is that action too; there is no inline
+  KSP plugin for Kotlin/Native. Generated Java sources, classes and resources of that action are not
+  supported.
 - The JVM and Android variants of Maven libraries bring the `kotlin-stdlib` jar of the manifest next
   to the standard library of the Kotlin toolchain. The dexing of `android_binary` tolerates the
   duplicate classes; a substitution of `kmp_maven.install` aligns the versions (see the
@@ -593,7 +669,7 @@ the `releaseFramework` task.
 | Example                                   | Shows                                                                                                                                                                                       | Hosts                                                                         |
 |-------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
 | [`examples/native`](../examples/native)   | klibs for the host and for every konan target, an executable run end to end, tests, Linux executables linked for both Linux targets, and a framework and its `framework_files` per Apple target. | Linux x86_64 and macOS arm64, the Apple targets on macOS only.             |
-| [`examples/kmp`](../examples/kmp)         | A `kt_multiplatform_library` for the JVM, Android, the Apple and the Linux targets with an intermediate source set, the same kind of module declared with `kt_source_set`, JVM and native tests, and `kotlinx-coroutines-core` from `kmp_maven`. | Linux x86_64 and macOS arm64, the Apple klibs on macOS only; Bazel 8.4.2 or newer. |
+| [`examples/kmp`](../examples/kmp)         | A `kt_multiplatform_library` for the JVM, Android, the Apple and the Linux targets with an intermediate source set, the same kind of module declared with `kt_source_set`, JVM and native tests, `kotlinx-coroutines-core` from `kmp_maven`, and kotlin-inject components generated by KSP for the JVM, Android and Apple sources. | Linux x86_64 and macOS arm64, the Apple klibs on macOS only; Bazel 8.4.2 or newer. |
 | [`examples/kmp_app`](../examples/kmp_app) | An Android app and an iOS app that share one `kt_multiplatform_library`, laid out like the project of the Kotlin Multiplatform wizard.                                                      | macOS arm64 builds both apps, Linux x86_64 the Android app; Bazel 8.4.2 or newer. |
 
 Each builds and tests with `bazel build //...` and `bazel test //...` in its directory.

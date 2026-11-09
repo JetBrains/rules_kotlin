@@ -151,7 +151,7 @@ def workspace_path(label):
     """
     return label.package + "/" + label.name if label.package else label.name
 
-def install_error(name, artifacts, repositories, platforms, substitutions, manifest, extra_dependencies = {}):
+def install_error(name, artifacts, repositories, platforms, substitutions, manifest, extra_dependencies = {}, ignore_published_checksums = [], excluded_artifacts = []):
     """The error of the attributes of a kmp_maven.install tag, or None when they are valid.
 
     Args:
@@ -162,6 +162,8 @@ def install_error(name, artifacts, repositories, platforms, substitutions, manif
       substitutions: its substitutions.
       manifest: the Label of its manifest.
       extra_dependencies: its extra dependencies, `{"group:artifact": ["group:artifact", ...]}`.
+      ignore_published_checksums: the libraries whose published checksums are ignored, `group:artifact:version`.
+      excluded_artifacts: the libraries the hub leaves out, `group:artifact`.
 
     Returns:
       The message of the error, or None.
@@ -196,11 +198,22 @@ def install_error(name, artifacts, repositories, platforms, substitutions, manif
         for dependency in dependencies:
             if not _is_coordinate(dependency, parts = 2):
                 return prefix + "extra dependency '%s' of %s is not group:artifact" % (dependency, library)
+    for library in ignore_published_checksums:
+        if not _is_coordinate(library):
+            return prefix + "the library '%s' of ignore_published_checksums is not group:artifact:version" % library
+    for library in excluded_artifacts:
+        if not _is_coordinate(library, parts = 2):
+            return prefix + "the library '%s' of excluded_artifacts is not group:artifact" % library
+        if library in extra_dependencies:
+            return prefix + "the library '%s' is excluded, yet extra_dependencies names it" % library
+        for dependencies in extra_dependencies.values():
+            if library in dependencies:
+                return prefix + "the library '%s' is excluded, yet extra_dependencies names it" % library
     if manifest.repo_name:
         return prefix + "the manifest %s is not a file of the root module, whose workspace the pin target writes it into" % manifest
     return None
 
-def normalized_inputs(artifacts, repositories, platforms, substitutions):
+def normalized_inputs(artifacts, repositories, platforms, substitutions, ignore_published_checksums = []):
     """The resolution inputs of an install, normalized as the resolver records them in the header of a manifest.
 
     Args:
@@ -208,11 +221,13 @@ def normalized_inputs(artifacts, repositories, platforms, substitutions):
       repositories: the Maven repositories.
       platforms: the platforms.
       substitutions: the substitutions, `group:artifact=group:artifact:version`.
+      ignore_published_checksums: the libraries whose published checksums are ignored, `group:artifact:version`.
 
     Returns:
-      struct(platforms, coordinates, repositories, substitutions): the platforms in platform order,
-      the coordinates sorted and the repositories in their order, each without duplicates, and the
-      substitutions sorted, the last one of a substituted library winning.
+      struct(platforms, coordinates, repositories, substitutions, ignored_published_checksums): the
+      platforms in platform order, the coordinates sorted and the repositories in their order, each
+      without duplicates, the substitutions sorted, the last one of a substituted library winning,
+      and the libraries whose published checksums are ignored sorted, without duplicates.
     """
     substitute_of = {}
     for substitution in substitutions:
@@ -223,6 +238,7 @@ def normalized_inputs(artifacts, repositories, platforms, substitutions):
         coordinates = sorted(_unique(artifacts)),
         repositories = list(_unique(repositories)),
         substitutions = sorted(["%s=%s" % (substituted, substitute) for substituted, substitute in substitute_of.items()]),
+        ignored_published_checksums = sorted(_unique(ignore_published_checksums)),
     )
 
 def resolver_release(version = None, sha256 = {}):
@@ -252,8 +268,8 @@ def collect_kmp_maven_config(modules):
 
     Returns:
       struct(installs, resolver): the installs in their order, each a struct(name, inputs, manifest,
-      manifest_path, fetch_sources, extra_dependencies) with the normalized inputs, and the resolver
-      release (see resolver_release).
+      manifest_path, fetch_sources, extra_dependencies, excluded_artifacts) with the normalized
+      inputs, and the resolver release (see resolver_release).
     """
     installs = []
     names = {}
@@ -266,16 +282,19 @@ def collect_kmp_maven_config(modules):
                 fail("kmp_maven.install %s is declared twice" % tag.name)
             names[tag.name] = True
             extra_dependencies = getattr(tag, "extra_dependencies", {})
-            error = install_error(tag.name, tag.artifacts, tag.repositories, tag.platforms, tag.substitutions, tag.manifest, extra_dependencies)
+            ignore_published_checksums = getattr(tag, "ignore_published_checksums", [])
+            excluded_artifacts = getattr(tag, "excluded_artifacts", [])
+            error = install_error(tag.name, tag.artifacts, tag.repositories, tag.platforms, tag.substitutions, tag.manifest, extra_dependencies, ignore_published_checksums, excluded_artifacts)
             if error:
                 fail(error)
             installs.append(struct(
                 name = tag.name,
-                inputs = normalized_inputs(tag.artifacts, tag.repositories, tag.platforms, tag.substitutions),
+                inputs = normalized_inputs(tag.artifacts, tag.repositories, tag.platforms, tag.substitutions, ignore_published_checksums),
                 manifest = tag.manifest,
                 manifest_path = workspace_path(tag.manifest),
                 fetch_sources = tag.fetch_sources,
                 extra_dependencies = {library: sorted(_unique(dependencies)) for library, dependencies in extra_dependencies.items()},
+                excluded_artifacts = sorted(_unique(excluded_artifacts)),
             ))
         for tag in mod.tags.resolver:
             if not mod.is_root:
@@ -344,13 +363,15 @@ def manifest_problem(hub, manifest_path, manifest, inputs):
             MANIFEST_SCHEMA_VERSION,
             pin,
         )
-    for field, declared in [
-        ("askedPlatforms", inputs.platforms),
-        ("askedCoordinates", inputs.coordinates),
-        ("askedRepositories", inputs.repositories),
-        ("askedSubstitutions", inputs.substitutions),
+    for field, declared, default in [
+        ("askedPlatforms", inputs.platforms, None),
+        ("askedCoordinates", inputs.coordinates, None),
+        ("askedRepositories", inputs.repositories, None),
+        ("askedSubstitutions", inputs.substitutions, None),
+        # the resolver leaves the field out of the manifests ignoring no published checksum
+        ("askedIgnoredPublishedChecksums", inputs.ignored_published_checksums, []),
     ]:
-        recorded = manifest.get(field)
+        recorded = manifest.get(field, default)
         if recorded != declared:
             return "@%s: the manifest %s is stale: its %s is %s, but kmp_maven.install(name = \"%s\") declares %s; run '%s' and commit it" % (
                 hub,
@@ -628,7 +649,7 @@ def _library_targets(hub, library, variant_of, fetch_sources, extra_dependencies
     )))
     return targets
 
-def hub_contents(hub, manifest_path, manifest, fetch_sources, extra_dependencies = {}):
+def hub_contents(hub, manifest_path, manifest, fetch_sources, extra_dependencies = {}, excluded_artifacts = []):
     """The BUILD file of the hub repository of an install whose manifest is pinned, or why there is none.
 
     Per library `<lib>`, from its variants (the targets of the variants are `<lib>.<platform>`, see
@@ -652,22 +673,37 @@ def hub_contents(hub, manifest_path, manifest, fetch_sources, extra_dependencies
     dependencies of a library, the ones its metadata omits, are deps of each of its variants as the
     dependencies of the metadata are; they must be libraries of the manifest.
 
+    An excluded library has no targets, and the variants of the other libraries have no dep on it
+    (the `exclude` of a Gradle configuration): e.g. the `jna-jpms` the natives of vlcj depend on,
+    which carries the packages of the `jna` another library depends on. Its own dependencies go
+    with it, unless another library depends on them; it must be a library of the manifest.
+
     Args:
       hub: the name of the install.
       manifest_path: the path of the manifest in the workspace.
       manifest: the decoded manifest, pinned for the inputs of the install (see manifest_problem).
       fetch_sources: whether the sources jars are the srcjar of the JVM and Android imports.
       extra_dependencies: the extra dependencies of the install, `{"group:artifact": ["group:artifact", ...]}`.
+      excluded_artifacts: the libraries the hub leaves out, `group:artifact` each.
 
     Returns:
       struct(build_file, error): the content of the BUILD file, or the message of two libraries
-      naming the same target, or of an extra dependency naming a library the manifest lacks.
+      naming the same target, or of an extra dependency or an exclusion naming a library the
+      manifest lacks.
     """
     prefix = "kmp_maven.install(name = \"%s\"): the manifest %s has " % (hub, manifest_path)
     collected = manifest_libraries(manifest)
     if collected.error:
         return struct(build_file = None, error = prefix + collected.error)
-    libraries = collected.libraries
+    libraries = dict(collected.libraries)
+    for group_artifact in excluded_artifacts:
+        name = library_target_name(group_artifact)
+        if name not in libraries:
+            return struct(
+                build_file = None,
+                error = prefix + "no library %s, which excluded_artifacts names; only a library of the manifest, a dependency of an artifact of the install, can be excluded" % group_artifact,
+            )
+        libraries.pop(name)
 
     def variant_of(name, platform):
         return libraries[name].variants.get(platform) if name in libraries else None
@@ -712,7 +748,7 @@ def hub_contents(hub, manifest_path, manifest, fetch_sources, extra_dependencies
         error = None,
     )
 
-def hub_build_file(hub, manifest_path, manifest, fetch_sources, extra_dependencies = {}):
+def hub_build_file(hub, manifest_path, manifest, fetch_sources, extra_dependencies = {}, excluded_artifacts = []):
     """The BUILD file of the hub repository of an install whose manifest is pinned (see hub_contents).
 
     Args:
@@ -721,12 +757,13 @@ def hub_build_file(hub, manifest_path, manifest, fetch_sources, extra_dependenci
       manifest: the decoded manifest, pinned for the inputs of the install (see manifest_problem).
       fetch_sources: whether the sources jars are the srcjar of the JVM and Android imports.
       extra_dependencies: the extra dependencies of the install (see hub_contents).
+      excluded_artifacts: the libraries the hub leaves out (see hub_contents).
 
     Returns:
       The content of the BUILD file. Fails when two libraries name the same target, or when an extra
-      dependency names a library the manifest lacks.
+      dependency or an exclusion names a library the manifest lacks.
     """
-    contents = hub_contents(hub, manifest_path, manifest, fetch_sources, extra_dependencies)
+    contents = hub_contents(hub, manifest_path, manifest, fetch_sources, extra_dependencies, excluded_artifacts)
     if contents.error:
         fail(contents.error)
     return contents.build_file
@@ -836,7 +873,8 @@ def pin_script(hub, manifest_path, inputs):
         ["--coordinate=" + coordinate for coordinate in inputs.coordinates] +
         ["--repository=" + repository for repository in inputs.repositories] +
         ["--platform=" + platform for platform in inputs.platforms] +
-        ["--substitution=" + substitution for substitution in inputs.substitutions]
+        ["--substitution=" + substitution for substitution in inputs.substitutions] +
+        ["--ignore-published-checksums=" + library for library in inputs.ignored_published_checksums]
     )
     return (
         _PIN_SCRIPT

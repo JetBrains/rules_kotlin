@@ -1,9 +1,13 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("//src/main/starlark/release:packager.bzl", "release_archive")
 
 release_archive(
     name = "pkg",
-    srcs = glob(["*.bzl"]),
+    srcs = glob([
+        "*.bzl",
+        "*.sh",
+    ]),
     src_map = {
         "BUILD.release.bazel": "BUILD.bazel",
     },
@@ -20,10 +24,14 @@ bzl_library(
     deps = ["//kotlin/internal/utils"],
 )
 
-# The macro, apart: it loads the JVM, Android and Kotlin/Native rules, which load the source sets.
+# The macro and the KSP rules, apart: they load the JVM, Android and Kotlin/Native rules, which
+# load the source sets.
 bzl_library(
     name = "multiplatform",
-    srcs = ["multiplatform.bzl"],
+    srcs = [
+        "ksp.bzl",
+        "multiplatform.bzl",
+    ],
     visibility = ["//kotlin:__subpackages__"],
     deps = [
         ":kmp",
@@ -32,7 +40,17 @@ bzl_library(
     ],
 )
 
+# The script of the KSP action (ksp.bzl).
+sh_binary(
+    name = "ksp_run",
+    srcs = ["ksp_run.sh"],
+    visibility = ["//visibility:public"],
+)
+
 exports_files(
-    glob(["*.bzl"]),
+    glob([
+        "*.bzl",
+        "*.sh",
+    ]),
     visibility = ["//visibility:public"],
 )
