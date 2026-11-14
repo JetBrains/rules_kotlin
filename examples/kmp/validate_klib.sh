@@ -24,7 +24,7 @@ grep -q "compiler_version=" <<<"$manifest" || { echo "FAIL: no compiler_version"
 grep -qx "unique_name=${expected_unique_name}" <<<"$manifest" || {
   echo "FAIL: expected unique_name=${expected_unique_name}"; exit 1; }
 
-# The source sets compile as K2 fragments of a multiplatform module.
+# The shared sources compile as K2 fragments of a multiplatform module.
 grep -qE "^language_features=.*\+MultiPlatformProjects\b" <<<"$manifest" || {
   echo "FAIL: expected language_features=+MultiPlatformProjects"; exit 1; }
 

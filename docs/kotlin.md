@@ -40,7 +40,7 @@ load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_binary")
 
 kt_jvm_binary(<a href="#kt_jvm_binary-name">name</a>, <a href="#kt_jvm_binary-deps">deps</a>, <a href="#kt_jvm_binary-srcs">srcs</a>, <a href="#kt_jvm_binary-data">data</a>, <a href="#kt_jvm_binary-resources">resources</a>, <a href="#kt_jvm_binary-associates">associates</a>, <a href="#kt_jvm_binary-env">env</a>, <a href="#kt_jvm_binary-env_inherit">env_inherit</a>, <a href="#kt_jvm_binary-java_stub_template">java_stub_template</a>,
               <a href="#kt_jvm_binary-javac_opts">javac_opts</a>, <a href="#kt_jvm_binary-jvm_flags">jvm_flags</a>, <a href="#kt_jvm_binary-kotlinc_opts">kotlinc_opts</a>, <a href="#kt_jvm_binary-main_class">main_class</a>, <a href="#kt_jvm_binary-manifest_lines">manifest_lines</a>, <a href="#kt_jvm_binary-module_name">module_name</a>, <a href="#kt_jvm_binary-plugins">plugins</a>,
-              <a href="#kt_jvm_binary-resource_jars">resource_jars</a>, <a href="#kt_jvm_binary-resource_strip_prefix">resource_strip_prefix</a>, <a href="#kt_jvm_binary-runtime_deps">runtime_deps</a>, <a href="#kt_jvm_binary-source_sets">source_sets</a>)
+              <a href="#kt_jvm_binary-resource_jars">resource_jars</a>, <a href="#kt_jvm_binary-resource_strip_prefix">resource_strip_prefix</a>, <a href="#kt_jvm_binary-runtime_deps">runtime_deps</a>)
 </pre>
 
 Builds a Java archive ("jar file"), plus a wrapper shell script with the same name as the rule. The wrapper
@@ -68,13 +68,12 @@ It is appropriate for building workspace utilities. `java_binary` should be pref
 | <a id="kt_jvm_binary-jvm_flags"></a>jvm_flags |  A list of flags to embed in the wrapper script generated for running this binary. Note: does not yet support make variable substitution.   | List of strings | optional |  `[]`  |
 | <a id="kt_jvm_binary-kotlinc_opts"></a>kotlinc_opts |  Kotlinc options to be used when compiling this target. These opts if provided will be used instead of the ones provided to the toolchain.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
 | <a id="kt_jvm_binary-main_class"></a>main_class |  Name of class with main() method to use as entry point.   | String | required |  |
-| <a id="kt_jvm_binary-manifest_lines"></a>manifest_lines |  Lines to add to the main section of the manifest of the output jar, each in the form `Name: value`. They follow the `Target-Label` and `Injecting-Rule-Kind` attributes the rules write. A line that repeats them, `Manifest-Version` or `Created-By` is rejected. As in the `deploy_manifest_lines` attribute of `java_binary`, `Multi-Release`, `Add-Exports` and `Add-Opens` lines are not copied as they are: singlejar merges them and writes them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs`, `source_sets` and `resources` has no jar of its own and rejects the attribute.   | List of strings | optional |  `[]`  |
+| <a id="kt_jvm_binary-manifest_lines"></a>manifest_lines |  Lines to add to the main section of the manifest of the output jar, each in the form `Name: value`. They follow the `Target-Label` and `Injecting-Rule-Kind` attributes the rules write. A line that repeats them, `Manifest-Version` or `Created-By` is rejected. As in the `deploy_manifest_lines` attribute of `java_binary`, `Multi-Release`, `Add-Exports` and `Add-Opens` lines are not copied as they are: singlejar merges them and writes them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs` and `resources` (and, for a library, `kmp_fragments`) has no jar of its own and rejects the attribute.   | List of strings | optional |  `[]`  |
 | <a id="kt_jvm_binary-module_name"></a>module_name |  The name of the module, if not provided the module name is derived from the label. --e.g., `//some/package/path:label_name` is translated to `some_package_path-label_name`.   | String | optional |  `""`  |
 | <a id="kt_jvm_binary-plugins"></a>plugins |  -   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_binary-resource_jars"></a>resource_jars |  Set of archives containing Java resources. If specified, the contents of these jars are merged into the output jar.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_binary-resource_strip_prefix"></a>resource_strip_prefix |  The path prefix to strip from Java resources. Should be a label pointing to a directory. Files residing under common prefix such as `src/main/resources` or `src/test/resources` or `kotlin` will have stripping applied by convention if this is not specified.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
-| <a id="kt_jvm_binary-runtime_deps"></a>runtime_deps |  Libraries to make available to the final binary or test at runtime only. Like ordinary deps, these will appear on the runtime classpath, but unlike them, not on the compile-time classpath.<br><br>A source set of `source_sets`, or one they refine, may be listed too. It adds nothing to the classpath (its deps are already deps of the target) but makes them reachable to the aspects of the consumers of the target, which follow `deps`, `exports` and `runtime_deps` and not `source_sets`: the dexing of the `android_binary` of rules_android fails on a jar of the runtime classpath it did not reach, and its mobile-install leaves out the classes of a jar it did not reach (a source set provides a JavaInfo of no classes of its own that exports its deps, which such aspects need to go on). `kt_multiplatform_library` lists the source sets of its JVM and Android libraries here.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_jvm_binary-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (`kt_source_set`) to compile with the srcs. The Kotlin sources of the source sets, and of those they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. The deps of the source sets are deps of the target, and must be JVM libraries. A target with source sets cannot have .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it. List the source sets in `runtime_deps` as well for the aspects of the consumers of the target (see there); a source set in `deps` or `exports`, which take libraries, is an error.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_jvm_binary-runtime_deps"></a>runtime_deps |  Libraries to make available to the final binary or test at runtime only. Like ordinary deps, these will appear on the runtime classpath, but unlike them, not on the compile-time classpath.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 
 
 <a id="kt_jvm_import"></a>
@@ -143,8 +142,8 @@ kt_jvm_import(
 load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
 
 kt_jvm_library(<a href="#kt_jvm_library-name">name</a>, <a href="#kt_jvm_library-deps">deps</a>, <a href="#kt_jvm_library-srcs">srcs</a>, <a href="#kt_jvm_library-data">data</a>, <a href="#kt_jvm_library-resources">resources</a>, <a href="#kt_jvm_library-associates">associates</a>, <a href="#kt_jvm_library-exported_compiler_plugins">exported_compiler_plugins</a>, <a href="#kt_jvm_library-exports">exports</a>,
-               <a href="#kt_jvm_library-java_stub_template">java_stub_template</a>, <a href="#kt_jvm_library-javac_opts">javac_opts</a>, <a href="#kt_jvm_library-kotlinc_opts">kotlinc_opts</a>, <a href="#kt_jvm_library-manifest_lines">manifest_lines</a>, <a href="#kt_jvm_library-module_name">module_name</a>, <a href="#kt_jvm_library-neverlink">neverlink</a>,
-               <a href="#kt_jvm_library-plugins">plugins</a>, <a href="#kt_jvm_library-resource_jars">resource_jars</a>, <a href="#kt_jvm_library-resource_strip_prefix">resource_strip_prefix</a>, <a href="#kt_jvm_library-runtime_deps">runtime_deps</a>, <a href="#kt_jvm_library-source_sets">source_sets</a>)
+               <a href="#kt_jvm_library-java_stub_template">java_stub_template</a>, <a href="#kt_jvm_library-javac_opts">javac_opts</a>, <a href="#kt_jvm_library-kmp_fragments">kmp_fragments</a>, <a href="#kt_jvm_library-kotlinc_opts">kotlinc_opts</a>, <a href="#kt_jvm_library-manifest_lines">manifest_lines</a>,
+               <a href="#kt_jvm_library-module_name">module_name</a>, <a href="#kt_jvm_library-neverlink">neverlink</a>, <a href="#kt_jvm_library-plugins">plugins</a>, <a href="#kt_jvm_library-resource_jars">resource_jars</a>, <a href="#kt_jvm_library-resource_strip_prefix">resource_strip_prefix</a>, <a href="#kt_jvm_library-runtime_deps">runtime_deps</a>)
 </pre>
 
 This rule compiles and links Kotlin and Java sources into a .jar file.
@@ -164,15 +163,15 @@ This rule compiles and links Kotlin and Java sources into a .jar file.
 | <a id="kt_jvm_library-exports"></a>exports |  Exported libraries.<br><br>Deps listed here will be made available to other rules, as if the parents explicitly depended on these deps. This is not true for regular (non-exported) deps.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_library-java_stub_template"></a>java_stub_template |  -   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `"@rules_kotlin//third_party:java_stub_template.txt"`  |
 | <a id="kt_jvm_library-javac_opts"></a>javac_opts |  Javac options to be used when compiling this target. These opts if provided will be used instead of the ones provided to the toolchain.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
+| <a id="kt_jvm_library-kmp_fragments"></a>kmp_fragments |  The K2 fragments of a `kt_multiplatform_library` that the srcs refine: the sources the library shares with other platforms. `kt_multiplatform_library` sets it from the sources each platform lists; it is not set by hand. The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one compilation (`-Xmulti-platform`), against the deps of the target, so the `actual` declarations of the srcs implement the `expect` ones of the fragments; the srcs are the leaf fragment, `jvm` or `android`. A target with fragments cannot have .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_library-kotlinc_opts"></a>kotlinc_opts |  Kotlinc options to be used when compiling this target. These opts if provided will be used instead of the ones provided to the toolchain.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
-| <a id="kt_jvm_library-manifest_lines"></a>manifest_lines |  Lines to add to the main section of the manifest of the output jar, each in the form `Name: value`. They follow the `Target-Label` and `Injecting-Rule-Kind` attributes the rules write. A line that repeats them, `Manifest-Version` or `Created-By` is rejected. As in the `deploy_manifest_lines` attribute of `java_binary`, `Multi-Release`, `Add-Exports` and `Add-Opens` lines are not copied as they are: singlejar merges them and writes them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs`, `source_sets` and `resources` has no jar of its own and rejects the attribute.   | List of strings | optional |  `[]`  |
+| <a id="kt_jvm_library-manifest_lines"></a>manifest_lines |  Lines to add to the main section of the manifest of the output jar, each in the form `Name: value`. They follow the `Target-Label` and `Injecting-Rule-Kind` attributes the rules write. A line that repeats them, `Manifest-Version` or `Created-By` is rejected. As in the `deploy_manifest_lines` attribute of `java_binary`, `Multi-Release`, `Add-Exports` and `Add-Opens` lines are not copied as they are: singlejar merges them and writes them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs` and `resources` (and, for a library, `kmp_fragments`) has no jar of its own and rejects the attribute.   | List of strings | optional |  `[]`  |
 | <a id="kt_jvm_library-module_name"></a>module_name |  The name of the module, if not provided the module name is derived from the label. --e.g., `//some/package/path:label_name` is translated to `some_package_path-label_name`.   | String | optional |  `""`  |
 | <a id="kt_jvm_library-neverlink"></a>neverlink |  If true only use this library for compilation and not at runtime.   | Boolean | optional |  `False`  |
 | <a id="kt_jvm_library-plugins"></a>plugins |  -   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_library-resource_jars"></a>resource_jars |  Set of archives containing Java resources. If specified, the contents of these jars are merged into the output jar.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_library-resource_strip_prefix"></a>resource_strip_prefix |  The path prefix to strip from Java resources. Should be a label pointing to a directory. Files residing under common prefix such as `src/main/resources` or `src/test/resources` or `kotlin` will have stripping applied by convention if this is not specified.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
-| <a id="kt_jvm_library-runtime_deps"></a>runtime_deps |  Libraries to make available to the final binary or test at runtime only. Like ordinary deps, these will appear on the runtime classpath, but unlike them, not on the compile-time classpath.<br><br>A source set of `source_sets`, or one they refine, may be listed too. It adds nothing to the classpath (its deps are already deps of the target) but makes them reachable to the aspects of the consumers of the target, which follow `deps`, `exports` and `runtime_deps` and not `source_sets`: the dexing of the `android_binary` of rules_android fails on a jar of the runtime classpath it did not reach, and its mobile-install leaves out the classes of a jar it did not reach (a source set provides a JavaInfo of no classes of its own that exports its deps, which such aspects need to go on). `kt_multiplatform_library` lists the source sets of its JVM and Android libraries here.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_jvm_library-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (`kt_source_set`) to compile with the srcs. The Kotlin sources of the source sets, and of those they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. The deps of the source sets are deps of the target, and must be JVM libraries. A target with source sets cannot have .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it. List the source sets in `runtime_deps` as well for the aspects of the consumers of the target (see there); a source set in `deps` or `exports`, which take libraries, is an error.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_jvm_library-runtime_deps"></a>runtime_deps |  Libraries to make available to the final binary or test at runtime only. Like ordinary deps, these will appear on the runtime classpath, but unlike them, not on the compile-time classpath.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 
 
 <a id="kt_jvm_test"></a>
@@ -184,7 +183,7 @@ load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
 
 kt_jvm_test(<a href="#kt_jvm_test-name">name</a>, <a href="#kt_jvm_test-deps">deps</a>, <a href="#kt_jvm_test-srcs">srcs</a>, <a href="#kt_jvm_test-data">data</a>, <a href="#kt_jvm_test-resources">resources</a>, <a href="#kt_jvm_test-associates">associates</a>, <a href="#kt_jvm_test-env">env</a>, <a href="#kt_jvm_test-env_inherit">env_inherit</a>, <a href="#kt_jvm_test-java_stub_template">java_stub_template</a>,
             <a href="#kt_jvm_test-javac_opts">javac_opts</a>, <a href="#kt_jvm_test-jvm_flags">jvm_flags</a>, <a href="#kt_jvm_test-kotlinc_opts">kotlinc_opts</a>, <a href="#kt_jvm_test-main_class">main_class</a>, <a href="#kt_jvm_test-manifest_lines">manifest_lines</a>, <a href="#kt_jvm_test-module_name">module_name</a>, <a href="#kt_jvm_test-plugins">plugins</a>,
-            <a href="#kt_jvm_test-resource_jars">resource_jars</a>, <a href="#kt_jvm_test-resource_strip_prefix">resource_strip_prefix</a>, <a href="#kt_jvm_test-runtime_deps">runtime_deps</a>, <a href="#kt_jvm_test-source_sets">source_sets</a>, <a href="#kt_jvm_test-test_class">test_class</a>)
+            <a href="#kt_jvm_test-resource_jars">resource_jars</a>, <a href="#kt_jvm_test-resource_strip_prefix">resource_strip_prefix</a>, <a href="#kt_jvm_test-runtime_deps">runtime_deps</a>, <a href="#kt_jvm_test-test_class">test_class</a>)
 </pre>
 
 Setup a simple kotlin_test.
@@ -211,13 +210,12 @@ Setup a simple kotlin_test.
 | <a id="kt_jvm_test-jvm_flags"></a>jvm_flags |  A list of flags to embed in the wrapper script generated for running this binary. Note: does not yet support make variable substitution.   | List of strings | optional |  `[]`  |
 | <a id="kt_jvm_test-kotlinc_opts"></a>kotlinc_opts |  Kotlinc options to be used when compiling this target. These opts if provided will be used instead of the ones provided to the toolchain.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
 | <a id="kt_jvm_test-main_class"></a>main_class |  -   | String | optional |  `"com.google.testing.junit.runner.BazelTestRunner"`  |
-| <a id="kt_jvm_test-manifest_lines"></a>manifest_lines |  Lines to add to the main section of the manifest of the output jar, each in the form `Name: value`. They follow the `Target-Label` and `Injecting-Rule-Kind` attributes the rules write. A line that repeats them, `Manifest-Version` or `Created-By` is rejected. As in the `deploy_manifest_lines` attribute of `java_binary`, `Multi-Release`, `Add-Exports` and `Add-Opens` lines are not copied as they are: singlejar merges them and writes them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs`, `source_sets` and `resources` has no jar of its own and rejects the attribute.   | List of strings | optional |  `[]`  |
+| <a id="kt_jvm_test-manifest_lines"></a>manifest_lines |  Lines to add to the main section of the manifest of the output jar, each in the form `Name: value`. They follow the `Target-Label` and `Injecting-Rule-Kind` attributes the rules write. A line that repeats them, `Manifest-Version` or `Created-By` is rejected. As in the `deploy_manifest_lines` attribute of `java_binary`, `Multi-Release`, `Add-Exports` and `Add-Opens` lines are not copied as they are: singlejar merges them and writes them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs` and `resources` (and, for a library, `kmp_fragments`) has no jar of its own and rejects the attribute.   | List of strings | optional |  `[]`  |
 | <a id="kt_jvm_test-module_name"></a>module_name |  The name of the module, if not provided the module name is derived from the label. --e.g., `//some/package/path:label_name` is translated to `some_package_path-label_name`.   | String | optional |  `""`  |
 | <a id="kt_jvm_test-plugins"></a>plugins |  -   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_test-resource_jars"></a>resource_jars |  Set of archives containing Java resources. If specified, the contents of these jars are merged into the output jar.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_test-resource_strip_prefix"></a>resource_strip_prefix |  The path prefix to strip from Java resources. Should be a label pointing to a directory. Files residing under common prefix such as `src/main/resources` or `src/test/resources` or `kotlin` will have stripping applied by convention if this is not specified.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
-| <a id="kt_jvm_test-runtime_deps"></a>runtime_deps |  Libraries to make available to the final binary or test at runtime only. Like ordinary deps, these will appear on the runtime classpath, but unlike them, not on the compile-time classpath.<br><br>A source set of `source_sets`, or one they refine, may be listed too. It adds nothing to the classpath (its deps are already deps of the target) but makes them reachable to the aspects of the consumers of the target, which follow `deps`, `exports` and `runtime_deps` and not `source_sets`: the dexing of the `android_binary` of rules_android fails on a jar of the runtime classpath it did not reach, and its mobile-install leaves out the classes of a jar it did not reach (a source set provides a JavaInfo of no classes of its own that exports its deps, which such aspects need to go on). `kt_multiplatform_library` lists the source sets of its JVM and Android libraries here.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_jvm_test-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (`kt_source_set`) to compile with the srcs. The Kotlin sources of the source sets, and of those they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. The deps of the source sets are deps of the target, and must be JVM libraries. A target with source sets cannot have .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it. List the source sets in `runtime_deps` as well for the aspects of the consumers of the target (see there); a source set in `deps` or `exports`, which take libraries, is an error.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_jvm_test-runtime_deps"></a>runtime_deps |  Libraries to make available to the final binary or test at runtime only. Like ordinary deps, these will appear on the runtime classpath, but unlike them, not on the compile-time classpath.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_test-test_class"></a>test_class |  The Java class to be loaded by the test runner.   | String | optional |  `""`  |
 
 
@@ -723,7 +721,7 @@ deps of the import of its main klib, so they follow it wherever it is compiled a
 <pre>
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_binary")
 
-kt_native_binary(<a href="#kt_native_binary-name">name</a>, <a href="#kt_native_binary-deps">deps</a>, <a href="#kt_native_binary-srcs">srcs</a>, <a href="#kt_native_binary-link_opts">link_opts</a>, <a href="#kt_native_binary-module_name">module_name</a>, <a href="#kt_native_binary-opts">opts</a>, <a href="#kt_native_binary-plugins">plugins</a>, <a href="#kt_native_binary-source_sets">source_sets</a>)
+kt_native_binary(<a href="#kt_native_binary-name">name</a>, <a href="#kt_native_binary-deps">deps</a>, <a href="#kt_native_binary-srcs">srcs</a>, <a href="#kt_native_binary-link_opts">link_opts</a>, <a href="#kt_native_binary-module_name">module_name</a>, <a href="#kt_native_binary-opts">opts</a>, <a href="#kt_native_binary-plugins">plugins</a>)
 </pre>
 
 Links a Kotlin/Native executable, `<name>.kexe`, for the konan target of the build's platform.
@@ -743,7 +741,6 @@ must be staged: see kotlin_native.targets(...).
 | <a id="kt_native_binary-module_name"></a>module_name |  The Kotlin module name of the srcs, the unique_name of the klib they compile into. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
 | <a id="kt_native_binary-opts"></a>opts |  More konanc options of the compilation of the srcs, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`.   | List of strings | optional |  `[]`  |
 | <a id="kt_native_binary-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation of the srcs. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_native_binary-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (kt_source_set) to compile with the srcs. Their sources, and those of the source sets they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. Their deps are compiled against as deps, and must be klibs of the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 
 
 <a id="kt_native_framework"></a>
@@ -754,7 +751,7 @@ must be staged: see kotlin_native.targets(...).
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_framework")
 
 kt_native_framework(<a href="#kt_native_framework-name">name</a>, <a href="#kt_native_framework-deps">deps</a>, <a href="#kt_native_framework-srcs">srcs</a>, <a href="#kt_native_framework-bundle_id">bundle_id</a>, <a href="#kt_native_framework-exports">exports</a>, <a href="#kt_native_framework-link_opts">link_opts</a>, <a href="#kt_native_framework-module_name">module_name</a>, <a href="#kt_native_framework-opts">opts</a>, <a href="#kt_native_framework-plugins">plugins</a>,
-                    <a href="#kt_native_framework-source_sets">source_sets</a>, <a href="#kt_native_framework-transitive_exports">transitive_exports</a>)
+                    <a href="#kt_native_framework-transitive_exports">transitive_exports</a>)
 </pre>
 
 Links a static framework, `<name>.framework`, for the Apple konan target of the build's platform.
@@ -806,7 +803,6 @@ A swift_library then depends on `:Shared_import` and imports the module `Shared`
 | <a id="kt_native_framework-module_name"></a>module_name |  The Kotlin module name of the srcs, the unique_name of the klib they compile into. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
 | <a id="kt_native_framework-opts"></a>opts |  More konanc options of the compilation of the srcs, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`.   | List of strings | optional |  `[]`  |
 | <a id="kt_native_framework-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation of the srcs. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_native_framework-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (kt_source_set) to compile with the srcs. Their sources, and those of the source sets they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. Their deps are compiled against as deps, and must be klibs of the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_framework-transitive_exports"></a>transitive_exports |  Whether the header also declares the API of the exports of the `exports`, transitively (the default), or of the listed klibs alone, as a framework of the Kotlin Gradle plugin exports only the libraries its `export()` names (its `transitiveExport` is off by default): a module whose `api` dependencies are large libraries, like Compose, keeps them out of its Objective-C header this way. Either way the link gets the whole closure.   | Boolean | optional |  `True`  |
 
 
@@ -817,7 +813,7 @@ A swift_library then depends on `:Shared_import` and imports the module `Shared`
 <pre>
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_library")
 
-kt_native_library(<a href="#kt_native_library-name">name</a>, <a href="#kt_native_library-deps">deps</a>, <a href="#kt_native_library-srcs">srcs</a>, <a href="#kt_native_library-exports">exports</a>, <a href="#kt_native_library-module_name">module_name</a>, <a href="#kt_native_library-opts">opts</a>, <a href="#kt_native_library-plugins">plugins</a>, <a href="#kt_native_library-source_sets">source_sets</a>)
+kt_native_library(<a href="#kt_native_library-name">name</a>, <a href="#kt_native_library-deps">deps</a>, <a href="#kt_native_library-srcs">srcs</a>, <a href="#kt_native_library-exports">exports</a>, <a href="#kt_native_library-kmp_fragments">kmp_fragments</a>, <a href="#kt_native_library-module_name">module_name</a>, <a href="#kt_native_library-opts">opts</a>, <a href="#kt_native_library-plugins">plugins</a>)
 </pre>
 
 Compiles Kotlin sources into a Kotlin/Native klib, for the konan target of the build's platform.
@@ -835,10 +831,10 @@ host's target.
 | <a id="kt_native_library-deps"></a>deps |  The klibs the sources compile against, e.g. kt_native_library targets. They are for the same konan target.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_library-srcs"></a>srcs |  Kotlin sources.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_library-exports"></a>exports |  Klibs the sources compile against that the library also re-exports: its dependents compile against them as if they listed them in their own deps.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_library-kmp_fragments"></a>kmp_fragments |  The K2 fragments of a `kt_multiplatform_library` that the srcs refine: the sources the library shares with other platforms. `kt_multiplatform_library` sets it from the sources each platform lists; it is not set by hand. The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one compilation (`-Xmulti-platform`), against the deps, so the `actual` declarations of the srcs implement the `expect` ones of the fragments; the srcs are the leaf fragment, named after the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_library-module_name"></a>module_name |  The Kotlin module name, which is the unique_name of the klib. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
 | <a id="kt_native_library-opts"></a>opts |  More konanc options, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`. They follow the options of the rule.   | List of strings | optional |  `[]`  |
 | <a id="kt_native_library-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_native_library-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (kt_source_set) to compile with the srcs. Their sources, and those of the source sets they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. Their deps are compiled against as deps, and must be klibs of the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 
 
 <a id="kt_native_test"></a>
@@ -848,10 +844,10 @@ host's target.
 <pre>
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_test")
 
-kt_native_test(<a href="#kt_native_test-name">name</a>, <a href="#kt_native_test-deps">deps</a>, <a href="#kt_native_test-srcs">srcs</a>, <a href="#kt_native_test-associates">associates</a>, <a href="#kt_native_test-link_opts">link_opts</a>, <a href="#kt_native_test-module_name">module_name</a>, <a href="#kt_native_test-opts">opts</a>, <a href="#kt_native_test-plugins">plugins</a>, <a href="#kt_native_test-source_sets">source_sets</a>)
+kt_native_test(<a href="#kt_native_test-name">name</a>, <a href="#kt_native_test-deps">deps</a>, <a href="#kt_native_test-srcs">srcs</a>, <a href="#kt_native_test-associates">associates</a>, <a href="#kt_native_test-link_opts">link_opts</a>, <a href="#kt_native_test-module_name">module_name</a>, <a href="#kt_native_test-opts">opts</a>, <a href="#kt_native_test-plugins">plugins</a>)
 </pre>
 
-Links the tests of the srcs and source_sets into a Kotlin/Native test runner, `<name>.kexe`, which `bazel test` runs.
+Links the tests of the srcs into a Kotlin/Native test runner, `<name>.kexe`, which `bazel test` runs.
 
 Experimental. The tests use kotlin.test, e.g. `@kotlin.test.Test`. The test is for the konan target of the
 exec host, whose link dependencies must be staged: see kotlin_native.targets(...).
@@ -869,7 +865,6 @@ exec host, whose link dependencies must be staged: see kotlin_native.targets(...
 | <a id="kt_native_test-module_name"></a>module_name |  The Kotlin module name of the srcs, the unique_name of the klib they compile into. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
 | <a id="kt_native_test-opts"></a>opts |  More konanc options of the compilation of the srcs, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`.   | List of strings | optional |  `[]`  |
 | <a id="kt_native_test-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation of the srcs. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_native_test-source_sets"></a>source_sets |  Kotlin Multiplatform source sets (kt_source_set) to compile with the srcs. Their sources, and those of the source sets they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. Their deps are compiled against as deps, and must be klibs of the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 
 
 <a id="KtKlibInfo"></a>
@@ -905,15 +900,14 @@ the klibs of other Kotlin platforms (JS, Wasm), which share the format.
 Public API for Kotlin Multiplatform.
 
 Experimental:
-- kt_source_set: a source set, Kotlin sources that the Kotlin/Native, JVM and Android rules listing it
-  in their `source_sets` compile with their own sources, as the K2 fragments of one compilation, so
-  `expect` declarations and their `actual` ones are in one module.
-- kt_multiplatform_library: a multiplatform library from a declaration like the one of the Kotlin
-  Gradle plugin: its source sets, a library per platform and an alias selecting the library of its
-  consumer: the native one for a Kotlin/Native rule
+- kt_multiplatform_library: a multiplatform library whose platforms each list every source they
+  compile: a library per platform, compiling the sources it shares with other platforms as K2
+  fragments, so `expect` declarations and their `actual` ones are in one module, and an alias
+  selecting the library of its consumer: the native one for a Kotlin/Native rule
   (`@rules_kotlin//kotlin/native/platforms:native_<konan target>`), the Android one for an Android
   platform and the JVM one otherwise.
-- KtSourceSetInfo: the provider of a source set.
+- kt_jvm_ksp_sources, kt_native_ksp_sources: KSP2 over the sources of a platform, as a separate
+  action whose generated Kotlin files the library of the platform compiles.
 
 kt_multiplatform_library declares a kt_android_library when it has an `android` platform, so this
 file loads the Android rules. See examples/kmp and examples/kmp_app for usage, and docs/kmp.md
@@ -933,8 +927,8 @@ kt_jvm_ksp_sources(<a href="#kt_jvm_ksp_sources-name">name</a>, <a href="#kt_jvm
 Runs KSP2 (`KSPJvmMain`) over the sources of a JVM or Android platform and declares the Kotlin files it generates.
 
 Experimental. See the documentation of kotlin/internal/kmp/ksp.bzl. Compiling the generated files: list the
-target in the `srcs` of the kt_jvm_library or kt_android_library of the platform, whose `source_sets` compile the
-common sources.
+target in the `srcs` of the `jvm` or `android` platform of the kt_multiplatform_library, and of no other
+platform, so they are the leaf fragment of that platform.
 
 **ATTRIBUTES**
 
@@ -943,10 +937,10 @@ common sources.
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="kt_jvm_ksp_sources-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
 | <a id="kt_jvm_ksp_sources-deps"></a>deps |  The libraries of the platform the sources compile against, e.g. the JVM variant of the KMP libraries: their compile jars are the libraries of KSP.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_jvm_ksp_sources-srcs"></a>srcs |  The Kotlin sources KSP processes: the sources of the common source sets and of the platform, which the platform library compiles.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | required |  |
+| <a id="kt_jvm_ksp_sources-srcs"></a>srcs |  The Kotlin sources KSP processes: every source the platform compiles, those it shares and its own.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | required |  |
 | <a id="kt_jvm_ksp_sources-android"></a>android |  Whether the sources use the Android APIs: the Android SDK jar is a library of KSP (needs the Android SDK toolchain of rules_android).   | Boolean | optional |  `False`  |
 | <a id="kt_jvm_ksp_sources-api_version"></a>api_version |  The `-api-version` of KSP; by default the one of the Kotlin toolchain.   | String | optional |  `""`  |
-| <a id="kt_jvm_ksp_sources-common_srcs"></a>common_srcs |  The Kotlin sources of the common source sets, a subset of `srcs`. KSP processes them after the sources of the platform, as the KSP Gradle plugin orders the source sets of a platform compilation: a type with an `expect` declaration in the common sources and an `actual` one in the platform sources resolves to the actual, with its constructors and members, as it does in the compilation of the platform.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_jvm_ksp_sources-common_srcs"></a>common_srcs |  The Kotlin sources the platform shares with other platforms, a subset of `srcs`. KSP processes them after the sources of the platform alone, as the KSP Gradle plugin orders the source sets of a platform compilation: a type with an `expect` declaration in the common sources and an `actual` one in the platform sources resolves to the actual, with its constructors and members, as it does in the compilation of the platform.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_ksp_sources-generated"></a>generated |  The Kotlin files the processors generate, relative to the output root of KSP: the directory of the package and the file name, e.g. `com/example/InjectAppComponent.kt`. The files are outputs of the target, under a directory of its name, to list in the `srcs` of the platform library. The action fails on a file the processors write that is not listed, and on one listed that they do not write.   | List of strings | required |  |
 | <a id="kt_jvm_ksp_sources-jvm_target"></a>jvm_target |  The `-jvm-target` of KSP; by default the one of the Kotlin toolchain.   | String | optional |  `""`  |
 | <a id="kt_jvm_ksp_sources-language_version"></a>language_version |  The `-language-version` of KSP; by default the one of the Kotlin toolchain.   | String | optional |  `""`  |
@@ -980,79 +974,14 @@ kt_native_library of the platform (or of a group of a kt_multiplatform_library).
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="kt_native_ksp_sources-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
 | <a id="kt_native_ksp_sources-deps"></a>deps |  The klibs of the konan target the sources compile against: their transitive klibs are the libraries of KSP.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_native_ksp_sources-srcs"></a>srcs |  The Kotlin sources KSP processes: the sources of the common source sets and of the platform, which the platform library compiles.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | required |  |
+| <a id="kt_native_ksp_sources-srcs"></a>srcs |  The Kotlin sources KSP processes: every source the platform compiles, those it shares and its own.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | required |  |
 | <a id="kt_native_ksp_sources-api_version"></a>api_version |  The `-api-version` of KSP; by default the one of the Kotlin toolchain.   | String | optional |  `""`  |
-| <a id="kt_native_ksp_sources-common_srcs"></a>common_srcs |  The Kotlin sources of the common source sets, a subset of `srcs`. KSP processes them after the sources of the platform, as the KSP Gradle plugin orders the source sets of a platform compilation: a type with an `expect` declaration in the common sources and an `actual` one in the platform sources resolves to the actual, with its constructors and members, as it does in the compilation of the platform.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_ksp_sources-common_srcs"></a>common_srcs |  The Kotlin sources the platform shares with other platforms, a subset of `srcs`. KSP processes them after the sources of the platform alone, as the KSP Gradle plugin orders the source sets of a platform compilation: a type with an `expect` declaration in the common sources and an `actual` one in the platform sources resolves to the actual, with its constructors and members, as it does in the compilation of the platform.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_ksp_sources-generated"></a>generated |  The Kotlin files the processors generate, relative to the output root of KSP: the directory of the package and the file name, e.g. `com/example/InjectAppComponent.kt`. The files are outputs of the target, under a directory of its name, to list in the `srcs` of the platform library. The action fails on a file the processors write that is not listed, and on one listed that they do not write.   | List of strings | required |  |
 | <a id="kt_native_ksp_sources-language_version"></a>language_version |  The `-language-version` of KSP; by default the one of the Kotlin toolchain.   | String | optional |  `""`  |
 | <a id="kt_native_ksp_sources-module_name"></a>module_name |  The module name KSP is given; by default the name of the target.   | String | optional |  `""`  |
 | <a id="kt_native_ksp_sources-processor_options"></a>processor_options |  More KSP options, as `ksp.arg` of Gradle, on top of those of the `processors`.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> String</a> | optional |  `{}`  |
 | <a id="kt_native_ksp_sources-processors"></a>processors |  The KSP processors, as kt_ksp_plugin targets: their runtime classpath is the one KSP loads them from, and their options are passed on.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-
-
-<a id="kt_source_set"></a>
-
-## kt_source_set
-
-<pre>
-load("@rules_kotlin//kotlin:kmp.bzl", "kt_source_set")
-
-kt_source_set(<a href="#kt_source_set-name">name</a>, <a href="#kt_source_set-deps">deps</a>, <a href="#kt_source_set-srcs">srcs</a>, <a href="#kt_source_set-depends_on">depends_on</a>)
-</pre>
-
-A Kotlin Multiplatform source set: Kotlin sources, the libraries they use and the source sets they refine.
-
-Experimental. A source set compiles nothing by itself. The Kotlin/Native, JVM and Android rules
-compile the source sets of their `source_sets` attribute, and those they refine, transitively,
-together with their own `srcs`, as the fragments of one multiplatform compilation
-(`-Xmulti-platform -Xfragments`), the way the Kotlin Gradle plugin compiles a platform: the
-`expect` declarations of a common source set and the `actual` ones in the `srcs` of the rule of a
-platform are in one module. Expect/actual classes are Beta in Kotlin; the rules pass
-`-Xexpect-actual-classes`, which acknowledges it.
-
-The deps are resolved in the configuration of each rule compiling the source set, so they must
-provide what that rule needs: JavaInfo for a JVM or Android rule, a klib of the konan target for a
-Kotlin/Native one. A dep that differs per platform is an `alias` that selects its klib on
-`@rules_kotlin//kotlin/native/platforms:native_<konan target>`, which the Kotlin/Native rules
-match, its Android library on `@platforms//os:android` and its JVM library by default.
-
-A source set is no library: the JVM and Android rules reject it in `deps` or `exports`. It
-provides a JavaInfo of no classes of its own that exports the JavaInfo of its deps, for the
-aspects of the consumers of a rule that lists it in `runtime_deps` (see there).
-
-**ATTRIBUTES**
-
-
-| Name  | Description | Type | Mandatory | Default |
-| :------------- | :------------- | :------------- | :------------- | :------------- |
-| <a id="kt_source_set-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
-| <a id="kt_source_set-deps"></a>deps |  The libraries the sources use. Every rule compiling the source set compiles against them: they are JVM libraries for a JVM or Android rule, klibs for a Kotlin/Native one.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_source_set-srcs"></a>srcs |  Kotlin sources.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_source_set-depends_on"></a>depends_on |  The source sets this one refines, as Gradle's `dependsOn`: e.g. the source set of the Apple targets refines the common one.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-
-
-<a id="KtSourceSetInfo"></a>
-
-## KtSourceSetInfo
-
-<pre>
-load("@rules_kotlin//kotlin:kmp.bzl", "KtSourceSetInfo")
-
-KtSourceSetInfo(<a href="#KtSourceSetInfo-depends_on">depends_on</a>, <a href="#KtSourceSetInfo-deps">deps</a>, <a href="#KtSourceSetInfo-label">label</a>, <a href="#KtSourceSetInfo-name">name</a>, <a href="#KtSourceSetInfo-srcs">srcs</a>, <a href="#KtSourceSetInfo-transitive_source_sets">transitive_source_sets</a>)
-</pre>
-
-A Kotlin Multiplatform source set: a fragment of the compilations of the rules listing it in their `source_sets`.
-
-**FIELDS**
-
-| Name  | Description |
-| :------------- | :------------- |
-| <a id="KtSourceSetInfo-depends_on"></a>depends_on |  tuple of KtSourceSetInfo: the source sets this one refines, Gradle's `dependsOn`.    |
-| <a id="KtSourceSetInfo-deps"></a>deps |  list of Target: the libraries the sources use. They are resolved in the configuration of each rule compiling the source set: a JVM or Android rule needs them to provide JavaInfo, a Kotlin/Native one KtKlibInfo.    |
-| <a id="KtSourceSetInfo-label"></a>label |  Label: the label of the source set.    |
-| <a id="KtSourceSetInfo-name"></a>name |  string: the name of the fragment, derived from the label as module names are: `<package>-<name>`, with `/` replaced by `_`, or `<name>` in the root package.    |
-| <a id="KtSourceSetInfo-srcs"></a>srcs |  list of File: the Kotlin sources of the fragment.    |
-| <a id="KtSourceSetInfo-transitive_source_sets"></a>transitive_source_sets |  depset of KtSourceSetInfo, in postorder: the source sets this one refines, transitively, and this one, each after the source sets it refines. Their own transitive_source_sets is None.    |
 
 
 <a id="kt_multiplatform_library"></a>
@@ -1062,15 +991,17 @@ A Kotlin Multiplatform source set: a fragment of the compilations of the rules l
 <pre>
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
 
-kt_multiplatform_library(<a href="#kt_multiplatform_library-name">name</a>, <a href="#kt_multiplatform_library-common_srcs">common_srcs</a>, <a href="#kt_multiplatform_library-common_deps">common_deps</a>, <a href="#kt_multiplatform_library-jvm">jvm</a>, <a href="#kt_multiplatform_library-android">android</a>, <a href="#kt_multiplatform_library-native">native</a>, <a href="#kt_multiplatform_library-visibility">visibility</a>, <a href="#kt_multiplatform_library-tags">tags</a>,
-                         <a href="#kt_multiplatform_library-testonly">testonly</a>, <a href="#kt_multiplatform_library-kwargs">**kwargs</a>)
+kt_multiplatform_library(<a href="#kt_multiplatform_library-name">name</a>, <a href="#kt_multiplatform_library-jvm">jvm</a>, <a href="#kt_multiplatform_library-android">android</a>, <a href="#kt_multiplatform_library-native">native</a>, <a href="#kt_multiplatform_library-visibility">visibility</a>, <a href="#kt_multiplatform_library-tags">tags</a>, <a href="#kt_multiplatform_library-testonly">testonly</a>, <a href="#kt_multiplatform_library-kwargs">**kwargs</a>)
 </pre>
 
-Declares a Kotlin Multiplatform library: its source sets, a library per platform and an alias.
+Declares a Kotlin Multiplatform library: a library per platform, the fragments they share and an alias.
 
-Experimental. Each platform compiles the common source set with its own sources, as K2
-fragments (see kt_source_set), so the `expect` declarations of the common sources and the
-`actual` ones of a platform are in one module.
+Experimental. Each platform lists every source it compiles. The sources that exactly the same
+platforms list are a K2 fragment of the compilations of those platforms, named after them, and
+the sources of a single platform are its leaf fragment, so the `expect` declarations of shared
+sources and the `actual` ones of a platform are in one module (see derive.bzl). A fragment has
+no deps: each platform compiles it against its own deps. Sources are shared by label: a platform
+lists a label once, and a file must be listed by the same label everywhere.
 
 
 **PARAMETERS**
@@ -1079,12 +1010,10 @@ fragments (see kt_source_set), so the `expect` declarations of the common source
 | Name  | Description | Default Value |
 | :------------- | :------------- | :------------- |
 | <a id="kt_multiplatform_library-name"></a>name |  the name of the alias, and the prefix of the names of the other targets.   |  none |
-| <a id="kt_multiplatform_library-common_srcs"></a>common_srcs |  the Kotlin sources of the common source set, `<name>_common`.   |  none |
-| <a id="kt_multiplatform_library-common_deps"></a>common_deps |  the deps of the common source set, which every platform compiles against. A dep that differs per platform is an alias that selects its klib on `@rules_kotlin//kotlin/native/platforms:native_<konan target>`, its Android library on `@platforms//os:android` and its JVM library by default.   |  `[]` |
-| <a id="kt_multiplatform_library-jvm"></a>jvm |  the attributes of the kt_jvm_library `<name>_jvm`, e.g. `dict(srcs = [...], deps = [...])`, or None for no JVM library. Its source_sets are the common source set and those it lists, which are in its runtime_deps too (see that attribute of the library).   |  `None` |
-| <a id="kt_multiplatform_library-android"></a>android |  the attributes of the kt_android_library `<name>_android`, e.g. `srcs` and `manifest`, or None for no Android library. Its source_sets are the common source set and those it lists, which are in its runtime_deps too (see that attribute of the library).   |  `None` |
-| <a id="kt_multiplatform_library-native"></a>native |  the groups of konan targets, `{"<group>": dict(srcs = [...], deps = [...], targets = [...])}`. Each group is a source set, `<name>_<group>`, of its srcs and deps, which refines the common one and which `<name>_native` compiles for each of its targets. A group also refines the kt_source_sets of its `depends_on`, the intermediate source sets of the module between the common one and the group, as Gradle's `iosMain.dependsOn(nonAndroidMain)`; a JVM or Android platform compiles such a source set by listing it in its `source_sets`. The other attributes of a group are attributes of `<name>_native` for its targets, e.g. `opts`.   |  `{}` |
-| <a id="kt_multiplatform_library-visibility"></a>visibility |  the visibility of the targets.   |  `None` |
+| <a id="kt_multiplatform_library-jvm"></a>jvm |  the attributes of the kt_jvm_library `<name>_jvm`, e.g. `dict(srcs = COMMON + JVM, deps = [...])`, or None for no JVM library. Its `srcs`, a list of labels, are every source the JVM compiles.   |  `None` |
+| <a id="kt_multiplatform_library-android"></a>android |  the attributes of the kt_android_library `<name>_android`, e.g. `srcs`, `deps` and `manifest`, or None for no Android library. Its `srcs`, a list of labels, are every source Android compiles.   |  `None` |
+| <a id="kt_multiplatform_library-native"></a>native |  the groups of konan targets, `{"<group>": dict(srcs = [...], deps = [...], targets = [...])}`. A group stands for each of its targets: its `srcs`, a list of labels, are every source they compile, and its other attributes, e.g. `deps` and `opts`, are attributes of `<name>_native` for them.   |  `{}` |
+| <a id="kt_multiplatform_library-visibility"></a>visibility |  the visibility of the targets; the fragments are private.   |  `None` |
 | <a id="kt_multiplatform_library-tags"></a>tags |  the tags of the targets.   |  `[]` |
 | <a id="kt_multiplatform_library-testonly"></a>testonly |  whether the targets are testonly.   |  `False` |
 | <a id="kt_multiplatform_library-kwargs"></a>kwargs |  more attributes common to every rule, e.g. `features`, of every target.   |  none |

@@ -6,15 +6,16 @@ The alias has the shape of those of kmp_maven: it selects, for the Kotlin/Native
 JVM library by default. Every consumer builds for the linux_arm64 platform, a host of that konan
 target: the Kotlin/Native ones get the klib, as they set //kotlin/settings:kotlin_platform_type to
 native for themselves and their deps, and the JVM ones get the JVM library, whose platform type
-stays jvm, also through a source set. (A Kotlin/Native consumer of another konan target gets the
-no_match_error of the alias, a configuration error that analysistest cannot expect.) The native
-consumers use the fake toolchains of //src/test/starlark/internal/native (see common.bzl there).
+stays jvm, also as the platforms of a kt_multiplatform_library listing the alias in their deps.
+(A Kotlin/Native consumer of another konan target gets the no_match_error of the alias, a
+configuration error that analysistest cannot expect.) The native consumers use the fake toolchains
+of //src/test/starlark/internal/native (see common.bzl there).
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_java//java:defs.bzl", "java_library")
 load("//kotlin:jvm.bzl", "kt_jvm_library")
-load("//kotlin:kmp.bzl", "kt_source_set")
+load("//kotlin:kmp.bzl", "kt_multiplatform_library")
 load("//kotlin:native.bzl", "kt_klib_import", "kt_native_library")
 load(
     "//src/test/starlark/internal/native:common.bzl",
@@ -121,23 +122,27 @@ def platform_type_test_suite(name):
         deps = [":pt_lib"],
     )
 
-    # The deps of a source set resolve in the configuration of each rule compiling it.
-    kt_source_set(
-        name = "pt_common",
-        srcs = ["testdata/Platform.kt"],
-        tags = ["manual"],
-        deps = [":pt_lib"],
-    )
-    kt_native_library(
-        name = "pt_native_source_set_consumer",
-        srcs = ["testdata/Platform.linux.kt"],
-        source_sets = [":pt_common"],
-        tags = ["manual"],
-    )
-    kt_jvm_library(
-        name = "pt_jvm_source_set_consumer",
-        srcs = ["testdata/Platform.jvm.kt"],
-        source_sets = [":pt_common"],
+    # Each platform of a multiplatform library resolves the deps it lists in its own configuration,
+    # and compiles the fragment of the sources they share against them.
+    kt_multiplatform_library(
+        name = "pt_mpp",
+        jvm = dict(
+            srcs = [
+                "testdata/Platform.kt",
+                "testdata/Platform.jvm.kt",
+            ],
+            deps = [":pt_lib"],
+        ),
+        native = {
+            "linux": dict(
+                srcs = [
+                    "testdata/Platform.kt",
+                    "testdata/Platform.linux.kt",
+                ],
+                targets = ["linux_arm64"],
+                deps = [":pt_lib"],
+            ),
+        },
         tags = ["manual"],
     )
 
@@ -152,13 +157,13 @@ def platform_type_test_suite(name):
         target_compatible_with = not_on_windows(),
     )
     native_consumer_test(
-        name = "platform_type_native_source_set_test",
-        target_under_test = ":pt_native_source_set_consumer",
+        name = "platform_type_native_multiplatform_test",
+        target_under_test = ":pt_mpp_native",
         target_compatible_with = not_on_windows(),
     )
     jvm_consumer_test(
-        name = "platform_type_jvm_source_set_test",
-        target_under_test = ":pt_jvm_source_set_consumer",
+        name = "platform_type_jvm_multiplatform_test",
+        target_under_test = ":pt_mpp_jvm",
         target_compatible_with = not_on_windows(),
     )
 
@@ -166,8 +171,8 @@ def platform_type_test_suite(name):
         name = name,
         tests = [
             ":platform_type_jvm_consumer_test",
-            ":platform_type_jvm_source_set_test",
+            ":platform_type_jvm_multiplatform_test",
             ":platform_type_native_consumer_test",
-            ":platform_type_native_source_set_test",
+            ":platform_type_native_multiplatform_test",
         ],
     )

@@ -2,6 +2,7 @@
 
 | Date&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | News                    |
 |:-----------------------------------------------------------------------------------------------------------------|-------------------------|
+| Nov 14, 2026 | Breaking change of the experimental Kotlin Multiplatform rules: `kt_source_set`, `KtSourceSetInfo` and the `source_sets` attribute of the JVM, Android and Kotlin/Native rules are removed. Each platform of `kt_multiplatform_library` lists every source it compiles in its `srcs`, and the sources that exactly the same platforms list are a K2 fragment of their compilations. `common_srcs`, `common_deps`, the keys `source_sets` and `depends_on` and the targets `<name>_common` and `<name>_<group>` are removed; tests, binaries and frameworks depend on the library of their platform. See [Migrating from kt_source_set](docs/kmp.md#migrating-from-kt_source_set) |
 | Nov 6, 2026 | Experimental Kotlin/Native and Kotlin Multiplatform support (#1682): the rules `kt_native_library`, `kt_native_binary`, `kt_native_test`, `kt_native_framework` and `kt_klib_import` (`//kotlin:native.bzl`), `kt_source_set` and `kt_multiplatform_library` (`//kotlin:kmp.bzl`), and the `kotlin_native` and `kmp_maven` module extensions. See [docs/kmp.md](docs/kmp.md) |
 | Oct 19, 2026 | The Build Tools API implementation record requires the checksum of `kotlin-tooling-core`: custom `btapi_impl_version` records must add `tooling_core_sha256` |
 | Mar 6, 2026 | Drop support for Java 8 |

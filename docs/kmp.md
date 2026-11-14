@@ -5,9 +5,9 @@ test runners and static Apple frameworks, and it declares Kotlin Multiplatform (
 common code compiles for the JVM, Android and Kotlin/Native, as the Kotlin Gradle plugin does. The
 rules, their attributes and their module extensions may change in any release.
 
-This guide covers the setup, the platforms, the rules, the mapping from a Gradle KMP project and the
-integration with Android and iOS apps. The attributes of each rule are in the
-[API reference](kotlin.md), and the Maven dependencies of multiplatform code in
+This guide covers the setup, the platforms, the rules, the mapping from a Gradle KMP project, the
+migration from `kt_source_set` and the integration with Android and iOS apps. The attributes of each
+rule are in the [API reference](kotlin.md), and the Maven dependencies of multiplatform code in
 [Kotlin Multiplatform dependencies](kmp_dependencies.md).
 
 ## Status and prerequisites
@@ -128,9 +128,9 @@ the build's platform, with the Kotlin platform type `native`, and their deps are
 The linking rules compile their sources, if any, into a private klib, `_kt_native/<name>.klib`, and
 link it with the klibs of their deps, as the Kotlin Gradle plugin does: `opts` are options of the
 compilation and `link_opts` options of the link, e.g. `-opt`. `kt_native_library` and the linking
-rules also take Kotlin compiler `plugins` (`kt_compiler_plugin`) and `source_sets`
-(see [Source sets](#source-sets-and-kt_multiplatform_library)). [`KtKlibInfo`](kotlin.md#KtKlibInfo)
-is the provider of a klib.
+rules also take Kotlin compiler `plugins` (`kt_compiler_plugin`), and `kt_native_library` compiles
+the sources a `kt_multiplatform_library` shares (see [`kt_multiplatform_library`](#kt_multiplatform_library)).
+[`KtKlibInfo`](kotlin.md#KtKlibInfo) is the provider of a klib.
 
 ```starlark
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_binary", "kt_native_library", "kt_native_test")
@@ -189,132 +189,129 @@ them out of its Objective-C header that way: `kt_native_framework(name = "shared
 
 [The iOS app](#the-ios-app) shows the rest.
 
-## Source sets and `kt_multiplatform_library`
+## `kt_multiplatform_library`
 
-`@rules_kotlin//kotlin:kmp.bzl` has the multiplatform rules.
+`@rules_kotlin//kotlin:kmp.bzl` has the multiplatform rules:
+[`kt_multiplatform_library`](kotlin.md#kt_multiplatform_library), and the rules of
+[KSP for a multiplatform library](#ksp-for-a-multiplatform-library).
 
-A [`kt_source_set`](kotlin.md#kt_source_set) is the source set of the Kotlin Gradle plugin: Kotlin
-`srcs`, the `deps` they use and the source sets they refine, `depends_on`, Gradle's `dependsOn`. It
-compiles nothing by itself. A rule that lists it in its `source_sets`, `kt_native_library`, a linking
-rule or a JVM or Android rule such as `kt_jvm_library`, `kt_jvm_test` or `kt_android_library`,
-compiles its sources and those of the source sets it refines with its own `srcs` in one compilation,
-as the K2 fragments of a multiplatform module (`-Xmulti-platform`): the `expect` declarations of the
-common code and the `actual` ones of the platform are in one module. The deps of a source set
-resolve in the configuration of each rule compiling it: JVM libraries for the JVM and Android rules,
-klibs of the konan target for the Kotlin/Native rules. [`KtSourceSetInfo`](kotlin.md#KtSourceSetInfo)
-is the provider of a source set.
-
-```starlark
-load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
-load("@rules_kotlin//kotlin:kmp.bzl", "kt_source_set")
-load("@rules_kotlin//kotlin:native.bzl", "kt_native_library")
-
-kt_source_set(
-    name = "common",
-    srcs = ["Runtime.kt"],  # expect val runtime: String
-)
-
-kt_jvm_library(
-    name = "explicit_jvm",
-    srcs = ["Runtime.jvm.kt"],  # actual val runtime: String = "the JVM"
-    source_sets = [":common"],
-)
-
-kt_native_library(
-    name = "explicit_native",
-    srcs = ["Runtime.native.kt"],  # actual val runtime: String = "Kotlin/Native"
-    source_sets = [":common"],
-)
-```
-
-[`kt_multiplatform_library`](kotlin.md#kt_multiplatform_library) declares such a module from a
-declaration like the one of the Kotlin Gradle plugin:
+`kt_multiplatform_library` declares a Kotlin Multiplatform module as the Kotlin Gradle plugin builds
+one: a library per platform, which compiles the sources it shares with other platforms and its own
+in one compilation, as the K2 fragments of a multiplatform module (`-Xmulti-platform`), so that the
+`expect` declarations of the shared code and the `actual` ones of the platform are in one module,
+and an alias that selects the library of its consumer. A platform is `jvm`, `android` or a konan
+target, and a group of `native` stands for each of its `targets`. Each platform lists every source
+it compiles in its `srcs`, a plain list of labels, and the libraries they use in its `deps`. The
+sources that several platforms compile are Starlark lists that their `srcs` add up, as in
+`examples/kmp_app`:
 
 ```starlark
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
 
+COMMON = glob(["src/commonMain/kotlin/**/*.kt"])
+
+COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
+
 kt_multiplatform_library(
     name = "shared",
-    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]),
-    common_deps = ["@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"],
     android = dict(
-        srcs = glob(["src/androidMain/kotlin/**/*.kt"]),
+        srcs = COMMON + glob(["src/androidMain/kotlin/**/*.kt"]),
         custom_package = "org.example.kmpapp",
         manifest = "src/androidMain/AndroidManifest.xml",
+        deps = [COROUTINES],
     ),
-    jvm = dict(srcs = glob(["src/jvmMain/kotlin/**/*.kt"])),
+    jvm = dict(
+        srcs = COMMON + glob(["src/jvmMain/kotlin/**/*.kt"]),
+        deps = [COROUTINES],
+    ),
     native = {
         "ios": dict(
-            srcs = glob(["src/iosMain/kotlin/**/*.kt"]),
+            srcs = COMMON + glob(["src/iosMain/kotlin/**/*.kt"]),
             targets = ["ios_arm64", "ios_simulator_arm64"],
+            deps = [COROUTINES],
         ),
     },
     visibility = ["//visibility:public"],
 )
 ```
 
-It declares:
+The other keys of `jvm` and `android` are attributes of their libraries, e.g. `manifest`, and those
+of a group, e.g. `opts`, attributes of the native library for the targets of the group. A platform
+lists a label once, and a konan target is in one group at most.
 
-| Target           | Rule                 | Content                                                                                                                                                                                  |
-|------------------|----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `shared_common`  | `kt_source_set`      | `common_srcs` and `common_deps`: Gradle's `commonMain`.                                                                                                                                  |
-| `shared_jvm`     | `kt_jvm_library`     | The attributes of `jvm`, compiling the common source set: `jvmMain`.                                                                                                                     |
-| `shared_android` | `kt_android_library` | The attributes of `android`, compiling the common source set: `androidMain`.                                                                                                             |
-| `shared_ios`     | `kt_source_set`      | A source set per group of `native`, of its `srcs` and `deps`, which refines the common one and the source sets of its `depends_on`: `iosMain`. Only compatible below a Kotlin/Native consumer building for a target of the group (`shared_native`), so that `bazel build //...`, for any platform, skips it rather than resolving its deps as a JVM consumer does (they may exist for its targets alone, like Ktor's Darwin engine). |
-| `shared_native`  | `kt_native_library`  | Compiles the source set of the group of the build's konan target, and is incompatible with the other platforms. The other keys of a group, e.g. `opts`, are its attributes for the targets of the group. |
-| `shared_srcs`    | `filegroup`          | The sources of every source set and platform.                                                                                                                                            |
-| `shared`         | `alias`              | `shared_native` for a Kotlin/Native consumer building for a target of the groups, `shared_android` on `@platforms//os:android`, and otherwise `shared_jvm` (or, without `jvm`, `shared_android`, then `shared_native`). |
+### Fragments
 
-A konan target is in one group at most, and a group cannot be named `android`, `common`, `jvm`,
-`native` or `srcs`.
+The macro derives the fragments of the compilations from the sources the platforms list:
 
-An intermediate source set of the module, between the common source set and the platforms, is a
-`kt_source_set` that refines the common one, which the platforms compile: a JVM or Android platform
-lists it in its `source_sets`, and a group of `native` in its `depends_on`, as `examples/kmp` does
-with Gradle's `nonAndroidMain`:
+- The sources that exactly the same platforms list form one fragment, named after those platforms:
+  their names, sorted and joined with `-`. Above, `COMMON`, which every platform lists, is the
+  fragment `android-ios_arm64-ios_simulator_arm64-jvm`, and the sources of `src/iosMain`, which both
+  iOS targets list, are the fragment `ios_arm64-ios_simulator_arm64`.
+- A fragment `A` refines a fragment `B`, as a Gradle source set depends on another, when the
+  platforms of `A` are a strict subset of those of `B` and no fragment lies in between:
+  `ios_arm64-ios_simulator_arm64` refines `android-ios_arm64-ios_simulator_arm64-jvm`.
+- The sources that a single platform lists stay in the library of that platform as its leaf
+  fragment, named after the platform, `jvm`, `android` or the konan target, which refines the
+  fragments directly above the platform. A leaf may be empty: `ios_arm64` and `ios_simulator_arm64`
+  are, as both targets list the same sources.
+
+The library of a platform compiles every fragment whose platforms include it, most shared first,
+then its leaf, in one compilation (`-Xfragments`, `-Xfragment-sources` and `-Xfragment-refines`). A
+fragment has no deps: each platform compiles all its fragments against its own `deps`, which
+resolve in its configuration, JVM libraries for the JVM and Android and klibs of the konan target
+for Kotlin/Native. So the deps of shared code are in the `deps` of every platform compiling it; an
+alias that selects the variant of the platform, like those of `kmp_maven`, lets the platforms share
+one list.
+
+An intermediate source set of the Gradle build, between the common code and the platforms, is a
+list that the platforms compiling it add to their `srcs`, as `examples/kmp` does with Gradle's
+`nonAndroidMain`:
 
 ```starlark
-kt_source_set(
-    name = "shared_non_android",
-    srcs = glob(["src/nonAndroidMain/kotlin/**/*.kt"]),
-    depends_on = [":shared_common"],
-)
+COMMON = glob(["common/**/*.kt"])
+
+NON_ANDROID = glob(["non_android/**/*.kt"])  # Gradle's nonAndroidMain: every platform but Android
 
 kt_multiplatform_library(
     name = "shared",
-    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]),
-    android = dict(srcs = glob(["src/androidMain/kotlin/**/*.kt"]), ...),
-    jvm = dict(
-        srcs = glob(["src/jvmMain/kotlin/**/*.kt"]),
-        source_sets = [":shared_non_android"],
-    ),
+    android = dict(srcs = COMMON + glob(["android/**/*.kt"]), deps = DEPS, ...),
+    jvm = dict(srcs = COMMON + NON_ANDROID + glob(["jvm/**/*.kt"]), deps = DEPS),
     native = {
-        "ios": dict(
-            srcs = glob(["src/iosMain/kotlin/**/*.kt"]),
-            depends_on = [":shared_non_android"],
-            targets = ["ios_arm64", "ios_simulator_arm64"],
+        "apple": dict(
+            srcs = COMMON + NON_ANDROID + glob(["apple/**/*.kt"]),
+            targets = ["ios_arm64", "macos_arm64"],
+            deps = DEPS,
         ),
     },
 )
 ```
 
-The deps of a source set are deps of the rule that compiles it, but they are reachable from that
-rule only through `source_sets` (and `depends_on`), which the aspects of other rule sets do not
-follow. Those aspects follow Bazel's conventional dependency attributes, `deps`, `exports` and
-`runtime_deps`. The dexing aspect of `android_binary` is one: it dexes the jars of the targets it
-reaches and fails on a jar of the runtime classpath it did not (`Dependencies on .jar artifacts are
-not allowed in Android binaries`). `kt_multiplatform_library` lists the source sets of its JVM and
-Android libraries in `runtime_deps` as well, so the aspect reaches their `deps`. An explicit
-`kt_jvm_library` / `kt_android_library` that sets `source_sets` should do the same
-(`runtime_deps = [":common", ...]`): a source set listed there adds nothing to the classpath (it is
-already a fragment of the compilation) and must be one the target compiles. Some aspects forward
-nothing from a target without `JavaInfo`, not even what they reached through its `deps`: the
-mobile-install of rules_android (`bazel mobile-install //androidApp`) dexes the jars of the targets
-with `JavaInfo` it reaches and ignores the others, so the classes of the deps of a source set would
-be missing from the installed app. A source set therefore provides a `JavaInfo` of no classes of its
-own (the empty jar) that exports the `JavaInfo` of its deps: the aspect goes on to the deps and dexes
-nothing twice. The `JavaInfo` makes a source set acceptable to `deps` and `exports`, which take
-libraries; the rules reject it there, as it would export its deps and compile none of its sources.
+| Sources       | Fragment                                    | Refines                             |
+|---------------|---------------------------------------------|-------------------------------------|
+| `COMMON`      | `android-ios_arm64-jvm-macos_arm64`         |                                     |
+| `NON_ANDROID` | `ios_arm64-jvm-macos_arm64`                 | `android-ios_arm64-jvm-macos_arm64` |
+| `apple/`      | `ios_arm64-macos_arm64`                     | `ios_arm64-jvm-macos_arm64`         |
+| `jvm/`        | `jvm`, the leaf of the JVM                  | `ios_arm64-jvm-macos_arm64`         |
+| `android/`    | `android`, the leaf of Android              | `android-ios_arm64-jvm-macos_arm64` |
+| None          | `ios_arm64` and `macos_arm64`, empty leaves | `ios_arm64-macos_arm64`             |
+
+`examples/kmp` also has a group `linux` of `linux_arm64` and `linux_x64`, whose own sources are the
+fragment `linux_arm64-linux_x64`, which refines the non-Android one too.
+
+### The declared targets
+
+| Target                       | Rule                         | Content                                                                                                                                                                                                                                                                                 |
+|------------------------------|------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `shared_fragment_<fragment>` | `kt_kmp_fragment` (internal) | A private target per fragment, e.g. `shared_fragment_ios_arm64-ios_simulator_arm64`: its sources and the fragments it refines. It compiles nothing by itself. A fragment of konan targets only is compatible only below a Kotlin/Native consumer building for one of them, so that `bazel build //...` skips it. |
+| `shared_jvm`                 | `kt_jvm_library`             | The attributes of `jvm`; it compiles the fragments of the JVM and its leaf.                                                                                                                                                                                                             |
+| `shared_android`             | `kt_android_library`         | The attributes of `android`; it compiles the fragments of Android and its leaf.                                                                                                                                                                                                         |
+| `shared_native`              | `kt_native_library`          | For the konan target of the build's platform, the fragments of that target and its leaf, with the other attributes of its group. It is incompatible with the other platforms.                                                                                                           |
+| `shared_srcs`                | `filegroup`                  | The sources of every platform.                                                                                                                                                                                                                                                          |
+| `shared`                     | `alias`                      | `shared_native` for a Kotlin/Native consumer building for a target of the groups, `shared_android` on `@platforms//os:android`, and otherwise `shared_jvm` (or, without `jvm`, `shared_android`, then `shared_native`).                                                                 |
+
+There is no target of the common sources or of a group: a consumer depends on the alias or on the
+library of a platform. The libraries get their fragments through an internal attribute,
+`kmp_fragments`, which only the macro sets.
 
 The alias tells a Kotlin/Native consumer from a JVM one by the Kotlin platform type,
 `@rules_kotlin//kotlin/settings:kotlin_platform_type`: `jvm` by default, and `native` for the
@@ -324,13 +321,42 @@ and a `kt_native_framework` gets `shared_native`. The aliases of `@kmp_maven` se
 and so does a dependency written by hand: see
 [The Kotlin platform type](kmp_dependencies.md#the-kotlin-platform-type).
 
-### KSP for the source sets
+The deps of the libraries are their `deps`, which the aspects of other rule sets follow, e.g. the
+dexing aspect of `android_binary` and the mobile-install of rules_android: a fragment has no deps
+for them to miss, and its sources compile into the jar of each library that compiles it.
 
-A target with `source_sets` cannot run the KSP compiler plugin (`kt_ksp_plugin` in `plugins`, see the
-limitations), and Kotlin/Native has no such plugin. To process the common sources and those of a
-platform together, as the Kotlin Gradle plugin does for a multiplatform module (`KSPJvmMain` of
-`ksp2` for the JVM and Android, `KSPNativeMain` for a konan target), a **separate action** runs the
-KSP command-line tool of the KSP release the rules pin and declares the Kotlin files it generates:
+### Tests, binaries and frameworks
+
+`kt_jvm_test`, `kt_android_local_test`, `kt_jvm_binary`, `kt_native_binary`, `kt_native_test` and
+`kt_native_framework` compile only their own `srcs`. They get the shared code from the library of
+their platform, as the test compilation of a Gradle module compiles against its main one: a test of
+the common code depends on `//shared`, which is `shared_jvm` for a `kt_jvm_test` and `shared_native`
+for a `kt_native_test`, and a framework exports it (see [The iOS app](#the-ios-app)). As in
+`examples/kmp`:
+
+```starlark
+kt_jvm_test(
+    name = "greeting_jvm_test",
+    srcs = ["GreetingJvmTest.kt"],
+    test_class = "examples.kmp.tests.GreetingJvmTest",
+    deps = ["//shared", "@rules_kotlin//kotlin/compiler:kotlin-test", ...],
+)
+
+kt_native_test(
+    name = "greeting_native_test",
+    srcs = ["GreetingNativeTest.kt"],
+    deps = ["//shared"],
+)
+```
+
+### KSP for a multiplatform library
+
+The libraries of a `kt_multiplatform_library` cannot run the KSP compiler plugin (`kt_ksp_plugin` in
+`plugins`, see the limitations), and Kotlin/Native has no such plugin. To process the common sources
+and those of a platform together, as the Kotlin Gradle plugin does for a multiplatform module
+(`KSPJvmMain` of `ksp2` for the JVM and Android, `KSPNativeMain` for a konan target), a **separate
+action** runs the KSP command-line tool of the KSP release the rules pin and declares the Kotlin
+files it generates:
 
 ```starlark
 load("@rules_kotlin//kotlin:core.bzl", "kt_ksp_plugin")
@@ -362,18 +388,26 @@ kt_native_ksp_sources(
 
 kt_multiplatform_library(
     name = "shared",
-    common_srcs = COMMON_SRCS,
-    jvm = dict(srcs = ["jvm/JvmComponent.kt", ":shared_ksp_jvm"]),
-    native = {"apple": dict(srcs = ["apple/AppleComponent.kt", ":shared_ksp_apple"], targets = [...])},
+    jvm = dict(
+        srcs = COMMON_SRCS + ["jvm/JvmComponent.kt", ":shared_ksp_jvm"],
+        deps = ["@kmp_maven//:me_tatarka_inject_kotlin_inject_runtime_kmp"],
+    ),
+    native = {"apple": dict(
+        srcs = COMMON_SRCS + ["apple/AppleComponent.kt", ":shared_ksp_apple"],
+        targets = [...],
+        deps = ["@kmp_maven//:me_tatarka_inject_kotlin_inject_runtime_kmp"],
+    )},
 )
 ```
 
 - The generated files are listed in `generated`, relative to the output root of KSP (the directory of the
-  package and the file name), and are outputs of the target under a directory of its name. They go in
-  the `srcs` of the platform: the leaf fragment (or the group's source set) compiles them with the
-  platform's own sources and the common ones, so they use the `@Inject` classes of the common code.
-  No `.srcjar` and no directory is an output: JVM and Android targets with `source_sets` reject
-  srcjars, and a Kotlin/Native fragment needs concrete source paths.
+  package and the file name), and are outputs of the target under a directory of its name. Only the
+  platform that compiles them lists the target in its `srcs`, so they are in the leaf of that platform,
+  compiled with its own sources and the shared ones: they use the `@Inject` classes of the common code.
+  The target of a native group is in the `srcs` of each of its konan targets, so it is in their fragment
+  (the leaf, for a group of one target), and runs for each of them. No `.srcjar` and no directory is an
+  output: the libraries of a `kt_multiplatform_library` reject srcjars, and a Kotlin/Native fragment
+  needs concrete source paths.
 - The action fails on a file the processors write that is not declared, on one declared that is not
   written (both are named in the message; run it once and list the files it names), on KSP errors, and
   on generated Java sources, classes or resources, which these rules do not compile.
@@ -393,16 +427,16 @@ kt_multiplatform_library(
 
 This is a deliberate exception, not inline KSP: it is one KSP run per platform, which does not give the
 processors the sources other compiler plugins generate. The compiler plugin still does not work with
-`source_sets`, and no generated `.srcjar` is supported by them. `examples/kmp` shows it with
-kotlin-inject 0.9.0 components in the `jvm`, `android` and `apple` sources.
+the libraries of a `kt_multiplatform_library`, and no generated `.srcjar` is supported by them.
+`examples/kmp` shows it with kotlin-inject 0.9.0 components in the `jvm`, `android` and `apple` sources.
 
 ### From Gradle to Bazel
 
 | Gradle (the Kotlin Multiplatform plugin)                                                             | Bazel (rules_kotlin)                                                                                                                                             |
 |------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `kotlin { androidTarget(); iosArm64(); iosSimulatorArm64(); jvm() }` and its `sourceSets`            | `kt_multiplatform_library(common_srcs = ..., android = dict(...), native = {"ios": dict(targets = ["ios_arm64", "ios_simulator_arm64"], ...)}, jvm = dict(...))` |
-| `dependsOn`, the hierarchy of the source sets                                                        | `kt_source_set(depends_on = [...])`; each group of `native` refines the common source set and the source sets of its `depends_on`, which `jvm` and `android` list in their `source_sets` |
-| `commonMain.dependencies { implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2") }` | `kmp_maven.install(artifacts = [...])` in `MODULE.bazel`, and `common_deps = ["@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"]`                     |
+| `kotlin { androidTarget(); iosArm64(); iosSimulatorArm64(); jvm() }` and its `sourceSets`            | `kt_multiplatform_library(android = dict(srcs = COMMON + ANDROID, ...), jvm = dict(srcs = COMMON + JVM, ...), native = {"ios": dict(srcs = COMMON + IOS, targets = ["ios_arm64", "ios_simulator_arm64"], ...)})`, with a list per source set, e.g. `COMMON = glob(["src/commonMain/kotlin/**/*.kt"])` |
+| `dependsOn`, the hierarchy of the source sets                                                        | The sources of a source set in the `srcs` of every platform that compiles it: the platforms listing each source make the fragments and what they refine (see [Fragments](#fragments)) |
+| `commonMain.dependencies { implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2") }` | `kmp_maven.install(artifacts = [...])` in `MODULE.bazel`, and `"@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"` in the `deps` of every platform           |
 | `binaries.framework { baseName = "Shared"; isStatic = true }`                                        | `kt_native_framework(name = "Shared", exports = ["//shared"], transitive_exports = False)`; `export(...)` in the block is `transitive_exports = True` for the listed exports |
 | The Xcode build phase that embeds the framework (`embedAndSignAppleFrameworkForXcode`)               | `filegroup(output_group = "framework_files")`, `apple_static_framework_import` and `ios_application`; or a build phase of the Xcode project that runs `bazel build` (see [The iOS app](#the-ios-app)) |
 | The `androidApp` module                                                                              | `kt_android_library` and `android_binary`, with `--android_platforms`                                                                                            |
@@ -410,11 +444,58 @@ kotlin-inject 0.9.0 components in the `jvm`, `android` and `apple` sources.
 | `./gradlew :shared:jvmTest`                                                                          | A `kt_jvm_test` that depends on `//shared`                                                                                                                       |
 | `./gradlew :shared:iosSimulatorArm64Test`                                                            | No equivalent yet: `kt_native_test` runs for the konan target of the exec host only                                                                              |
 
+### Migrating from `kt_source_set`
+
+`kt_source_set`, its provider `KtSourceSetInfo` and the `source_sets` attribute of the JVM, Android
+and Kotlin/Native rules are removed: the platforms of a `kt_multiplatform_library` list their
+sources, and the macro derives the fragments that the source sets declared. The parameters and keys
+of the former declaration fail the build with what replaces them, e.g.
+`kt_multiplatform_library shared: common_srcs is removed: each platform lists every source it compiles: ...`.
+
+| Before                                                                                                                                  | Now                                                                                                                                                                                      |
+|-----------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `common_srcs = COMMON`                                                                                                                  | `COMMON` in the `srcs` of every platform: `jvm = dict(srcs = COMMON + JVM, ...)`, and so on.                                                                                            |
+| `common_deps = DEPS`                                                                                                                    | `DEPS` in the `deps` of every platform.                                                                                                                                                  |
+| An intermediate `kt_source_set`, in the `source_sets` of `jvm` or `android` and in the `depends_on` of groups of `native`               | Its sources in the `srcs` of every platform that compiled it, and its deps in their `deps`: the platforms listing the sources make the fragment and what it refines.                     |
+| `source_sets` of a `kt_jvm_test`, `kt_android_local_test`, `kt_jvm_binary`, `kt_native_binary`, `kt_native_test` or `kt_native_framework` | A dep on the library of the platform, `//shared` (or `//shared:shared_jvm`, `//shared:shared_native`), whose fragments hold those sources: the target compiles its own `srcs` only. |
+| A `kt_source_set` in the `source_sets` of a `kt_jvm_library`, `kt_android_library` or `kt_native_library` declared by hand            | A `kt_multiplatform_library`, whose libraries are the only ones to compile fragments. The `runtime_deps` that listed the source sets for the aspects go away.                          |
+| The targets `shared_common` and `shared_<group>`                                                                                        | None: depend on `shared` or on the library of a platform; `shared_srcs` has every source.                                                                                                |
+
+The source sets of exactly the same platforms become one fragment: see the
+[limitations of the fragments](#limitations-of-the-fragments).
+
+### Limitations of the fragments
+
+- Source sets of exactly the same platforms collapse into one fragment, e.g. Gradle's `commonMain`
+  and `iosMain` in a module of iOS targets only, or `commonMain` and `nonAndroidMain` in a module
+  without Android. An `expect` declaration in one and its `actual` in the other are then in one
+  fragment, which does not compile: the `actual`s must be in the sources of fewer platforms, e.g.
+  of a group per konan target, or the declaration needs no `expect`. A library of a single platform
+  has no fragment at all: all its sources are its leaf.
+- The platforms share sources by label. The macro resolves the labels of the `srcs` in its package,
+  so `"common/Greeting.kt"`, `":common/Greeting.kt"` and `"//shared:common/Greeting.kt"` are one
+  source, but a file that a platform reaches through two labels, e.g. its path and a `filegroup`
+  containing it, lands in two fragments, and the analysis of the library of that platform fails
+  with `the source <path> is in both fragment '<a>' and '<b>'`. A file that two platforms list
+  through different labels is not shared: each compiles it in its leaf. List each file by one label.
+- Fragments of incomparable sets of platforms, e.g. `android-jvm` and `jvm-linux_x64`, do not
+  refine each other, and the compilation of a platform they share gets both: the `jvm` leaf refines
+  both. An `expect` declaration above them with an `actual` in each gives the JVM two `actual`s,
+  which the compiler rejects.
+- A fragment is named after all its platforms, so the names of the fragments, in the targets
+  `<name>_fragment_<fragment>` and in the `-Xfragments` of the compilations, grow with the number
+  of konan targets: the common fragment of `examples/kmp`, for the JVM, Android and five konan
+  targets, is `android-ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64`.
+- The `srcs` of a platform are a plain list: the macro derives the fragments when it is called,
+  before any `select()` is resolved, and fails on a `select()` there. A source of some konan
+  targets only goes in the `srcs` of a group of those targets.
+
 ## Dependencies
 
-The deps of a Kotlin/Native rule are klibs of its konan target, and those of a source set resolve
-per platform, so a library that differs per platform is an alias that selects its variant, as
-`kt_multiplatform_library` and `kmp_maven` declare them.
+The deps of a Kotlin/Native rule are klibs of its konan target, and each platform of a
+`kt_multiplatform_library` compiles its fragments against its own deps, so a library that differs
+per platform is an alias that selects its variant, as `kt_multiplatform_library` and `kmp_maven`
+declare them: the platforms then list the same alias.
 
 The Maven libraries of multiplatform code come from the `kmp_maven` module extension, the counterpart
 of the `commonMain` dependencies of a Gradle build: `kmp_maven.install` declares their coordinates,
@@ -533,8 +614,8 @@ android_binary(
 `adb install bazel-bin/androidApp/androidApp.apk` installs on a device or an emulator.
 `bazel mobile-install //androidApp` (`--adb=<path>` when adb is not on the PATH) installs it
 incrementally instead, through the mobile-install of rules_android, which dexes the targets it
-reaches through `deps`, `exports` and `runtime_deps`: the source sets of a `kt_multiplatform_library`
-lead it to their deps (see [Source sets and `kt_multiplatform_library`](#source-sets-and-kt_multiplatform_library)).
+reaches through `deps`, `exports` and `runtime_deps`: the deps of `shared_android` are its own
+`deps`, as a fragment has none (see [The declared targets](#the-declared-targets)).
 
 ## The iOS app
 
@@ -650,15 +731,17 @@ the `releaseFramework` task.
   target, which the platform of the app selects.
 - `kt_native_test` runs for the konan target of the exec host only (`linux_x64` or `macos_arm64`):
   not in the iOS simulator, nor through an emulator.
-- `bazel coverage` instruments the Kotlin code compiled for the JVM and Android, the common code of
-  the source sets included; the Kotlin/Native rules do not instrument theirs. An `ios_application`
+- `bazel coverage` instruments the Kotlin code compiled for the JVM and Android, the sources of
+  their fragments included; the Kotlin/Native rules do not instrument theirs. An `ios_application`
   does not link the profile runtime of instrumented Swift code, so `examples/kmp_app` leaves its
   Swift app out of `--instrumentation_filter`.
-- A JVM or Android target with `source_sets` cannot have `.srcjar` sources, kapt or the KSP compiler
-  plugin; [KSP for the source sets](#ksp-for-the-source-sets) is a separate action with declared plain
-  `.kt` outputs, which they compile. KSP of a native target is that action too; there is no inline
-  KSP plugin for Kotlin/Native. Generated Java sources, classes and resources of that action are not
-  supported.
+- The JVM and Android libraries of a `kt_multiplatform_library` cannot have `.srcjar` sources, kapt
+  or the KSP compiler plugin; [KSP for a multiplatform library](#ksp-for-a-multiplatform-library) is
+  a separate action with declared plain `.kt` outputs, which they compile. KSP of a native target is
+  that action too; there is no inline KSP plugin for Kotlin/Native. Generated Java sources, classes
+  and resources of that action are not supported.
+- The fragments follow from the labels the platforms list, with limits of their own: see
+  [Limitations of the fragments](#limitations-of-the-fragments).
 - The JVM and Android variants of Maven libraries bring the `kotlin-stdlib` jar of the manifest next
   to the standard library of the Kotlin toolchain. The dexing of `android_binary` tolerates the
   duplicate classes; a substitution of `kmp_maven.install` aligns the versions (see the
@@ -669,7 +752,7 @@ the `releaseFramework` task.
 | Example                                   | Shows                                                                                                                                                                                       | Hosts                                                                         |
 |-------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
 | [`examples/native`](../examples/native)   | klibs for the host and for every konan target, an executable run end to end, tests, Linux executables linked for both Linux targets, and a framework and its `framework_files` per Apple target. | Linux x86_64 and macOS arm64, the Apple targets on macOS only.             |
-| [`examples/kmp`](../examples/kmp)         | A `kt_multiplatform_library` for the JVM, Android, the Apple and the Linux targets with an intermediate source set, the same kind of module declared with `kt_source_set`, JVM and native tests, `kotlinx-coroutines-core` from `kmp_maven`, and kotlin-inject components generated by KSP for the JVM, Android and Apple sources. | Linux x86_64 and macOS arm64, the Apple klibs on macOS only; Bazel 8.4.2 or newer. |
+| [`examples/kmp`](../examples/kmp)         | A `kt_multiplatform_library` for the JVM, Android, the Apple and the Linux targets, whose platforms add up shared lists of sources, with a non-Android fragment between the common one and those of the Apple and Linux groups; JVM and native tests that depend on `//shared`, `kotlinx-coroutines-core` from `kmp_maven`, and kotlin-inject components generated by KSP for the JVM, Android and Apple sources. | Linux x86_64 and macOS arm64, the Apple klibs on macOS only; Bazel 8.4.2 or newer. |
 | [`examples/kmp_app`](../examples/kmp_app) | An Android app and an iOS app that share one `kt_multiplatform_library`, laid out like the project of the Kotlin Multiplatform wizard.                                                      | macOS arm64 builds both apps, Linux x86_64 the Android app; Bazel 8.4.2 or newer. |
 
 Each builds and tests with `bazel build //...` and `bazel test //...` in its directory.

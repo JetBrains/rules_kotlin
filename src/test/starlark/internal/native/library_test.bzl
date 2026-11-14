@@ -6,8 +6,10 @@ See common.bzl for the fake toolchains.
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_java//java:defs.bzl", "java_library")
 load("//kotlin:core.bzl", "kt_compiler_plugin")
-load("//kotlin:kmp.bzl", "kt_source_set")
 load("//kotlin:native.bzl", "KtKlibInfo", "kt_native_library")
+
+# buildifier: disable=bzl-visibility
+load("//kotlin/internal/kmp:fragment.bzl", "kt_kmp_fragment")
 load(
     ":common.bzl",
     "AIRPLANE_MODE",
@@ -24,7 +26,7 @@ load(
     "tool_arguments",
 )
 
-# The prefix of the module and fragment names derived from the labels of the package.
+# The prefix of the module names derived from the labels of the package.
 _NAMES = "src_test_starlark_internal_native-"
 
 def _basenames(files):
@@ -88,6 +90,7 @@ def _klib_compile_test_impl(ctx):
     asserts.equals(env, klib.path, argument_after(tool, "-o"))
     asserts.equals(env, PACKAGE + "/testdata/greeter.kt", tool[-1])
     asserts.false(env, "-l" in tool, "a klib without deps compiles against no klibs: %s" % tool)
+    asserts.false(env, "-Xmulti-platform" in tool, "a library without kmp_fragments compiles no fragments: %s" % tool)
 
     asserts.equals(env, "1", action.env.get("LIBCLANG_DISABLE_CRASH_RECOVERY"))
 
@@ -199,7 +202,7 @@ def _klib_platform_mismatch_test_impl(ctx):
 
     return analysistest.end(env)
 
-def _source_sets_test_impl(ctx):
+def _fragments_test_impl(ctx):
     env = analysistest.begin(ctx)
 
     action = single_action(env, "KotlinNativeKlibCompile")
@@ -208,11 +211,13 @@ def _source_sets_test_impl(ctx):
     common = PACKAGE + "/testdata/common.kt"
     actual = PACKAGE + "/testdata/actual.kt"
     greeter = PACKAGE + "/testdata/greeter.kt"
-    fragments = [_NAMES + "ss_common", _NAMES + "ss_actual", _NAMES + "source_sets_linux_arm64"]
+    fragments = ["jvm-linux_arm64-linux_x64", "linux_arm64-linux_x64", "linux_arm64"]
 
-    # The source sets, each after those it refines, and the srcs of the library, the leaf fragment
-    # named after its module. Their flags follow the common ones, before the libraries.
-    asserts.equals(env, fragments[2], argument_after(tool, "-module-name"))
+    # The module name derives from the label; the leaf fragment is named after the konan target.
+    asserts.equals(env, _NAMES + "fragments_linux_arm64", argument_after(tool, "-module-name"))
+
+    # The fragments, most shared first, each after those it refines, and the srcs of the library, the
+    # leaf fragment. Their flags follow the common ones, before the libraries.
     start = tool.index("-Xmulti-platform")
     asserts.equals(env, "-Xdebug-prefix-map=__EXECROOT__=.", tool[start - 1])
     asserts.equals(
@@ -237,20 +242,64 @@ def _source_sets_test_impl(ctx):
     for src in [common, actual, greeter]:
         asserts.true(env, src in inputs, "%s should be an input" % src)
 
-    # The deps of the source sets are deps of the library.
+    # A fragment has no deps: the library compiles every fragment against its own deps.
     asserts.equals(env, ["fake_linux_arm64_klib.klib"], [path.rpartition("/")[2] for path in libraries(tool)])
     asserts.equals(
         env,
-        ["fake_linux_arm64_klib.klib", "source_sets_linux_arm64.klib"],
+        ["fake_linux_arm64_klib.klib", "fragments_linux_arm64.klib"],
         _basenames(info.transitive_klibs.to_list()),
     )
 
     return analysistest.end(env)
 
-def _source_set_dep_not_a_klib_test_impl(ctx):
+def _empty_leaf_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    asserts.expect_failure(env, "provides no KtKlibInfo; a Kotlin/Native consumer needs klibs of its konan target")
+    action = single_action(env, "KotlinNativeKlibCompile")
+    info = analysistest.target_under_test(env)[KtKlibInfo]
+    asserts.equals(env, [info.klib], action.outputs.to_list())
+    tool = tool_arguments(action.argv)
+    common = PACKAGE + "/testdata/common.kt"
+    actual = PACKAGE + "/testdata/actual.kt"
+    fragments = ["jvm-linux_arm64-linux_x64", "linux_arm64-linux_x64", "linux_arm64"]
+
+    # Without srcs the leaf is empty: it is still a fragment refining the others, with no sources.
+    start = tool.index("-Xmulti-platform")
+    asserts.equals(
+        env,
+        [
+            "-Xmulti-platform",
+            "-Xexpect-actual-classes",
+            "-Xfragments=" + ",".join(fragments),
+            "-Xfragment-sources=%s:%s" % (fragments[0], common),
+            "-Xfragment-sources=%s:%s" % (fragments[1], actual),
+            "-Xfragment-refines=%s:%s" % (fragments[1], fragments[0]),
+            "-Xfragment-refines=%s:%s" % (fragments[2], fragments[1]),
+            "-o",
+        ],
+        tool[start:start + 8],
+    )
+
+    # The klib compiles the sources of the fragments only.
+    asserts.equals(env, [info.klib.path, common, actual], tool[tool.index("-o") + 1:])
+
+    return analysistest.end(env)
+
+def _file_in_two_fragments_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The shared fragment lists it first, then the leaf, named after the konan target.
+    asserts.expect_failure(
+        env,
+        "the source %s/testdata/actual.kt is in both fragment 'jvm-linux_arm64' and 'linux_arm64'" % PACKAGE,
+    )
+
+    return analysistest.end(env)
+
+def _refine_mismatch_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    asserts.expect_failure(env, "the fragment 'linux_arm64-linux_x64' cannot refine 'jvm-linux_arm64'")
 
     return analysistest.end(env)
 
@@ -283,9 +332,15 @@ klib_platform_mismatch_test = analysistest.make(
     config_settings = for_target("linux_arm64"),
     expect_failure = True,
 )
-source_sets_test = analysistest.make(_source_sets_test_impl, config_settings = for_target("linux_arm64"))
-source_set_dep_not_a_klib_test = analysistest.make(
-    _source_set_dep_not_a_klib_test_impl,
+fragments_test = analysistest.make(_fragments_test_impl, config_settings = for_target("linux_arm64"))
+empty_leaf_test = analysistest.make(_empty_leaf_test_impl, config_settings = for_target("linux_arm64"))
+file_in_two_fragments_test = analysistest.make(
+    _file_in_two_fragments_test_impl,
+    config_settings = for_target("linux_arm64"),
+    expect_failure = True,
+)
+refine_mismatch_test = analysistest.make(
+    _refine_mismatch_test_impl,
     config_settings = for_target("linux_arm64"),
     expect_failure = True,
 )
@@ -396,54 +451,68 @@ def native_library_test_suite(name):
         deps = [":fake_js_klib"],
     )
 
-    # source_sets_linux_arm64: ss_actual refines ss_common, which has a klib dep.
+    # fragments_linux_arm64: frag_native refines frag_common, shared by more platforms including its
+    # own. The library compiles both with its srcs, against its own deps: a fragment has none.
     fake_klib(
         name = "fake_linux_arm64_klib",
         konan_target = "linux_arm64",
         tags = ["manual"],
     )
-    kt_source_set(
-        name = "ss_common",
+    kt_kmp_fragment(
+        name = "frag_common",
         srcs = ["testdata/common.kt"],
+        platforms = ["jvm", "linux_arm64", "linux_x64"],
+        tags = ["manual"],
+    )
+    kt_kmp_fragment(
+        name = "frag_native",
+        srcs = ["testdata/actual.kt"],
+        platforms = ["linux_arm64", "linux_x64"],
+        refines = [":frag_common"],
+        tags = ["manual"],
+    )
+    kt_native_library(
+        name = "fragments_linux_arm64",
+        srcs = ["testdata/greeter.kt"],
+        kmp_fragments = [":frag_native"],
         tags = ["manual"],
         deps = [":fake_linux_arm64_klib"],
     )
-    kt_source_set(
-        name = "ss_actual",
-        srcs = ["testdata/actual.kt"],
-        depends_on = [":ss_common"],
-        tags = ["manual"],
-    )
+
+    # An empty leaf: a library without srcs still compiles its fragments into a klib.
     kt_native_library(
-        name = "source_sets_linux_arm64",
-        srcs = ["testdata/greeter.kt"],
-        source_sets = [":ss_actual"],
+        name = "empty_leaf_linux_arm64",
+        kmp_fragments = [":frag_native"],
         tags = ["manual"],
     )
 
-    # A dep of a source set is a dep of the library, for its konan target.
-    kt_source_set(
-        name = "ss_linux_x64_dep",
-        srcs = ["testdata/common.kt"],
+    # A source that both a fragment and the srcs of the library list is in two fragments.
+    kt_kmp_fragment(
+        name = "frag_with_actual",
+        srcs = ["testdata/actual.kt"],
+        platforms = ["jvm", "linux_arm64"],
         tags = ["manual"],
-        deps = [":fake_linux_x64_klib"],
     )
     kt_native_library(
-        name = "ss_mismatched_linux_arm64",
+        name = "file_in_two_fragments_linux_arm64",
         srcs = ["testdata/actual.kt"],
-        source_sets = [":ss_linux_x64_dep"],
+        kmp_fragments = [":frag_with_actual"],
         tags = ["manual"],
     )
-    kt_source_set(
-        name = "ss_jvm_dep",
-        srcs = ["testdata/common.kt"],
+
+    # frag_bad_refine cannot refine frag_with_actual, which is not shared by more platforms: as many,
+    # and not linux_x64.
+    kt_kmp_fragment(
+        name = "frag_bad_refine",
+        srcs = ["testdata/greeter.kt"],
+        platforms = ["linux_arm64", "linux_x64"],
+        refines = [":frag_with_actual"],
         tags = ["manual"],
-        deps = [":plugin_lib"],
     )
     kt_native_library(
-        name = "ss_jvm_dep_linux_arm64",
-        srcs = ["testdata/actual.kt"],
-        source_sets = [":ss_jvm_dep"],
+        name = "refine_mismatch_linux_arm64",
+        srcs = ["testdata/main.kt"],
+        kmp_fragments = [":frag_bad_refine"],
         tags = ["manual"],
     )
 
@@ -489,19 +558,24 @@ def native_library_test_suite(name):
         target_under_test = ":js_dep_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
-    source_sets_test(
-        name = "klib_source_sets_test",
-        target_under_test = ":source_sets_linux_arm64",
+    fragments_test(
+        name = "klib_fragments_test",
+        target_under_test = ":fragments_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
-    klib_target_mismatch_test(
-        name = "klib_source_set_dep_target_mismatch_test",
-        target_under_test = ":ss_mismatched_linux_arm64",
+    empty_leaf_test(
+        name = "klib_empty_leaf_test",
+        target_under_test = ":empty_leaf_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
-    source_set_dep_not_a_klib_test(
-        name = "klib_source_set_dep_not_a_klib_test",
-        target_under_test = ":ss_jvm_dep_linux_arm64",
+    file_in_two_fragments_test(
+        name = "klib_file_in_two_fragments_test",
+        target_under_test = ":file_in_two_fragments_linux_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+    refine_mismatch_test(
+        name = "klib_refine_mismatch_test",
+        target_under_test = ":refine_mismatch_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
 
@@ -509,13 +583,14 @@ def native_library_test_suite(name):
         name = name,
         tests = [
             ":klib_compile_inputs_test",
+            ":klib_empty_leaf_test",
             ":klib_exports_test",
+            ":klib_file_in_two_fragments_test",
+            ":klib_fragments_test",
             ":klib_platform_mismatch_test",
             ":klib_plugins_test",
             ":klib_provider_test",
-            ":klib_source_set_dep_not_a_klib_test",
-            ":klib_source_set_dep_target_mismatch_test",
-            ":klib_source_sets_test",
+            ":klib_refine_mismatch_test",
             ":klib_target_mismatch_test",
             ":unstaged_klib_compile_inputs_test",
         ],

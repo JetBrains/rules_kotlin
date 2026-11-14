@@ -28,7 +28,7 @@ load(
     _JavacOptions = "JavacOptions",
     _KotlincOptions = "KotlincOptions",
 )
-load("//kotlin/internal/kmp:source_set.bzl", "KtSourceSetInfo")
+load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo")
 load("//kotlin/internal/utils:utils.bzl", "utils")
 
 _implicit_deps = {
@@ -155,8 +155,8 @@ _common_attr = utils.add_dicts(
         They follow the `Target-Label` and `Injecting-Rule-Kind` attributes the rules write. A line that repeats them,
         `Manifest-Version` or `Created-By` is rejected. As in the `deploy_manifest_lines` attribute of `java_binary`,
         `Multi-Release`, `Add-Exports` and `Add-Opens` lines are not copied as they are: singlejar merges them and writes
-        them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs`, `source_sets`
-        and `resources` has no jar of its own and rejects the attribute.""",
+        them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs` and `resources`
+        (and, for a library, `kmp_fragments`) has no jar of its own and rejects the attribute.""",
             default = [],
         ),
         "module_name": attr.string(
@@ -195,29 +195,9 @@ _common_attr = utils.add_dicts(
         ),
         "runtime_deps": attr.label_list(
             doc = """Libraries to make available to the final binary or test at runtime only. Like ordinary deps, these will
-        appear on the runtime classpath, but unlike them, not on the compile-time classpath.
-
-        A source set of `source_sets`, or one they refine, may be listed too. It adds nothing to the classpath (its
-        deps are already deps of the target) but makes them reachable to the aspects of the consumers of the target,
-        which follow `deps`, `exports` and `runtime_deps` and not `source_sets`: the dexing of the `android_binary` of
-        rules_android fails on a jar of the runtime classpath it did not reach, and its mobile-install leaves out the
-        classes of a jar it did not reach (a source set provides a JavaInfo of no classes of its own that exports its
-        deps, which such aspects need to go on). `kt_multiplatform_library` lists the source sets of its JVM and
-        Android libraries here.""",
+        appear on the runtime classpath, but unlike them, not on the compile-time classpath.""",
             default = [],
             allow_files = False,
-        ),
-        "source_sets": attr.label_list(
-            doc = """Kotlin Multiplatform source sets (`kt_source_set`) to compile with the srcs. The Kotlin sources of the
-        source sets, and of those they refine, compile with the srcs in one compilation, as K2 fragments
-        (`-Xmulti-platform`), so the `actual` declarations of the srcs implement the `expect` ones of the source sets. The
-        deps of the source sets are deps of the target, and must be JVM libraries. A target with source sets cannot have
-        .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in
-        Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it. List the source sets in `runtime_deps`
-        as well for the aspects of the consumers of the target (see there); a source set in `deps` or `exports`, which
-        take libraries, is an error.""",
-            default = [],
-            providers = [KtSourceSetInfo],
         ),
         "srcs": attr.label_list(
             doc = """The list of source files that are processed to create the target, this can contain both Java and Kotlin
@@ -248,6 +228,17 @@ Deps listed here will be made available to other rules, as if the parents explic
 these deps. This is not true for regular (non-exported) deps.""",
         default = [],
         providers = [JavaInfo],
+    ),
+    "kmp_fragments": attr.label_list(
+        doc = """The K2 fragments of a `kt_multiplatform_library` that the srcs refine: the sources the library shares with
+        other platforms. `kt_multiplatform_library` sets it from the sources each platform lists; it is not set by hand.
+        The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one compilation
+        (`-Xmulti-platform`), against the deps of the target, so the `actual` declarations of the srcs implement the
+        `expect` ones of the fragments; the srcs are the leaf fragment, `jvm` or `android`. A target with fragments cannot
+        have .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in
+        Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.""",
+        default = [],
+        providers = [KtFragmentInfo],
     ),
     "neverlink": attr.bool(
         doc = """If true only use this library for compilation and not at runtime.""",

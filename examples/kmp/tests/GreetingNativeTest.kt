@@ -30,7 +30,7 @@ class GreetingNativeTest {
 
   @Test
   fun greetsInDetail() {
-    // The intermediate source set, which the group of the host refines besides the common one.
+    // The non-Android fragment, between the common one and the fragment of the host's group.
     assertEquals("${greeting()}, 64-bit", detailedGreeting())
   }
 

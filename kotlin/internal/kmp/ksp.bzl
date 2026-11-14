@@ -1,10 +1,11 @@
 """KSP2 for Kotlin Multiplatform: a separate action runs the KSP command-line tool and declares its generated files.
 
 The KSP compiler plugin that kt_jvm_library and kt_android_library run (`plugins = [kt_ksp_plugin]`) is not
-available to a target with `source_sets`, and Kotlin/Native has no such plugin: both compile sources as the
-K2 fragments of one module, whose inputs a plugin of the compiler does not see across fragments. These rules
-run the KSP command-line tool of the KSP release the toolchain pins instead, as the Kotlin Gradle plugin does
-for a multiplatform module: `KSPJvmMain` for the JVM and Android, `KSPNativeMain` for a konan target.
+available to the libraries of a kt_multiplatform_library, which have `kmp_fragments`, and Kotlin/Native has no
+such plugin: both compile sources as the K2 fragments of one module, whose inputs a plugin of the compiler does
+not see across fragments. These rules run the KSP command-line tool of the KSP release the toolchain pins
+instead, as the Kotlin Gradle plugin does for a multiplatform module: `KSPJvmMain` for the JVM and Android,
+`KSPNativeMain` for a konan target.
 
     kt_jvm_ksp_sources(
         name = "shared_ksp_jvm",
@@ -15,14 +16,15 @@ for a multiplatform module: `KSPJvmMain` for the JVM and Android, `KSPNativeMain
         generated = ["shared/InjectComponent.kt"],  # relative to the output root of KSP
     )
 
-    kt_jvm_library(
-        name = "shared_jvm",
-        srcs = JVM_SRCS + [":shared_ksp_jvm"],      # the leaf fragment compiles the generated sources
-        source_sets = [":shared_common"],
+    kt_multiplatform_library(
+        name = "shared",
+        # Only the JVM lists the generated sources: its leaf fragment compiles them.
+        jvm = dict(srcs = COMMON_SRCS + JVM_SRCS + [":shared_ksp_jvm"]),
+        ...
     )
 
-The output contract is a list of plain Kotlin files, never a srcjar or a directory: a target with
-`source_sets` compiles the files of its `srcs` as the leaf fragment, and a Kotlin/Native fragment needs
+The output contract is a list of plain Kotlin files, never a srcjar or a directory: a library with
+`kmp_fragments` compiles the files of its `srcs` as the leaf fragment, and a Kotlin/Native fragment needs
 concrete source paths. The action fails, listing the files, when the processors write a file that
 `generated` does not declare or do not write one it declares, and when they write Java sources, class files or
 resources, which these rules do not feed to a compilation. Declare the files by running the tool once and
@@ -39,7 +41,7 @@ standard library and platform libraries of the Kotlin/Native distribution.
 
 This is the exception to the rule that KSP of the JVM rules is the compiler plugin: it is a separate action, so
 it does not give the processors the generated sources of other plugins and runs once per platform. It does not
-make the compiler plugin work with `source_sets`, and no srcjar of generated sources is supported by them.
+make the compiler plugin work with `kmp_fragments`, and no srcjar of generated sources is supported by them.
 """
 
 load("@rules_java//java:defs.bzl", "JavaInfo", "java_common")
@@ -188,10 +190,10 @@ _COMMON_ATTRS = {
         doc = "The `-api-version` of KSP; by default the one of the Kotlin toolchain.",
     ),
     "common_srcs": attr.label_list(
-        doc = """The Kotlin sources of the common source sets, a subset of `srcs`. KSP processes them after the sources of
-        the platform, as the KSP Gradle plugin orders the source sets of a platform compilation: a type with an
-        `expect` declaration in the common sources and an `actual` one in the platform sources resolves to the
-        actual, with its constructors and members, as it does in the compilation of the platform.""",
+        doc = """The Kotlin sources the platform shares with other platforms, a subset of `srcs`. KSP processes them after
+        the sources of the platform alone, as the KSP Gradle plugin orders the source sets of a platform compilation: a
+        type with an `expect` declaration in the common sources and an `actual` one in the platform sources resolves to
+        the actual, with its constructors and members, as it does in the compilation of the platform.""",
         allow_files = [".kt"],
     ),
     "generated": attr.string_list(
@@ -216,7 +218,7 @@ _COMMON_ATTRS = {
         cfg = "exec",
     ),
     "srcs": attr.label_list(
-        doc = "The Kotlin sources KSP processes: the sources of the common source sets and of the platform, which the platform library compiles.",
+        doc = "The Kotlin sources KSP processes: every source the platform compiles, those it shares and its own.",
         allow_files = [".kt"],
         mandatory = True,
     ),
@@ -249,8 +251,8 @@ kt_jvm_ksp_sources = rule(
     doc = """Runs KSP2 (`KSPJvmMain`) over the sources of a JVM or Android platform and declares the Kotlin files it generates.
 
     Experimental. See the documentation of kotlin/internal/kmp/ksp.bzl. Compiling the generated files: list the
-    target in the `srcs` of the kt_jvm_library or kt_android_library of the platform, whose `source_sets` compile the
-    common sources.""",
+    target in the `srcs` of the `jvm` or `android` platform of the kt_multiplatform_library, and of no other
+    platform, so they are the leaf fragment of that platform.""",
     implementation = _kt_jvm_ksp_sources_impl,
     attrs = dict(_COMMON_ATTRS, **{
         "android": attr.bool(

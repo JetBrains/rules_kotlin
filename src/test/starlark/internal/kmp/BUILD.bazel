@@ -1,12 +1,14 @@
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(":aspect_deps_test.bzl", "aspect_deps_test_suite")
+load(":derive_test.bzl", "derive_test_suite")
 load(":fragments_test.bzl", "fragments_test_suite")
 load(":ksp_test.bzl", "ksp_test_suite")
 load(":multiplatform_test.bzl", "multiplatform_test_suite")
 load(":platform_type_test.bzl", "platform_type_test_suite")
-load(":source_set_test.bzl", "source_set_test_suite")
 
 aspect_deps_test_suite(name = "aspect_deps_tests")
+
+derive_test_suite(name = "derive_tests")
 
 fragments_test_suite(name = "fragments_tests")
 
@@ -15,8 +17,6 @@ ksp_test_suite(name = "ksp_tests")
 multiplatform_test_suite(name = "multiplatform_tests")
 
 platform_type_test_suite(name = "platform_type_tests")
-
-source_set_test_suite(name = "source_set_tests")
 
 sh_test(
     name = "ksp_run_test",

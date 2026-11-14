@@ -19,7 +19,6 @@ The arguments go through a params file, and every path into the output tree in t
 File, so the actions support path mapping (--experimental_output_paths=strip).
 """
 
-load("//kotlin/internal/kmp:fragments.bzl", "fragment_deps")
 load("//kotlin/internal/utils:utils.bzl", "utils")
 load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
 load(":providers.bzl", "KtKlibInfo")
@@ -43,12 +42,6 @@ _ENV = {
 _EXECUTION_REQUIREMENTS = {
     "supports-path-mapping": "1",
 }
-
-SOURCE_SETS_DOC = """Kotlin Multiplatform source sets (kt_source_set) to compile with the srcs. Their sources, and those of the
-source sets they refine, compile with the srcs in one compilation, as K2 fragments (`-Xmulti-platform`), so the `actual`
-declarations of the srcs implement the `expect` ones of the source sets. Their deps are compiled against as deps, and
-must be klibs of the konan target. Expect/actual classes are Beta in Kotlin: the rule passes
-`-Xexpect-actual-classes`, which acknowledges it."""
 
 def native_module_name(ctx):
     """The module name of a native target: its module_name, or one derived from its label.
@@ -89,23 +82,6 @@ def collect_klib_deps(konan_target, deps):
                 t = konan_target,
             ))
     return depset(transitive = [dep[KtKlibInfo].transitive_klibs for dep in deps])
-
-def source_set_klib_deps(ctx):
-    """The deps of the source_sets of a native target, which it compiles against: they must be klibs.
-
-    Args:
-      ctx: the context of a rule with a source_sets attribute.
-
-    Returns:
-      The deps of its source sets and of those they refine, to pass to collect_klib_deps.
-    """
-    return fragment_deps(
-        ctx.label,
-        ctx.attr.source_sets,
-        KtKlibInfo,
-        "KtKlibInfo",
-        "a Kotlin/Native consumer needs klibs of its konan target",
-    )
 
 def _konanc_args(ctx, tc, *, produce, output, module_name = None, stage_link_deps = False):
     """The arguments every konanc action starts with: the launcher's own, then the common konanc ones.

@@ -1,51 +1,72 @@
-"""kt_multiplatform_library: a Kotlin Multiplatform library from a declaration like the one of the Kotlin Gradle plugin.
+"""kt_multiplatform_library: a Kotlin Multiplatform library whose platforms each list every source they compile.
+
+    COMMON = glob(["common/*.kt"])
+    NON_ANDROID = glob(["non_android/*.kt"])
 
     kt_multiplatform_library(
         name = "shared",
-        common_srcs = glob(["common/*.kt"]),
-        jvm = dict(srcs = glob(["jvm/*.kt"])),
-        android = dict(srcs = glob(["android/*.kt"]), manifest = "android/AndroidManifest.xml"),
+        jvm = dict(srcs = COMMON + NON_ANDROID + glob(["jvm/*.kt"])),
+        android = dict(srcs = COMMON + glob(["android/*.kt"]), manifest = "android/AndroidManifest.xml"),
         native = {
-            "apple": dict(srcs = glob(["apple/*.kt"]), targets = ["ios_arm64", "macos_arm64"]),
-            "linux": dict(srcs = glob(["linux/*.kt"]), targets = ["linux_x64"]),
+            "apple": dict(srcs = COMMON + NON_ANDROID + glob(["apple/*.kt"]), targets = ["ios_arm64", "macos_arm64"]),
+            "linux": dict(srcs = COMMON + NON_ANDROID + glob(["linux/*.kt"]), targets = ["linux_x64"]),
         },
     )
 
-declares:
-- shared_common: the source set of common_srcs and common_deps, Gradle's commonMain;
-- shared_jvm: a kt_jvm_library of the attributes of `jvm`, which compiles the common source set;
-- shared_android: a kt_android_library of the attributes of `android`, which compiles the common
-  source set; both also list the source sets they compile in runtime_deps (see fragments.bzl);
-- shared_apple, shared_linux: a source set per group of konan targets, which refines the common
-  one, as Gradle's appleMain and linuxMain, and the source sets of the group's `depends_on`, for an
-  intermediate source set of the module (Gradle's `iosMain.dependsOn(nonAndroidMain)`);
+A platform is `jvm`, `android` or a konan target, and a native group stands for each of its
+targets. The sources that exactly the same platforms list form one K2 fragment, named after them
+(see derive.bzl): COMMON is the fragment `android-ios_arm64-jvm-linux_x64-macos_arm64`, NON_ANDROID
+`ios_arm64-jvm-linux_x64-macos_arm64`, which refines it, and the Apple sources
+`ios_arm64-macos_arm64`, which refines that one. The sources of a single platform are its leaf
+fragment, named after it, e.g. `jvm` and `linux_x64`; `ios_arm64` and `macos_arm64` are empty here.
+
+The macro declares:
+- shared_fragment_<fragment>: a private kt_kmp_fragment per shared fragment (see fragment.bzl);
+- shared_jvm: a kt_jvm_library of the attributes of `jvm`, whose srcs are the sources only the JVM
+  lists, and whose kmp_fragments are the fragments those refine;
+- shared_android: a kt_android_library of the attributes of `android`, the same way;
 - shared_native: a kt_native_library that compiles, for the konan target of the build's platform,
-  the source set of the group of that target; it is incompatible with other platforms;
-- shared_srcs: a filegroup of the sources of every source set and platform;
+  the sources only that target lists and the fragments they refine, with the other attributes of
+  the group of that target; it is incompatible with other platforms;
+- shared_srcs: a filegroup of the sources of every platform;
 - shared: an alias of shared_native for a Kotlin/Native consumer building for a konan target of the
   groups, of shared_android for an Android platform, and otherwise of shared_jvm, or of the only
   platform declared.
 
-The alias and the compatibility of the source set of a group select on
+The alias and the compatibility of a fragment of konan targets only select on
 //kotlin/native/platforms:native_<konan target>, which only matches below the Kotlin/Native rules:
 they set //kotlin/settings:kotlin_platform_type to native for themselves and their deps. So on a
 macOS or Linux host, whose platform is also the one of a konan target, the alias is shared_jvm for a
-JVM consumer and shared_native for a native one, and the source set of the host's group is skipped
-by a build of the package. The source sets shared_native compiles and its compatibility select on
-the platform only (`is_<konan target>`): it is the Kotlin/Native rule, which transitions itself.
+JVM consumer and shared_native for a native one, and the fragments of konan targets only are skipped
+by a build of the package. The attributes of shared_native and its compatibility select on the
+platform only (`is_<konan target>`): it is the Kotlin/Native rule, which transitions itself.
 """
 
 load("//kotlin/internal/jvm:kt_android_library.bzl", "kt_android_library")
 load("//kotlin/internal/jvm:kt_jvm_library.bzl", "kt_jvm_library")
 load("//kotlin/internal/native:library.bzl", "kt_native_library")
 load("//kotlin/internal/native:targets.bzl", "KONAN_TARGETS")
-load(":source_set.bzl", "kt_source_set")
+load(":derive.bzl", "derive_fragments")
+load(":fragment.bzl", "kt_kmp_fragment")
 
-# The groups that would name a target the macro declares besides the groups.
-_RESERVED_GROUPS = ["android", "common", "jvm", "native", "srcs"]
+# The parameters of the macro that kt_source_set used, and what replaces them.
+_REMOVED_PARAMETERS = {
+    "common_deps": "add the deps to the deps of each platform, which compiles the sources it shares against its own deps",
+    "common_srcs": ("each platform lists every source it compiles: add the sources to the srcs of each platform, " +
+                    "e.g. through a list they share, srcs = COMMON + JVM"),
+}
+
+# The keys a platform no longer takes, and why.
+_REMOVED_KEYS = {
+    "depends_on": ("which is removed: add the sources of the source sets it refined to its srcs; the sources that " +
+                   "the same platforms list form one fragment"),
+    "kmp_fragments": "which the macro derives from the srcs of the platforms",
+    "source_sets": ("which are removed: add their sources to its srcs; the sources that the same platforms list form " +
+                    "one fragment"),
+}
 
 # The keys of a group that are not attributes of the native library.
-_GROUP_KEYS = ["depends_on", "deps", "srcs", "targets"]
+_GROUP_KEYS = ["srcs", "targets"]
 
 _DEFAULT = "//conditions:default"
 
@@ -61,10 +82,10 @@ def konan_targets_compatibility(konan_targets, native_consumer = False):
     Args:
       konan_targets: the konan targets, e.g. `["ios_arm64", "ios_simulator_arm64"]`.
       native_consumer: whether the target is only compatible below a Kotlin/Native consumer building
-        for one of the targets (`native_<target>`), as the source set of a group: a build of the
-        package for the platform of a target would otherwise resolve its deps as a JVM consumer
-        does. By default it is compatible with any build for the platform of a target
-        (`is_<target>`), as the native library, which transitions itself to Kotlin/Native.
+        for one of the targets (`native_<target>`), as a fragment of konan targets only: a build of
+        the package for the platform of a target would otherwise build it as a JVM consumer does.
+        By default it is compatible with any build for the platform of a target (`is_<target>`), as
+        the native library, which transitions itself to Kotlin/Native.
 
     Returns:
       The dict of a select(): no constraint on the platform of each target, and
@@ -79,29 +100,45 @@ def konan_targets_compatibility(konan_targets, native_consumer = False):
 def _filegroup(**kwargs):
     native.filegroup(**kwargs)
 
-def _unique(labels):
-    """The labels without their repetitions, in order: a source several platforms compile is one file of the filegroup.
-
-    A select() (a platform whose srcs are a select) is returned as it is: its branches are only known at analysis.
-    """
-    if type(labels) != "list":
-        return labels
-    return {label: None for label in labels}.keys()
-
 def _alias(**kwargs):
     native.alias(**kwargs)
 
-def multiplatform_declaration_error(jvm, android, native_groups):
-    """The error of the platforms of a kt_multiplatform_library, or None when they are valid.
+def _as_written(label):
+    return str(label)
+
+def _package_relative(label):
+    return str(native.package_relative_label(label))
+
+def _label_normalizer():
+    """The function turning a label of srcs into the string of the label it names in the package of the macro.
+
+    Bazel versions without native.package_relative_label compare the labels as written.
+    """
+    return _package_relative if hasattr(native, "package_relative_label") else _as_written
+
+def _platforms(jvm, android, native_groups):
+    """The platforms of a declaration as (what the errors call it, its attributes)."""
+    return ([("jvm", jvm)] if jvm != None else []) + \
+           ([("android", android)] if android != None else []) + \
+           [("the native group '%s'" % group, attrs) for group, attrs in native_groups.items()]
+
+def multiplatform_declaration_error(jvm, android, native_groups, kwargs = {}, normalize = _as_written):
+    """The error of the declaration of a kt_multiplatform_library, or None when it is valid.
 
     Args:
       jvm: the `jvm` argument of the macro.
       android: the `android` argument of the macro.
       native_groups: the `native` argument of the macro.
+      kwargs: the other arguments of the macro, among which a removed parameter would be.
+      normalize: the function turning a label of srcs into a string equal for equal labels; by
+        default the label as written.
 
     Returns:
       The message of the error, or None.
     """
+    for parameter in sorted(kwargs):
+        if parameter in _REMOVED_PARAMETERS:
+            return "%s is removed: %s" % (parameter, _REMOVED_PARAMETERS[parameter])
     if jvm == None and android == None and not native_groups:
         return "it declares no platform: give jvm, android or native"
     for platform, attrs in [("jvm", jvm), ("android", android)]:
@@ -113,15 +150,8 @@ def multiplatform_declaration_error(jvm, android, native_groups):
     for group, attrs in native_groups.items():
         if not group or not group.replace("_", "").isalnum():
             return "the native group '%s' must be a name of letters, digits and '_'" % group
-        if group in _RESERVED_GROUPS:
-            return "the native group '%s' would name a target the macro declares; rename it" % group
         if type(attrs) != "dict":
-            return "the native group '%s' must be a dict of srcs, deps, depends_on, targets and attributes of kt_native_library" % group
-        if type(attrs.get("depends_on", [])) != "list":
-            return "the native group '%s' must list the source sets it refines in depends_on, not give a %s" % (
-                group,
-                type(attrs["depends_on"]),
-            )
+            return "the native group '%s' must be a dict of srcs, deps, targets and attributes of kt_native_library" % group
         if not attrs.get("targets"):
             return "the native group '%s' lists no konan targets" % group
         for target in attrs["targets"]:
@@ -134,12 +164,41 @@ def multiplatform_declaration_error(jvm, android, native_groups):
             if target in group_of:
                 return "the konan target '%s' is in both native groups '%s' and '%s'" % (target, group_of[target], group)
             group_of[target] = group
+
+    for platform, attrs in _platforms(jvm, android, native_groups):
+        for key in sorted(attrs):
+            if key in _REMOVED_KEYS:
+                return "%s sets %s, %s" % (platform, key, _REMOVED_KEYS[key])
+        srcs = attrs.get("srcs", [])
+        if type(srcs) != "list":
+            return ("the srcs of %s must be a list of labels, not a %s: the macro derives the fragments from the " +
+                    "srcs of the platforms when it is called, before any select() is resolved") % (platform, type(srcs))
+        listed = {}
+        for label in srcs:
+            normalized = normalize(label)
+            if normalized in listed:
+                return "the srcs of %s list %s twice" % (platform, normalized)
+            listed[normalized] = True
     return None
+
+def _platform_srcs(jvm, android, native_groups, normalize):
+    """The labels of the sources of each platform of a valid declaration, normalized: a dict of platform to labels."""
+    platform_srcs = {}
+    if jvm != None:
+        platform_srcs["jvm"] = [normalize(label) for label in jvm.get("srcs", [])]
+    if android != None:
+        platform_srcs["android"] = [normalize(label) for label in android.get("srcs", [])]
+    for attrs in native_groups.values():
+        srcs = [normalize(label) for label in attrs.get("srcs", [])]
+        for target in attrs["targets"]:
+            platform_srcs[target] = srcs
+    return platform_srcs
+
+def _fragment_target(name, fragment):
+    return "%s_fragment_%s" % (name, fragment)
 
 def kt_multiplatform_library(
         name,
-        common_srcs,
-        common_deps = [],
         jvm = None,
         android = None,
         native = {},
@@ -147,89 +206,86 @@ def kt_multiplatform_library(
         tags = [],
         testonly = False,
         **kwargs):
-    """Declares a Kotlin Multiplatform library: its source sets, a library per platform and an alias.
+    """Declares a Kotlin Multiplatform library: a library per platform, the fragments they share and an alias.
 
-    Experimental. Each platform compiles the common source set with its own sources, as K2
-    fragments (see kt_source_set), so the `expect` declarations of the common sources and the
-    `actual` ones of a platform are in one module.
+    Experimental. Each platform lists every source it compiles. The sources that exactly the same
+    platforms list are a K2 fragment of the compilations of those platforms, named after them, and
+    the sources of a single platform are its leaf fragment, so the `expect` declarations of shared
+    sources and the `actual` ones of a platform are in one module (see derive.bzl). A fragment has
+    no deps: each platform compiles it against its own deps. Sources are shared by label: a platform
+    lists a label once, and a file must be listed by the same label everywhere.
 
     Args:
       name: the name of the alias, and the prefix of the names of the other targets.
-      common_srcs: the Kotlin sources of the common source set, `<name>_common`.
-      common_deps: the deps of the common source set, which every platform compiles against. A dep
-        that differs per platform is an alias that selects its klib on
-        `@rules_kotlin//kotlin/native/platforms:native_<konan target>`, its Android library on
-        `@platforms//os:android` and its JVM library by default.
-      jvm: the attributes of the kt_jvm_library `<name>_jvm`, e.g. `dict(srcs = [...], deps = [...])`,
-        or None for no JVM library. Its source_sets are the common source set and those it lists,
-        which are in its runtime_deps too (see that attribute of the library).
-      android: the attributes of the kt_android_library `<name>_android`, e.g. `srcs` and `manifest`,
-        or None for no Android library. Its source_sets are the common source set and those it
-        lists, which are in its runtime_deps too (see that attribute of the library).
+      jvm: the attributes of the kt_jvm_library `<name>_jvm`, e.g. `dict(srcs = COMMON + JVM, deps = [...])`,
+        or None for no JVM library. Its `srcs`, a list of labels, are every source the JVM compiles.
+      android: the attributes of the kt_android_library `<name>_android`, e.g. `srcs`, `deps` and
+        `manifest`, or None for no Android library. Its `srcs`, a list of labels, are every source
+        Android compiles.
       native: the groups of konan targets, `{"<group>": dict(srcs = [...], deps = [...], targets = [...])}`.
-        Each group is a source set, `<name>_<group>`, of its srcs and deps, which refines the common
-        one and which `<name>_native` compiles for each of its targets. A group also refines the
-        kt_source_sets of its `depends_on`, the intermediate source sets of the module between the
-        common one and the group, as Gradle's `iosMain.dependsOn(nonAndroidMain)`; a JVM or Android
-        platform compiles such a source set by listing it in its `source_sets`. The other attributes
-        of a group are attributes of `<name>_native` for its targets, e.g. `opts`.
-      visibility: the visibility of the targets.
+        A group stands for each of its targets: its `srcs`, a list of labels, are every source they
+        compile, and its other attributes, e.g. `deps` and `opts`, are attributes of `<name>_native`
+        for them.
+      visibility: the visibility of the targets; the fragments are private.
       tags: the tags of the targets.
       testonly: whether the targets are testonly.
       **kwargs: more attributes common to every rule, e.g. `features`, of every target.
     """
-    error = multiplatform_declaration_error(jvm, android, native)
+    normalize = _label_normalizer()
+    error = multiplatform_declaration_error(jvm, android, native, kwargs, normalize)
     if error:
         fail("kt_multiplatform_library %s: %s" % (name, error))
 
+    platform_srcs = _platform_srcs(jvm, android, native, normalize)
+    derived = derive_fragments(platform_srcs)
     common_attrs = dict(kwargs, tags = tags, testonly = testonly, visibility = visibility)
-    common = ":%s_common" % name
-    kt_source_set(
-        name = name + "_common",
-        srcs = common_srcs,
-        deps = common_deps,
-        **common_attrs
-    )
-    all_srcs = common_srcs
+
+    def _fragments(platform):
+        return [":" + _fragment_target(name, fragment) for fragment in derived.leaf_refines[platform]]
+
+    for fragment in derived.fragments:
+        attrs = dict(common_attrs, visibility = ["//visibility:private"])
+        if "jvm" not in fragment.platforms and "android" not in fragment.platforms:
+            attrs["target_compatible_with"] = select(konan_targets_compatibility(fragment.platforms, native_consumer = True)) + \
+                                              attrs.pop("target_compatible_with", [])
+        kt_kmp_fragment(
+            name = _fragment_target(name, fragment.name),
+            srcs = fragment.srcs,
+            platforms = fragment.platforms,
+            refines = [":" + _fragment_target(name, refined) for refined in fragment.refines],
+            **attrs
+        )
 
     if jvm != None:
-        attrs = dict(common_attrs, **jvm)
-        attrs["source_sets"] = [common] + jvm.get("source_sets", [])
-        attrs["runtime_deps"] = jvm.get("runtime_deps", []) + attrs["source_sets"]
-        all_srcs = all_srcs + jvm.get("srcs", [])
-        kt_jvm_library(name = name + "_jvm", **attrs)
+        kt_jvm_library(
+            name = name + "_jvm",
+            **dict(common_attrs, **dict(jvm, srcs = derived.leaf_srcs["jvm"], kmp_fragments = _fragments("jvm")))
+        )
 
     if android != None:
-        attrs = dict(common_attrs, **android)
-        attrs["source_sets"] = [common] + android.get("source_sets", [])
-        attrs["runtime_deps"] = android.get("runtime_deps", []) + attrs["source_sets"]
-        all_srcs = all_srcs + android.get("srcs", [])
-        kt_android_library(name = name + "_android", **attrs)
+        kt_android_library(
+            name = name + "_android",
+            **dict(common_attrs, **dict(android, srcs = derived.leaf_srcs["android"], kmp_fragments = _fragments("android")))
+        )
 
     native_targets = []
     if native:
-        # Per konan target: the source set of its group, and the other attributes of the group.
-        source_sets = {}
+        # Per konan target: the sources only it lists, the fragments they refine, and the other
+        # attributes of its group.
+        srcs = {}
+        fragments = {}
         group_attrs = {}
-        for group, spec in native.items():
-            attrs = dict(common_attrs)
-            kt_source_set(
-                name = "%s_%s" % (name, group),
-                srcs = spec.get("srcs", []),
-                deps = spec.get("deps", []),
-                depends_on = [common] + [refined for refined in spec.get("depends_on", []) if refined != common],
-                target_compatible_with = select(konan_targets_compatibility(spec["targets"], native_consumer = True)) + attrs.pop("target_compatible_with", []),
-                **attrs
-            )
-            all_srcs = all_srcs + spec.get("srcs", [])
+        for spec in native.values():
             for target in spec["targets"]:
                 condition = _is_konan_target(target)
                 native_targets.append(target)
-                source_sets[condition] = [":%s_%s" % (name, group)]
+                srcs[condition] = derived.leaf_srcs[target]
+                fragments[condition] = _fragments(target)
                 for key, value in spec.items():
                     if key not in _GROUP_KEYS:
                         group_attrs.setdefault(key, {})[condition] = value
-        source_sets[_DEFAULT] = []
+        srcs[_DEFAULT] = []
+        fragments[_DEFAULT] = []
 
         attrs = dict(common_attrs)
         target_compatible_with = select(konan_targets_compatibility(native_targets)) + attrs.pop("target_compatible_with", [])
@@ -239,14 +295,15 @@ def kt_multiplatform_library(
             attrs[key] = select(branches)
         kt_native_library(
             name = name + "_native",
-            source_sets = select(source_sets),
+            srcs = select(srcs),
+            kmp_fragments = select(fragments),
             target_compatible_with = target_compatible_with,
             **attrs
         )
 
     _filegroup(
         name = name + "_srcs",
-        srcs = _unique(all_srcs),
+        srcs = {label: None for labels in platform_srcs.values() for label in labels}.keys(),
         **common_attrs
     )
 

@@ -1,15 +1,13 @@
 """kt_native_test: links and runs Kotlin/Native tests.
 
-The srcs, with the sources of the source_sets, compile into a private klib, and the link generates
-a test runner for its tests (see link.bzl). The runner exits with 1 when a test fails. It takes its
-own options, e.g. `--ktest_filter=<pattern>`, through `args` or `bazel test --test_arg=...`.
+The srcs compile into a private klib, and the link generates a test runner for its tests (see
+link.bzl). The runner exits with 1 when a test fails. It takes its own options, e.g.
+`--ktest_filter=<pattern>`, through `args` or `bazel test --test_arg=...`.
 
 The test runs where it is linked, on the exec host, so it must be for the konan target of the exec
 host: the build's platform is the host's, as by default.
 """
 
-load("//kotlin/internal/kmp:fragments.bzl", "collect_fragments")
-load(":klib.bzl", "native_module_name")
 load(":link.bzl", "LINK_ATTRS", "link_native")
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
@@ -21,9 +19,8 @@ def _kt_native_test_impl(ctx):
         fail(("%s: a kt_native_test for %s does not run on the exec host, which runs %s binaries; " +
               "build it for %s, or set target_compatible_with to skip it") %
              (ctx.label, tc.konan_target, tc.konan_host, tc.konan_host))
-    if not collect_fragments(ctx, ctx.attr.source_sets, native_module_name(ctx), ctx.files.srcs).srcs:
-        fail("%s: kt_native_test has no sources in srcs or source_sets; its test runner only runs the tests of its own sources" %
-             ctx.label)
+    if not ctx.files.srcs:
+        fail("%s: kt_native_test has no srcs; its test runner only runs the tests of its srcs" % ctx.label)
 
     binary = ctx.actions.declare_file(ctx.label.name + ".kexe")
     link_native(
@@ -38,7 +35,7 @@ def _kt_native_test_impl(ctx):
     return [DefaultInfo(executable = binary, files = depset([binary]))]
 
 kt_native_test = rule(
-    doc = """Links the tests of the srcs and source_sets into a Kotlin/Native test runner, `<name>.kexe`, which `bazel test` runs.
+    doc = """Links the tests of the srcs into a Kotlin/Native test runner, `<name>.kexe`, which `bazel test` runs.
 
     Experimental. The tests use kotlin.test, e.g. `@kotlin.test.Test`. The test is for the konan target of the
     exec host, whose link dependencies must be staged: see kotlin_native.targets(...).""",

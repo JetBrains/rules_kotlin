@@ -1,10 +1,11 @@
 """What the linking rules (kt_native_binary, kt_native_test, kt_native_framework) share.
 
-They link in two actions, as the Kotlin Gradle plugin does: their srcs, with the sources of their
-source_sets as K2 fragments, compile into a private klib, _kt_native/<name>.klib, and the link
-includes that klib in the output with -Xinclude, next to the klibs of the deps. A link can also use
-existing klibs as its main content, so a binary can take its entry point from a dep, and a framework
-can consist of its exports alone.
+They link in two actions, as the Kotlin Gradle plugin does: their srcs compile into a private klib,
+_kt_native/<name>.klib, and the link includes that klib in the output with -Xinclude, next to the
+klibs of the deps. A link can also use existing klibs as its main content, so a binary can take its
+entry point from a dep, and a framework can consist of its exports alone. They compile no Kotlin
+Multiplatform fragments: the sources a kt_multiplatform_library shares compile in its libraries,
+which a linking rule depends on.
 
 Linking needs the link dependencies of the konan target (LLVM, libffi, the cross-toolchain), which
 the `com_github_jetbrains_kotlin_native_deps_<host>` repository of each exec host stages for the
@@ -15,18 +16,8 @@ The linking rules declare LINK_ATTRS, with the attribute of kt_native_transition
 the Kotlin/Native rules to the Kotlin platform type native (see transition.bzl).
 """
 
-load("//kotlin/internal/kmp:fragments.bzl", "collect_fragments")
-load("//kotlin/internal/kmp:source_set.bzl", "KtSourceSetInfo")
 load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
-load(
-    ":klib.bzl",
-    "SOURCE_SETS_DOC",
-    "collect_klib_deps",
-    "kt_native_compile",
-    "kt_native_link",
-    "native_module_name",
-    "source_set_klib_deps",
-)
+load(":klib.bzl", "collect_klib_deps", "kt_native_compile", "kt_native_link", "native_module_name")
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 load(":transition.bzl", "TRANSITION_ATTRS")
@@ -52,10 +43,6 @@ LINK_ATTRS = dict(TRANSITION_ATTRS, **{
         providers = [KtCompilerPluginInfo],
         cfg = "exec",
     ),
-    "source_sets": attr.label_list(
-        doc = SOURCE_SETS_DOC,
-        providers = [KtSourceSetInfo],
-    ),
     "srcs": attr.label_list(
         doc = "Kotlin sources.",
         allow_files = [".kt"],
@@ -72,9 +59,7 @@ def link_native(
         friends = [],
         export_klibs = depset(),
         extra_args = []):
-    """Registers the actions of a linking rule: the compilation of its sources, if any, and the link.
-
-    The sources are the srcs and those of the source_sets, which compile as K2 fragments.
+    """Registers the actions of a linking rule: the compilation of its srcs, if any, and the link.
 
     Args:
       ctx: the context of a rule with LINK_ATTRS, using the Kotlin/Native toolchain type.
@@ -88,7 +73,7 @@ def link_native(
       extra_args: the konanc options of the rule for the link.
 
     Returns:
-      The private klib the sources compile into, or None when the rule has no sources.
+      The private klib the srcs compile into, or None when the rule has no srcs.
     """
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
     if not tc.konan_deps.staged:
@@ -96,22 +81,19 @@ def link_native(
               "add '%s' to kotlin_native.targets(...) in the root MODULE.bazel") %
              (ctx.label, tc.konan_target, tc.konan_target))
 
-    module_name = native_module_name(ctx)
-    fragments = collect_fragments(ctx, ctx.attr.source_sets, module_name, ctx.files.srcs)
-    klib_deps = collect_klib_deps(tc.konan_target, ctx.attr.deps + extra_deps + source_set_klib_deps(ctx))
+    klib_deps = collect_klib_deps(tc.konan_target, ctx.attr.deps + extra_deps)
     main_klib = None
-    if fragments.srcs:
+    if ctx.files.srcs:
         main_klib = ctx.actions.declare_file("_kt_native/%s.klib" % ctx.label.name)
         kt_native_compile(
             ctx,
             output = main_klib,
             srcs = ctx.files.srcs,
             klib_deps = klib_deps,
-            module_name = module_name,
+            module_name = native_module_name(ctx),
             plugins = ctx.attr.plugins,
             opts = ctx.attr.opts,
             friends = friends,
-            fragments = fragments,
             progress_message = "Compiling Kotlin/Native sources of %{label} (" + tc.konan_target + ")",
         )
     kt_native_link(
