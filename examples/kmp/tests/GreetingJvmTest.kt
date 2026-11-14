@@ -27,7 +27,7 @@ class GreetingJvmTest {
 
   @Test
   fun greetsInDetail() {
-    // The intermediate source set, which the JVM library compiles with the common one and its own sources.
+    // The non-Android fragment, which the JVM library compiles between the common one and its own sources.
     assertEquals("${greeting()}, 64-bit", detailedGreeting())
   }
 

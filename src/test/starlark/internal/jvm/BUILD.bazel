@@ -4,13 +4,13 @@ load(":javac_jvm_target_test.bzl", "javac_jvm_target_test_suite")
 load(":javac_options_test.bzl", "javac_options_test_suite")
 load(":javac_warn_test.bzl", "javac_warn_test_suite")
 load(":jvm_deps_tests.bzl", "jvm_deps_test_suite")
+load(":kmp_fragments_test.bzl", "kmp_fragments_test_suite")
 load(":kotlinc_options_test.bzl", "kotlinc_options_test_suite")
 load(":kover_test.bzl", "kover_test_suite")
 load(":kover_toolchain_test.bzl", "kover_toolchain_test_suite")
 load(":kt_jvm_binary_env_test.bzl", "kt_jvm_binary_env_test_suite")
 load(":manifest_lines_test.bzl", "manifest_lines_test_suite")
 load(":plugin_payload_test.bzl", "plugin_payload_test_suite")
-load(":source_sets_test.bzl", "source_sets_test_suite")
 load(":sourceless_library_test.bzl", "sourceless_library_test_suite")
 
 export_only_module_name_test_suite(name = "export_only_module_name_tests")
@@ -25,6 +25,8 @@ javac_warn_test_suite(name = "javac_warn_tests")
 
 jvm_deps_test_suite(name = "jvm_tests")
 
+kmp_fragments_test_suite(name = "kmp_fragments_tests")
+
 kotlinc_options_test_suite(name = "kotlinc_options_tests")
 
 kover_test_suite(name = "kover_tests")
@@ -36,7 +38,5 @@ kt_jvm_binary_env_test_suite(name = "kt_jvm_binary_env_tests")
 manifest_lines_test_suite(name = "manifest_lines_tests")
 
 plugin_payload_test_suite(name = "plugin_payload_tests")
-
-source_sets_test_suite(name = "source_sets_tests")
 
 sourceless_library_test_suite(name = "sourceless_library_tests")

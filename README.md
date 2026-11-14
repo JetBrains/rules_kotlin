@@ -459,26 +459,36 @@ On Linux x86_64 and macOS arm64 hosts, the Kotlin/Native rules of `@rules_kotlin
 build klibs, executables, test runners and static Apple frameworks for the konan target of the
 build's platform: `linux_x64`, `linux_arm64`, `macos_arm64`, `ios_arm64` or `ios_simulator_arm64`.
 `kt_multiplatform_library` (`@rules_kotlin//kotlin:kmp.bzl`) declares a Kotlin Multiplatform module
-as the Kotlin Gradle plugin does: a library per platform, which compiles the common code with the
-`actual` declarations of the platform, behind one label. The rules are experimental and may change.
+as the Kotlin Gradle plugin does: a library per platform, which compiles the sources it shares with
+other platforms and its own in one module, the `expect` declarations of the shared code with the
+`actual` ones of the platform, behind one label. Each platform lists every source it compiles, and
+the sources that exactly the same platforms list are a K2 fragment of their compilations. The rules
+are experimental and may change.
 
 ```python
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
 
+COMMON = glob(["src/commonMain/kotlin/**/*.kt"])
+
+COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
+
 kt_multiplatform_library(
     name = "shared",
-    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]),
-    common_deps = ["@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"],
     android = dict(
-        srcs = glob(["src/androidMain/kotlin/**/*.kt"]),
+        srcs = COMMON + glob(["src/androidMain/kotlin/**/*.kt"]),
         custom_package = "org.example.kmpapp",
         manifest = "src/androidMain/AndroidManifest.xml",
+        deps = [COROUTINES],
     ),
-    jvm = dict(srcs = glob(["src/jvmMain/kotlin/**/*.kt"])),
+    jvm = dict(
+        srcs = COMMON + glob(["src/jvmMain/kotlin/**/*.kt"]),
+        deps = [COROUTINES],
+    ),
     native = {
         "ios": dict(
-            srcs = glob(["src/iosMain/kotlin/**/*.kt"]),
+            srcs = COMMON + glob(["src/iosMain/kotlin/**/*.kt"]),
             targets = ["ios_arm64", "ios_simulator_arm64"],
+            deps = [COROUTINES],
         ),
     },
 )

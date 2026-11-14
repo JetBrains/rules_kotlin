@@ -2,7 +2,7 @@ package examples.kmp.shared
 
 /**
  * The greeting with the bitness of the platform, for the platforms other than Android: the code of
- * an intermediate source set, Gradle's `nonAndroidMain`, which the JVM library and the native groups
- * compile between the common source set and their own, and the Android library does not.
+ * Gradle's intermediate source set `nonAndroidMain`, which the JVM and the native groups list and
+ * Android does not, so it is a fragment between the common one and their own sources.
  */
 fun detailedGreeting(): String = "${greeting()}, ${if (PlatformInfo().is64Bit) 64 else 32}-bit"

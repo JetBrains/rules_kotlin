@@ -4,36 +4,46 @@ load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
 # The alias of kotlinx.coroutines (see MODULE.bazel), which selects its variant like //shared does.
 COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 
+# The common code of src/commonMain, which every platform lists with its own sources.
+COMMON = glob(["src/commonMain/kotlin/**/*.kt"])
+
 # The shared module of the wizard's project, whose Gradle build declares the androidTarget, iosArm64,
-# iosSimulatorArm64 and jvm targets. Each platform compiles the common code with its own `actual`
-# getPlatform(), as K2 fragments. The macro declares shared_common, shared_android, shared_jvm,
-# shared_ios, shared_native and the alias shared, which selects the library of its consumer:
-# shared_native for a Kotlin/Native rule, such as the framework of //iosApp; shared_android for an
-# Android platform, such as the deps of //androidApp; shared_jvm otherwise, such as GreetingTest.
+# iosSimulatorArm64 and jvm targets. Each platform lists every source it compiles, and the deps of
+# the common code: the common sources, which all of them list, are the fragment
+# android-ios_arm64-ios_simulator_arm64-jvm, and those of src/iosMain, which both iOS targets list,
+# the fragment ios_arm64-ios_simulator_arm64, which refines it. The sources of src/androidMain and
+# src/jvmMain are the leaves of their platforms, with the `actual` getPlatform() of each. The macro
+# declares the fragments, shared_android, shared_jvm, shared_native, shared_srcs and the alias shared,
+# which selects the library of its consumer: shared_native for a Kotlin/Native rule, such as the
+# framework of //iosApp; shared_android for an Android platform, such as the deps of //androidApp;
+# shared_jvm otherwise, such as GreetingTest.
 kt_multiplatform_library(
     name = "shared",
     android = dict(
-        srcs = glob(["src/androidMain/kotlin/**/*.kt"]),
+        srcs = COMMON + glob(["src/androidMain/kotlin/**/*.kt"]),
         custom_package = "org.example.kmpapp",
         manifest = "src/androidMain/AndroidManifest.xml",
+        deps = [COROUTINES],
     ),
-    common_deps = [COROUTINES],
-    common_srcs = glob(["src/commonMain/kotlin/**/*.kt"]),
-    jvm = dict(srcs = glob(["src/jvmMain/kotlin/**/*.kt"])),
+    jvm = dict(
+        srcs = COMMON + glob(["src/jvmMain/kotlin/**/*.kt"]),
+        deps = [COROUTINES],
+    ),
     native = {
         "ios": dict(
-            srcs = glob(["src/iosMain/kotlin/**/*.kt"]),
+            srcs = COMMON + glob(["src/iosMain/kotlin/**/*.kt"]),
             targets = [
                 "ios_arm64",
                 "ios_simulator_arm64",
             ],
+            deps = [COROUTINES],
         ),
     },
     visibility = ["//visibility:public"],
 )
 
 # The common tests, on the JVM of the host: the JVM variant of the common code and of
-# kotlinx.coroutines, on any host.
+# kotlinx.coroutines, on any host. The test compiles its own sources only, against shared_jvm.
 kt_jvm_test(
     name = "GreetingTest",
     srcs = glob(["src/commonTest/kotlin/**/*.kt"]),

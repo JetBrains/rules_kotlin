@@ -7,6 +7,9 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 # The alias of kotlinx.coroutines, which the common code of //shared uses and the tests call.
 COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 
+# A test compiles its own sources only, against the library of its platform, which it gets through
+# the alias //shared, as the test compilation of a Gradle module compiles against the main one.
+
 # --- JVM: the common code with the JVM actuals, through the alias ---
 # The aliases //shared and COROUTINES select a klib for the Kotlin/Native rules only, which set the
 # Kotlin platform type to native, so a JVM target gets shared_jvm and the JVM variant of

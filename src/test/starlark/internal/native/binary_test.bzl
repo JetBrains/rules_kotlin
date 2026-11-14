@@ -6,7 +6,6 @@ See common.bzl for the fake toolchains.
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_java//java:defs.bzl", "java_library")
 load("//kotlin:core.bzl", "kt_compiler_plugin")
-load("//kotlin:kmp.bzl", "kt_source_set")
 load("//kotlin:native.bzl", "kt_native_binary", "kt_native_library", "kt_native_test")
 load(
     ":common.bzl",
@@ -25,9 +24,6 @@ load(
     "single_action",
     "tool_arguments",
 )
-
-# The prefix of the module and fragment names derived from the labels of the package.
-_NAMES = "src_test_starlark_internal_native-"
 
 def _basenames(paths):
     return sorted([path.rpartition("/")[2] for path in paths])
@@ -151,38 +147,6 @@ def _binary_without_srcs_test_impl(ctx):
 
     return analysistest.end(env)
 
-def _binary_fragments_test_impl(ctx):
-    env = analysistest.begin(ctx)
-
-    # The srcs compile with the source set, as fragments, against the deps of the source set.
-    compile = single_action(env, "KotlinNativeKlibCompile")
-    main_klib = compile.outputs.to_list()[0]
-    compile_tool = tool_arguments(compile.argv)
-    common = PACKAGE + "/testdata/common.kt"
-    main = PACKAGE + "/testdata/main.kt"
-    fragments = [_NAMES + "link_ss_common", _NAMES + "source_sets_binary_linux_arm64"]
-    asserts.equals(env, [",".join(fragments)], prefixed(compile_tool, "-Xfragments="))
-    asserts.equals(
-        env,
-        ["%s:%s" % (fragments[0], common), "%s:%s" % (fragments[1], main)],
-        prefixed(compile_tool, "-Xfragment-sources="),
-    )
-    asserts.equals(env, ["%s:%s" % (fragments[1], fragments[0])], prefixed(compile_tool, "-Xfragment-refines="))
-    asserts.equals(env, [main_klib.path, common, main], compile_tool[compile_tool.index("-o") + 1:])
-    asserts.equals(env, ["link_greeter_linux_arm64.klib"], _basenames(libraries(compile_tool)))
-
-    # The link includes the private klib and links the deps of the source set; it compiles nothing.
-    link_tool = tool_arguments(single_action(env, "KotlinNativeLink").argv)
-    asserts.true(env, "-Xinclude=__EXECROOT__/" + main_klib.path in link_tool, str(link_tool))
-    asserts.equals(env, ["link_greeter_linux_arm64.klib"], _basenames(libraries(link_tool)))
-    asserts.equals(
-        env,
-        [],
-        [arg for arg in link_tool if arg.startswith("-Xfragment") or arg in ["-Xmulti-platform", "-Xexpect-actual-classes"]],
-    )
-
-    return analysistest.end(env)
-
 def _test_link_test_impl(ctx):
     env = analysistest.begin(ctx)
 
@@ -217,33 +181,10 @@ def _test_not_runnable_test_impl(ctx):
 
     return analysistest.end(env)
 
-def _test_with_source_sets_only_test_impl(ctx):
-    env = analysistest.begin(ctx)
-
-    # The tests of the source set compile into the private klib, the leaf fragment having no sources.
-    compile = single_action(env, "KotlinNativeKlibCompile")
-    main_klib = compile.outputs.to_list()[0]
-    compile_tool = tool_arguments(compile.argv)
-    greeter = PACKAGE + "/testdata/greeter.kt"
-    fragments = [_NAMES + "link_ss_tests", _NAMES + "ss_only_test_linux_arm64"]
-    asserts.equals(env, [",".join(fragments)], prefixed(compile_tool, "-Xfragments="))
-    asserts.equals(env, ["%s:%s" % (fragments[0], greeter)], prefixed(compile_tool, "-Xfragment-sources="))
-    asserts.equals(env, [main_klib.path, greeter], compile_tool[compile_tool.index("-o") + 1:])
-
-    # The link generates the runner of the tests of the included klib.
-    link_tool = tool_arguments(single_action(env, "KotlinNativeLink").argv)
-    asserts.true(env, "-generate-test-runner" in link_tool, str(link_tool))
-    asserts.true(env, "-Xinclude=__EXECROOT__/" + main_klib.path in link_tool, str(link_tool))
-
-    return analysistest.end(env)
-
 def _test_without_srcs_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    asserts.expect_failure(
-        env,
-        "kt_native_test has no sources in srcs or source_sets; its test runner only runs the tests of its own sources",
-    )
+    asserts.expect_failure(env, "kt_native_test has no srcs; its test runner only runs the tests of its srcs")
 
     return analysistest.end(env)
 
@@ -255,11 +196,6 @@ unstaged_link_test = analysistest.make(
 )
 binary_options_test = analysistest.make(_binary_options_test_impl, config_settings = for_target("linux_arm64"))
 binary_without_srcs_test = analysistest.make(_binary_without_srcs_test_impl, config_settings = for_target("linux_arm64"))
-binary_fragments_test = analysistest.make(_binary_fragments_test_impl, config_settings = for_target("linux_arm64"))
-test_with_source_sets_only_test = analysistest.make(
-    _test_with_source_sets_only_test_impl,
-    config_settings = for_target("linux_arm64"),
-)
 test_link_test = analysistest.make(_test_link_test_impl, config_settings = for_target("linux_arm64"))
 test_not_runnable_test = analysistest.make(
     _test_not_runnable_test_impl,
@@ -329,20 +265,6 @@ def native_binary_test_suite(name):
         deps = [":link_main_linux_arm64"],
     )
 
-    # A binary of the srcs and a source set, whose dep it links.
-    kt_source_set(
-        name = "link_ss_common",
-        srcs = ["testdata/common.kt"],
-        tags = ["manual"],
-        deps = [":link_greeter_linux_arm64"],
-    )
-    kt_native_binary(
-        name = "source_sets_binary_linux_arm64",
-        srcs = ["testdata/main.kt"],
-        source_sets = [":link_ss_common"],
-        tags = ["manual"],
-    )
-
     # A test of app, which depends on greeter.
     kt_native_library(
         name = "link_app_linux_arm64",
@@ -367,18 +289,6 @@ def native_binary_test_suite(name):
         tags = ["manual"],
     )
 
-    # A test whose tests are all in a source set.
-    kt_source_set(
-        name = "link_ss_tests",
-        srcs = ["testdata/greeter.kt"],
-        tags = ["manual"],
-    )
-    kt_native_test(
-        name = "ss_only_test_linux_arm64",
-        source_sets = [":link_ss_tests"],
-        tags = ["manual"],
-    )
-
     link_test(
         name = "link_inputs_test",
         target_under_test = ":hello_linux_arm64",
@@ -399,11 +309,6 @@ def native_binary_test_suite(name):
         target_under_test = ":hello_from_dep_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
-    binary_fragments_test(
-        name = "binary_fragments_test",
-        target_under_test = ":source_sets_binary_linux_arm64",
-        target_compatible_with = not_on_windows(),
-    )
     test_link_test(
         name = "test_link_test",
         target_under_test = ":app_test_linux_arm64",
@@ -421,22 +326,15 @@ def native_binary_test_suite(name):
         target_under_test = ":no_srcs_test_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
-    test_with_source_sets_only_test(
-        name = "test_with_source_sets_only_test",
-        target_under_test = ":ss_only_test_linux_arm64",
-        target_compatible_with = not_on_windows(),
-    )
 
     native.test_suite(
         name = name,
         tests = [
-            ":binary_fragments_test",
             ":binary_options_test",
             ":binary_without_srcs_test",
             ":link_inputs_test",
             ":test_link_test",
             ":test_not_runnable_test",
-            ":test_with_source_sets_only_test",
             ":test_without_srcs_fails_test",
             ":unstaged_link_fails_test",
         ],

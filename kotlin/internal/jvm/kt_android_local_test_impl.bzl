@@ -135,8 +135,7 @@ def _process_jvm(ctx, resources_ctx, **_unused_sub_ctxs):
     deps = (
         [_get_android_toolchain(ctx).testsupport] +
         getattr(ctx.attr, "associates", []) +
-        getattr(ctx.attr, "deps", []) +
-        _compile.source_set_deps(ctx)
+        getattr(ctx.attr, "deps", [])
     )
 
     jvm_flags = []
@@ -189,7 +188,7 @@ def _process_jvm(ctx, resources_ctx, **_unused_sub_ctxs):
                 ]
             ),
             associate_deps = getattr(ctx.attr, "associates", []),
-            runtime_deps = _compile.runtime_deps(ctx),
+            runtime_deps = getattr(ctx.attr, "runtime_deps", []),
         ),
         outputs = outputs,
     )

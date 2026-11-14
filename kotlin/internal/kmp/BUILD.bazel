@@ -13,19 +13,19 @@ release_archive(
     },
 )
 
-# The source sets and their fragments, which the JVM and Kotlin/Native rules load.
+# The fragments of a kt_multiplatform_library, which the JVM and Kotlin/Native rules load.
 bzl_library(
     name = "kmp",
     srcs = [
+        "derive.bzl",
+        "fragment.bzl",
         "fragments.bzl",
-        "source_set.bzl",
     ],
     visibility = ["//kotlin:__subpackages__"],
-    deps = ["//kotlin/internal/utils"],
 )
 
 # The macro and the KSP rules, apart: they load the JVM, Android and Kotlin/Native rules, which
-# load the source sets.
+# load the fragments.
 bzl_library(
     name = "multiplatform",
     srcs = [

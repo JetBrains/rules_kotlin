@@ -2,23 +2,16 @@
 
 The konan target is the one of the resolved toolchain (the build's --platforms), not a rule
 attribute. The klib action is the shared one of klib.bzl; linking is handled separately by
-kt_native_binary, kt_native_test and kt_native_framework (see link.bzl). With source_sets, the
-sources of the Kotlin Multiplatform source sets compile with the srcs, as K2 fragments (see
+kt_native_binary, kt_native_test and kt_native_framework (see link.bzl). With kmp_fragments, the
+sources a kt_multiplatform_library shares compile with the srcs, as K2 fragments (see
 //kotlin/internal/kmp:fragments.bzl). Like every Kotlin/Native rule, it builds with the Kotlin
 platform type native (see transition.bzl).
 """
 
+load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo")
 load("//kotlin/internal/kmp:fragments.bzl", "collect_fragments")
-load("//kotlin/internal/kmp:source_set.bzl", "KtSourceSetInfo")
 load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
-load(
-    ":klib.bzl",
-    "SOURCE_SETS_DOC",
-    "collect_klib_deps",
-    "kt_native_compile",
-    "native_module_name",
-    "source_set_klib_deps",
-)
+load(":klib.bzl", "collect_klib_deps", "kt_native_compile", "native_module_name")
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 load(":transition.bzl", "TRANSITION_ATTRS", "kt_native_transition")
@@ -26,11 +19,8 @@ load(":transition.bzl", "TRANSITION_ATTRS", "kt_native_transition")
 def _kt_native_library_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
     module_name = native_module_name(ctx)
-    fragments = collect_fragments(ctx, ctx.attr.source_sets, module_name, ctx.files.srcs)
-    klib_deps = collect_klib_deps(
-        tc.konan_target,
-        ctx.attr.deps + ctx.attr.exports + source_set_klib_deps(ctx),
-    )
+    fragments = collect_fragments(ctx, ctx.attr.kmp_fragments, tc.konan_target, ctx.files.srcs)
+    klib_deps = collect_klib_deps(tc.konan_target, ctx.attr.deps + ctx.attr.exports)
 
     klib = ctx.actions.declare_file(ctx.label.name + ".klib")
     kt_native_compile(
@@ -79,6 +69,15 @@ kt_native_library = rule(
             them as if they listed them in their own deps.""",
             providers = [KtKlibInfo],
         ),
+        "kmp_fragments": attr.label_list(
+            doc = """The K2 fragments of a `kt_multiplatform_library` that the srcs refine: the sources the library shares
+            with other platforms. `kt_multiplatform_library` sets it from the sources each platform lists; it is not set
+            by hand. The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one
+            compilation (`-Xmulti-platform`), against the deps, so the `actual` declarations of the srcs implement the
+            `expect` ones of the fragments; the srcs are the leaf fragment, named after the konan target. Expect/actual
+            classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.""",
+            providers = [KtFragmentInfo],
+        ),
         "module_name": attr.string(
             doc = """The Kotlin module name, which is the unique_name of the klib. By default it is derived from the label,
             as for the JVM rules.""",
@@ -91,10 +90,6 @@ kt_native_library = rule(
             loads them in the embeddable compiler dialect.""",
             providers = [KtCompilerPluginInfo],
             cfg = "exec",
-        ),
-        "source_sets": attr.label_list(
-            doc = SOURCE_SETS_DOC,
-            providers = [KtSourceSetInfo],
         ),
         "srcs": attr.label_list(
             doc = "Kotlin sources.",

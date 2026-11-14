@@ -1,9 +1,0 @@
-load("//kotlin:kmp.bzl", "kt_source_set")
-
-# A source set named like one of the parent package, which it does not collide with.
-kt_source_set(
-    name = "common",
-    srcs = ["Other.kt"],
-    tags = ["manual"],
-    visibility = ["//src/test/starlark/internal/kmp:__pkg__"],
-)
