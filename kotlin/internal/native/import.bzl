@@ -6,7 +6,7 @@ its own deps and exports and in its consumers. It builds with the Kotlin platfor
 the other Kotlin/Native rules (see transition.bzl).
 """
 
-load(":klib.bzl", "collect_klib_deps", "native_module_name")
+load(":klib.bzl", "collect_compile_klib_deps", "collect_klib_deps", "native_module_name")
 load(":providers.bzl", "KtKlibInfo")
 load(":targets.bzl", "KONAN_TARGETS")
 load(":transition.bzl", "TRANSITION_ATTRS", "kt_native_transition")
@@ -19,6 +19,7 @@ def _kt_klib_import_impl(ctx):
         DefaultInfo(files = depset([klib])),
         KtKlibInfo(
             cc_info = None,
+            compile_klib = klib,
             exported_klibs = depset(
                 [export.klib for export in exports],
                 transitive = [export.exported_klibs for export in exports],
@@ -27,6 +28,10 @@ def _kt_klib_import_impl(ctx):
             konan_target = konan_target,
             module_name = native_module_name(ctx),
             platform = "native",
+            transitive_compile_klibs = depset(
+                [klib],
+                transitive = [collect_compile_klib_deps(konan_target, ctx.attr.deps + ctx.attr.exports)],
+            ),
             transitive_klibs = depset(
                 [klib],
                 transitive = [collect_klib_deps(konan_target, ctx.attr.deps + ctx.attr.exports)],

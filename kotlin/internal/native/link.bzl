@@ -2,7 +2,9 @@
 
 They link in two actions, as the Kotlin Gradle plugin does: their srcs compile into a private klib,
 _kt_native/<name>.klib, and the link includes that klib in the output with -Xinclude, next to the
-klibs of the deps. A link can also use existing klibs as its main content, so a binary can take its
+klibs of the deps. The srcs compile against the compile klibs of the deps (KtKlibInfo.compile_klib,
+their header klibs with the build setting experimental_native_header_klibs), and the link reads
+full klibs only. A link can also use existing klibs as its main content, so a binary can take its
 entry point from a dep, and a framework can consist of its exports alone. They compile no Kotlin
 Multiplatform fragments: the sources a kt_multiplatform_library shares compile in its libraries,
 which a linking rule depends on.
@@ -17,7 +19,7 @@ the Kotlin/Native rules to the Kotlin platform type native (see transition.bzl).
 """
 
 load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
-load(":klib.bzl", "collect_klib_deps", "kt_native_compile", "kt_native_link", "native_module_name")
+load(":klib.bzl", "collect_compile_klib_deps", "collect_klib_deps", "kt_native_compile", "kt_native_link", "native_module_name")
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 load(":transition.bzl", "TRANSITION_ATTRS")
@@ -68,7 +70,8 @@ def link_native(
       progress_message: the progress message of the link.
       extra_deps: more targets providing KtKlibInfo that the srcs compile against and the link
         links, e.g. the exports of a framework.
-      friends: klib Files of the deps whose internal declarations the srcs see.
+      friends: compile klibs (KtKlibInfo.compile_klib) of the deps whose internal declarations the
+        srcs see.
       export_klibs: a depset of klib Files of the deps that a framework exports.
       extra_args: the konanc options of the rule for the link.
 
@@ -89,7 +92,7 @@ def link_native(
             ctx,
             output = main_klib,
             srcs = ctx.files.srcs,
-            klib_deps = klib_deps,
+            klib_deps = collect_compile_klib_deps(tc.konan_target, ctx.attr.deps + extra_deps),
             module_name = native_module_name(ctx),
             plugins = ctx.attr.plugins,
             opts = ctx.attr.opts,

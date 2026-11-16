@@ -8,10 +8,12 @@ its link dependencies and `target_compatible_with`.
 
 Every toolchain also carries the KonanLauncher binary its actions run (see klib.bzl), the konan
 target of its exec host, whose binaries a test can run there, and, for an Apple target, the
-environment and execution requirements of an action using Xcode.
+environment and execution requirements of an action using Xcode. It reads the build setting
+//kotlin/settings:experimental_native_header_klibs, so every Kotlin/Native rule sees one value.
 """
 
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
+load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@bazel_skylib//rules/directory:providers.bzl", "DirectoryInfo")
 load("@build_bazel_apple_support//lib:apple_support.bzl", "apple_support")
 load("@build_bazel_apple_support//xcode:providers.bzl", "XcodeVersionInfo")
@@ -107,6 +109,7 @@ def _kt_native_toolchain_impl(ctx):
             platform_libs.transitive_files,
         ]),
         execution_requirements = execution_requirements,
+        header_klibs = ctx.attr._experimental_native_header_klibs[BuildSettingInfo].value,
         is_apple = target.is_apple,
         konan = konan,
         konan_deps = konan_deps,
@@ -162,6 +165,11 @@ _kt_native_toolchain = rule(
             doc = "klib/common/stdlib of the distribution",
             mandatory = True,
             providers = [DirectoryInfo],
+        ),
+        "_experimental_native_header_klibs": attr.label(
+            doc = "whether a kt_native_library also writes a header klib, which its dependents compile against",
+            default = Label("//kotlin/settings:experimental_native_header_klibs"),
+            providers = [BuildSettingInfo],
         ),
     }, apple_support.action_required_attrs()),
     fragments = ["apple"],

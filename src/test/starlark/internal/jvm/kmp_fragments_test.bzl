@@ -3,7 +3,7 @@
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_java//java:defs.bzl", "java_library", "java_plugin")
-load("//kotlin:core.bzl", "kt_ksp_plugin")
+load("//kotlin:core.bzl", "define_kt_toolchain", "kt_ksp_plugin")
 load("//kotlin:jvm.bzl", "kt_jvm_library")
 
 # buildifier: disable=bzl-visibility
@@ -91,6 +91,36 @@ def _expect_failure_test_impl(ctx):
 
     return analysistest.end(env)
 
+def _abi_jar_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    action = _kotlin_compile(env)
+    abi_jar = analysistest.target_under_test(env).label.name + "-kt.abi.jar"
+    outputs = [_basename(f.path) for f in action.outputs.to_list()]
+    abi_jar_values = [_basename(path) for path in _values(action.argv, "--abi_jar")]
+    if ctx.attr.abi_jar:
+        asserts.true(env, abi_jar in outputs, "%s should be an output of KotlinCompile" % abi_jar)
+        asserts.equals(env, [abi_jar], abi_jar_values)
+    else:
+        asserts.false(env, abi_jar in outputs, "%s should not be an output of KotlinCompile" % abi_jar)
+        asserts.equals(env, [], abi_jar_values)
+
+    return analysistest.end(env)
+
+def _class_jar_of_associate_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The ABI jar of the associate lacks its internal declarations, so the class jar replaces it.
+    argv = _kotlin_compile(env).argv
+    class_jar = ctx.attr.associate + ".jar"
+    abi_jar = ctx.attr.associate + ".abi.jar"
+    asserts.equals(env, [class_jar], [_basename(path) for path in _values(argv, "--kotlin_friend_paths")])
+    classpath = [_basename(path) for path in _values(argv, "--classpath")]
+    asserts.true(env, class_jar in classpath, "%s should be in --classpath" % class_jar)
+    asserts.false(env, abi_jar in classpath, "%s should not be in --classpath" % abi_jar)
+
+    return analysistest.end(env)
+
 _fragments_test = analysistest.make(
     _fragments_test_impl,
     attrs = {
@@ -110,12 +140,34 @@ _expect_failure_test = analysistest.make(
     attrs = {"message": attr.string()},
     expect_failure = True,
 )
+_abi_jar_test = analysistest.make(
+    _abi_jar_test_impl,
+    attrs = {
+        # Whether KotlinCompile writes <name>-kt.abi.jar.
+        "abi_jar": attr.bool(),
+    },
+)
+
+# The toolchain removes internal declarations from ABI jars, and does not turn ABI jars on.
+_PUBLIC_ONLY_ABI_TOOLCHAIN = str(Label("//src/test/starlark/internal/jvm:kf_public_only_abi_toolchain"))
+
+_class_jar_of_associate_test = analysistest.make(
+    _class_jar_of_associate_test_impl,
+    attrs = {
+        # The name of the associate of the target under test.
+        "associate": attr.string(),
+    },
+    config_settings = {
+        "//command_line_option:extra_toolchains": [_PUBLIC_ONLY_ABI_TOOLCHAIN],
+    },
+)
 
 def _kmp_fragments_contents():
     for name, out, content in [
         ("kf_platform_kt", "Platform.kt", ["package kf", "", "expect fun platformName(): String"]),
         ("kf_greeting_kt", "Greeting.kt", ["package kf", "", "fun greeting(): String = \"Hello from \" + platformName()"]),
         ("kf_jvm_platform_kt", "Platform.jvm.kt", ["package kf", "", "actual fun platformName(): String = \"JVM\""]),
+        ("kf_associating_kt", "Associating.kt", ["package kf", "", "fun associating(): String = greeting()"]),
         ("kf_dep_java", "Dep.java", ["package kf;", "", "public class Dep {}"]),
         ("kf_processor_java", "Processor.java", ["package kf;", "", "public class Processor {}"]),
         ("kf_srcjar", "Gen.srcjar", [""]),
@@ -187,6 +239,30 @@ def _kmp_fragments_contents():
     kt_jvm_library(
         name = "kf_free_library",
         srcs = [":kf_jvm_platform_kt"],
+        tags = ["manual"],
+    )
+
+    # A library with fragments that opts out of the ABI jar.
+    kt_jvm_library(
+        name = "kf_abi_incompatible_library",
+        srcs = [":kf_jvm_platform_kt"],
+        kmp_fragments = [":kf_jvm_native"],
+        tags = [
+            "kt_abi_plugin_incompatible",
+            "manual",
+        ],
+    )
+
+    # A test library of kf_library, under a toolchain whose ABI jars keep no internal declarations.
+    define_kt_toolchain(
+        name = "kf_public_only_abi_toolchain",
+        experimental_remove_private_classes_in_abi_jars = True,
+        experimental_treat_internal_as_private_in_abi_jars = True,
+    )
+    kt_jvm_library(
+        name = "kf_associating_library",
+        srcs = [":kf_associating_kt"],
+        associates = [":kf_library"],
         tags = ["manual"],
     )
 
@@ -310,6 +386,26 @@ def _kmp_fragments_contents():
         name = "kmp_fragments_none_test",
         target_under_test = ":kf_free_library",
     )
+    _abi_jar_test(
+        name = "kmp_fragments_abi_jar_test",
+        target_under_test = ":kf_library",
+        abi_jar = True,
+    )
+    _abi_jar_test(
+        name = "kmp_fragments_abi_jar_incompatible_test",
+        target_under_test = ":kf_abi_incompatible_library",
+        abi_jar = False,
+    )
+    _abi_jar_test(
+        name = "kmp_fragments_none_abi_jar_test",
+        target_under_test = ":kf_free_library",
+        abi_jar = False,
+    )
+    _class_jar_of_associate_test(
+        name = "kmp_fragments_public_only_associate_test",
+        target_under_test = ":kf_associating_library",
+        associate = "kf_library",
+    )
     _expect_failure_test(
         name = "kmp_fragments_srcjar_fails_test",
         target_under_test = ":kf_srcjar_library",
@@ -347,12 +443,16 @@ def kmp_fragments_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
+            ":kmp_fragments_abi_jar_incompatible_test",
+            ":kmp_fragments_abi_jar_test",
             ":kmp_fragments_duplicate_fragment_fails_test",
             ":kmp_fragments_kapt_fails_test",
             ":kmp_fragments_ksp_fails_test",
             ":kmp_fragments_library_test",
+            ":kmp_fragments_none_abi_jar_test",
             ":kmp_fragments_none_test",
             ":kmp_fragments_not_superset_fails_test",
+            ":kmp_fragments_public_only_associate_test",
             ":kmp_fragments_source_in_two_fragments_fails_test",
             ":kmp_fragments_sourceless_library_test",
             ":kmp_fragments_srcjar_fails_test",

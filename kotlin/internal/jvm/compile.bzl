@@ -1122,7 +1122,13 @@ def _run_kt_java_builder_actions(
     # Build Kotlin
     if has_kt_sources:
         kt_runtime_jar = ctx.actions.declare_file(ctx.label.name + "-kt.jar")
-        if not "kt_abi_plugin_incompatible" in ctx.attr.tags and toolchains.kt.experimental_use_abi_jars == True:
+
+        # A target with kmp_fragments always emits an ABI jar, so an edit that leaves the API of
+        # a multiplatform library unchanged does not recompile its dependents.
+        emit_abi_jar = not "kt_abi_plugin_incompatible" in ctx.attr.tags and (
+            toolchains.kt.experimental_use_abi_jars == True or (fragments != None and fragments.enabled)
+        )
+        if emit_abi_jar:
             kt_compile_jar = ctx.actions.declare_file(ctx.label.name + "-kt.abi.jar")
             outputs = {
                 "abi_jar": kt_compile_jar,

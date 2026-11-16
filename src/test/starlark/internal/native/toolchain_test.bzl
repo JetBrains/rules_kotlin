@@ -11,6 +11,7 @@ load(
     "FAKE_HOST",
     "HOME",
     "not_on_windows",
+    "with_header_klibs",
 )
 
 def _toolchain_info_test_impl(ctx):
@@ -48,6 +49,17 @@ def _toolchain_info_test_impl(ctx):
     asserts.equals(env, {}, info.action_env)
     asserts.equals(env, {}, info.execution_requirements)
 
+    # Header klibs are off by default.
+    asserts.false(env, info.header_klibs)
+
+    return analysistest.end(env)
+
+def _header_klibs_toolchain_info_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    info = analysistest.target_under_test(env)[platform_common.ToolchainInfo]
+    asserts.true(env, info.header_klibs)
+
     return analysistest.end(env)
 
 def _unstaged_toolchain_info_test_impl(ctx):
@@ -69,6 +81,10 @@ def _unstaged_toolchain_info_test_impl(ctx):
 
 toolchain_info_test = analysistest.make(_toolchain_info_test_impl)
 unstaged_toolchain_info_test = analysistest.make(_unstaged_toolchain_info_test_impl)
+header_klibs_toolchain_info_test = analysistest.make(
+    _header_klibs_toolchain_info_test_impl,
+    config_settings = with_header_klibs({}),
+)
 
 def native_toolchain_test_suite(name):
     """Declares the analysis tests of the toolchain.
@@ -89,9 +105,17 @@ def native_toolchain_test_suite(name):
         target_compatible_with = not_on_windows(),
     )
 
+    # The toolchain reads the build setting experimental_native_header_klibs.
+    header_klibs_toolchain_info_test(
+        name = "header_klibs_toolchain_info_test",
+        target_under_test = ":fake_linux_arm64_toolchain_impl",
+        target_compatible_with = not_on_windows(),
+    )
+
     native.test_suite(
         name = name,
         tests = [
+            ":header_klibs_toolchain_info_test",
             ":toolchain_info_test",
             ":unstaged_toolchain_info_test",
         ],

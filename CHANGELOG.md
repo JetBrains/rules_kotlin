@@ -2,6 +2,7 @@
 
 | Date&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | News                    |
 |:-----------------------------------------------------------------------------------------------------------------|-------------------------|
+| Nov 16, 2026 | Compilation avoidance for Kotlin Multiplatform: a `kt_jvm_library` or `kt_android_library` with `kmp_fragments`, such as the JVM and Android libraries of a `kt_multiplatform_library`, emits an ABI jar by default (the tag `kt_abi_plugin_incompatible` opts out), and the experimental build setting `//kotlin/settings:experimental_native_header_klibs` makes `kt_native_library` write header klibs, which its dependents compile against. See [CompileAvoidance.md](CompileAvoidance.md#kotlin-multiplatform) |
 | Nov 6, 2026 | Experimental Kotlin/Native and Kotlin Multiplatform support (#1682): the rules `kt_native_library`, `kt_native_binary`, `kt_native_test`, `kt_native_framework` and `kt_klib_import` (`//kotlin:native.bzl`), `kt_multiplatform_library` (`//kotlin:kmp.bzl`), and the `kotlin_native` and `kmp_maven` module extensions. See [docs/kmp.md](docs/kmp.md) |
 | Oct 19, 2026 | The Build Tools API implementation record requires the checksum of `kotlin-tooling-core`: custom `btapi_impl_version` records must add `tooling_core_sha256` |
 | Mar 6, 2026 | Drop support for Java 8 |

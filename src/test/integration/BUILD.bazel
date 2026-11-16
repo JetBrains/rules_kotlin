@@ -31,3 +31,44 @@ bazel_integration_test(
     ],
     test_runner = ":toolchain_loading_test_runner",
 )
+
+kt_jvm_test(
+    name = "compile_avoidance_test_runner",
+    srcs = ["CompileAvoidanceTest.kt"],
+    # Run through bazel_integration_test, which supplies the Bazel launcher.
+    tags = ["manual"],
+    test_class = "io.bazel.kotlin.integration.CompileAvoidanceTest",
+    deps = [
+        "//src/main/kotlin/io/bazel/kotlin/test:test_base",
+        "@com_google_protobuf//:protobuf_java",
+        "@com_google_protobuf//:protobuf_java_util",
+        "@kotlin_rules_maven_test//:junit_junit",
+    ],
+)
+
+# Edits a multiplatform library and checks which compilations of its dependents rerun.
+bazel_integration_test(
+    name = "compile_avoidance_test",
+    timeout = "eternal",
+    additional_env_inherit = [
+        # allows persistent shared repository cache for bazel-under-test artifacts
+        "RULES_KOTLIN_REPOSITORY_CACHE",
+    ],
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:rules_kotlin_release"],
+    env = {
+        "RULES_KOTLIN_RELEASE": "$(rlocationpath //:rules_kotlin_release)",
+    },
+    tags = [
+        "no-remote",
+        "requires-network",
+    ],
+    # The exec hosts of the Kotlin/Native toolchains of a release.
+    target_compatible_with = select({
+        "@platforms//os:linux": ["@platforms//cpu:x86_64"],
+        "@platforms//os:macos": ["@platforms//cpu:arm64"],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    test_runner = ":compile_avoidance_test_runner",
+)

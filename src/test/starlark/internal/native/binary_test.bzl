@@ -12,10 +12,12 @@ load(
     "AIRPLANE_MODE",
     "DEPS",
     "DEP_NAMES",
+    "HEADER_KLIBS_ATTRS",
     "HOME",
     "NO_LIGHT_DEBUG",
     "PACKAGE",
     "argument_after",
+    "compile_klib_of",
     "for_target",
     "launcher_arguments",
     "libraries",
@@ -23,6 +25,7 @@ load(
     "prefixed",
     "single_action",
     "tool_arguments",
+    "with_header_klibs",
 )
 
 def _basenames(paths):
@@ -34,15 +37,19 @@ def _compile_actions(env):
 def _link_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    # The srcs compile into the private klib, against the deps, without the link dependencies.
+    # The srcs compile into the private klib, against the compile klibs of the deps, without the
+    # link dependencies. Nothing compiles against the private klib, so it has no header klib.
+    header_klibs = ctx.attr.header_klibs
     compile = single_action(env, "KotlinNativeKlibCompile")
     main_klib = compile.outputs.to_list()[0]
+    asserts.equals(env, [main_klib], compile.outputs.to_list())
     asserts.equals(env, PACKAGE + "/_kt_native/hello_linux_arm64.klib", main_klib.short_path)
     asserts.false(env, "--staged-deps" in launcher_arguments(compile.argv), str(compile.argv))
     compile_tool = tool_arguments(compile.argv)
     asserts.equals(env, "library", argument_after(compile_tool, "-produce"))
     asserts.equals(env, "src_test_starlark_internal_native-hello_linux_arm64", argument_after(compile_tool, "-module-name"))
-    asserts.equals(env, ["link_greeter_linux_arm64.klib"], _basenames(libraries(compile_tool)))
+    asserts.equals(env, [compile_klib_of("link_greeter_linux_arm64.klib", header_klibs)], _basenames(libraries(compile_tool)))
+    asserts.equals(env, [], prefixed(compile_tool, "-Xheader-klib-path="))
     asserts.equals(env, main_klib.path, argument_after(compile_tool, "-o"))
     asserts.equals(env, PACKAGE + "/testdata/main.kt", compile_tool[-1])
 
@@ -57,6 +64,7 @@ def _link_test_impl(ctx):
 
     inputs = [f.path for f in link.inputs.to_list()]
     asserts.true(env, main_klib.path in inputs, "the private klib should be an input")
+    asserts.equals(env, [], [path for path in inputs if path.endswith(".header.klib")])
     for name in DEP_NAMES:
         asserts.true(
             env,
@@ -100,8 +108,10 @@ def _link_test_impl(ctx):
     asserts.equals(env, ["-o", binary.path], tool[-2:])
 
     # The private klib is only included (konanc would see it twice with -l), and the link compiles
-    # no source and names no module.
+    # no source and names no module. It links the klibs of the deps, whatever the srcs compiled against.
     asserts.equals(env, ["link_greeter_linux_arm64.klib"], _basenames(libraries(tool)))
+    for library in libraries(tool):
+        asserts.true(env, library in inputs, "%s should be an input" % library)
     asserts.false(env, "-module-name" in tool, str(tool))
     asserts.equals(env, [], [arg for arg in tool if arg.endswith(".kt")])
 
@@ -150,18 +160,23 @@ def _binary_without_srcs_test_impl(ctx):
 def _test_link_test_impl(ctx):
     env = analysistest.begin(ctx)
 
+    header_klibs = ctx.attr.header_klibs
     compile_tool = tool_arguments(single_action(env, "KotlinNativeKlibCompile").argv)
     link = single_action(env, "KotlinNativeLink")
     link_tool = tool_arguments(link.argv)
 
-    # The associate and its deps are deps of both actions.
+    # The associate and its deps are deps of both actions: the compilation reads their compile klibs,
+    # in the order of the klibs the link reads.
     closure = ["link_app_linux_arm64.klib", "link_greeter_linux_arm64.klib"]
-    asserts.equals(env, closure, _basenames(libraries(compile_tool)))
+    asserts.equals(env, [compile_klib_of(name, header_klibs) for name in closure], _basenames(libraries(compile_tool)))
     asserts.equals(env, closure, _basenames(libraries(link_tool)))
+    asserts.equals(env, [compile_klib_of(path, header_klibs) for path in libraries(link_tool)], libraries(compile_tool))
+    asserts.equals(env, [], [f.path for f in link.inputs.to_list() if f.path.endswith(".header.klib")])
 
     # The srcs see the internals of the associate, which konanc matches by the path of its -l
     # argument, but not those of its deps.
-    associate = [path for path in libraries(compile_tool) if path.endswith("/link_app_linux_arm64.klib")]
+    associate_klib = compile_klib_of("link_app_linux_arm64.klib", header_klibs)
+    associate = [path for path in libraries(compile_tool) if path.endswith("/" + associate_klib)]
     asserts.equals(env, associate, [argument_after(compile_tool, "-friend-modules")])
     asserts.false(env, "-friend-modules" in link_tool, str(link_tool))
 
@@ -188,7 +203,12 @@ def _test_without_srcs_test_impl(ctx):
 
     return analysistest.end(env)
 
-link_test = analysistest.make(_link_test_impl, config_settings = for_target("linux_arm64"))
+link_test = analysistest.make(_link_test_impl, attrs = HEADER_KLIBS_ATTRS, config_settings = for_target("linux_arm64"))
+link_header_klibs_test = analysistest.make(
+    _link_test_impl,
+    attrs = HEADER_KLIBS_ATTRS,
+    config_settings = with_header_klibs(for_target("linux_arm64")),
+)
 unstaged_link_test = analysistest.make(
     _unstaged_link_test_impl,
     config_settings = for_target("macos_arm64"),
@@ -196,7 +216,12 @@ unstaged_link_test = analysistest.make(
 )
 binary_options_test = analysistest.make(_binary_options_test_impl, config_settings = for_target("linux_arm64"))
 binary_without_srcs_test = analysistest.make(_binary_without_srcs_test_impl, config_settings = for_target("linux_arm64"))
-test_link_test = analysistest.make(_test_link_test_impl, config_settings = for_target("linux_arm64"))
+test_link_test = analysistest.make(_test_link_test_impl, attrs = HEADER_KLIBS_ATTRS, config_settings = for_target("linux_arm64"))
+test_link_header_klibs_test = analysistest.make(
+    _test_link_test_impl,
+    attrs = HEADER_KLIBS_ATTRS,
+    config_settings = with_header_klibs(for_target("linux_arm64")),
+)
 test_not_runnable_test = analysistest.make(
     _test_not_runnable_test_impl,
     config_settings = for_target("macos_arm64"),
@@ -315,6 +340,21 @@ def native_binary_test_suite(name):
         target_compatible_with = not_on_windows(),
     )
 
+    # With header klibs, the srcs compile against the header klibs of the deps, the friend among them,
+    # and the link reads their klibs.
+    link_header_klibs_test(
+        name = "link_header_klibs_test",
+        target_under_test = ":hello_linux_arm64",
+        header_klibs = True,
+        target_compatible_with = not_on_windows(),
+    )
+    test_link_header_klibs_test(
+        name = "test_link_header_klibs_test",
+        target_under_test = ":app_test_linux_arm64",
+        header_klibs = True,
+        target_compatible_with = not_on_windows(),
+    )
+
     # The fake toolchains run on a linux_arm64 host.
     test_not_runnable_test(
         name = "test_not_runnable_test",
@@ -332,7 +372,9 @@ def native_binary_test_suite(name):
         tests = [
             ":binary_options_test",
             ":binary_without_srcs_test",
+            ":link_header_klibs_test",
             ":link_inputs_test",
+            ":test_link_header_klibs_test",
             ":test_link_test",
             ":test_not_runnable_test",
             ":test_without_srcs_fails_test",

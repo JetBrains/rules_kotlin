@@ -16,6 +16,7 @@ load(
     "not_on_windows",
     "single_action",
     "tool_arguments",
+    "with_header_klibs",
 )
 
 _KLIB = PACKAGE + "/testdata/imported.klib"
@@ -43,8 +44,32 @@ def _provider_test_impl(ctx):
     asserts.equals(env, ["imported_export_linux_arm64.klib"], _basenames(info.exported_klibs.to_list()))
     asserts.equals(env, _CLOSURE, _basenames(info.transitive_klibs.to_list()))
 
+    # An import has no header klib: its consumers compile against the klib, and the closure.
+    asserts.equals(env, info.klib, info.compile_klib)
+    asserts.equals(env, info.transitive_klibs.to_list(), info.transitive_compile_klibs.to_list())
+
     # The klib is used as it is.
     asserts.equals(env, [], analysistest.target_actions(env))
+
+    return analysistest.end(env)
+
+def _header_dep_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The import passes on the header klib of a library it depends on to its consumers' compilations,
+    # and the klib of that library to their links.
+    info = analysistest.target_under_test(env)[KtKlibInfo]
+    asserts.equals(env, info.klib, info.compile_klib)
+    asserts.equals(
+        env,
+        ["import_library_dep_linux_arm64.header.klib", "imported.klib"],
+        _basenames(info.transitive_compile_klibs.to_list()),
+    )
+    asserts.equals(
+        env,
+        ["import_library_dep_linux_arm64.klib", "imported.klib"],
+        _basenames(info.transitive_klibs.to_list()),
+    )
 
     return analysistest.end(env)
 
@@ -84,6 +109,10 @@ consumer_target_mismatch_test = analysistest.make(
     expect_failure = True,
 )
 import_target_mismatch_test = analysistest.make(_target_mismatch_test_impl, expect_failure = True)
+header_dep_test = analysistest.make(
+    _header_dep_test_impl,
+    config_settings = with_header_klibs(for_target("linux_arm64")),
+)
 
 def native_import_test_suite(name):
     """Declares the imports under test, their consumers and the analysis tests of kt_klib_import.
@@ -143,6 +172,20 @@ def native_import_test_suite(name):
         deps = [":imported_linux_x64"],
     )
 
+    # An import depending on a library, which writes a header klib with header klibs on.
+    kt_native_library(
+        name = "import_library_dep_linux_arm64",
+        srcs = ["testdata/greeter.kt"],
+        tags = ["manual"],
+    )
+    kt_klib_import(
+        name = "imported_with_library_dep_linux_arm64",
+        klib = "testdata/imported.klib",
+        konan_target = "linux_arm64",
+        tags = ["manual"],
+        deps = [":import_library_dep_linux_arm64"],
+    )
+
     provider_test(
         name = "import_provider_test",
         target_under_test = ":imported_linux_arm64",
@@ -161,6 +204,11 @@ def native_import_test_suite(name):
         name = "import_dep_target_mismatch_test",
         target_under_test = ":import_mismatched_dep_linux_arm64",
     )
+    header_dep_test(
+        name = "import_header_dep_test",
+        target_under_test = ":imported_with_library_dep_linux_arm64",
+        target_compatible_with = not_on_windows(),
+    )
 
     native.test_suite(
         name = name,
@@ -168,6 +216,7 @@ def native_import_test_suite(name):
             ":import_consumer_target_mismatch_test",
             ":import_consumer_test",
             ":import_dep_target_mismatch_test",
+            ":import_header_dep_test",
             ":import_provider_test",
         ],
     )

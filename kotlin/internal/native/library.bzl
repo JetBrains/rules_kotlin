@@ -11,7 +11,7 @@ platform type native (see transition.bzl).
 load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo")
 load("//kotlin/internal/kmp:fragments.bzl", "collect_fragments")
 load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
-load(":klib.bzl", "collect_klib_deps", "kt_native_compile", "native_module_name")
+load(":klib.bzl", "collect_compile_klib_deps", "collect_klib_deps", "kt_native_compile", "native_module_name")
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 load(":transition.bzl", "TRANSITION_ATTRS", "kt_native_transition")
@@ -21,13 +21,21 @@ def _kt_native_library_impl(ctx):
     module_name = native_module_name(ctx)
     fragments = collect_fragments(ctx, ctx.attr.kmp_fragments, tc.konan_target, ctx.files.srcs)
     klib_deps = collect_klib_deps(tc.konan_target, ctx.attr.deps + ctx.attr.exports)
+    compile_klib_deps = collect_compile_klib_deps(tc.konan_target, ctx.attr.deps + ctx.attr.exports)
 
     klib = ctx.actions.declare_file(ctx.label.name + ".klib")
+
+    # The declarations of the klib without function bodies, which its dependents compile against.
+    header = None
+    if tc.header_klibs and "kt_native_header_klib_incompatible" not in ctx.attr.tags:
+        header = ctx.actions.declare_file(ctx.label.name + ".header.klib")
+    compile_klib = header or klib
     kt_native_compile(
         ctx,
         output = klib,
+        header = header,
         srcs = ctx.files.srcs,
-        klib_deps = klib_deps,
+        klib_deps = compile_klib_deps,
         module_name = module_name,
         plugins = ctx.attr.plugins,
         opts = ctx.attr.opts,
@@ -40,6 +48,7 @@ def _kt_native_library_impl(ctx):
         DefaultInfo(files = depset([klib])),
         KtKlibInfo(
             cc_info = None,
+            compile_klib = compile_klib,
             exported_klibs = depset(
                 [export.klib for export in exports],
                 transitive = [export.exported_klibs for export in exports],
@@ -48,6 +57,7 @@ def _kt_native_library_impl(ctx):
             konan_target = tc.konan_target,
             module_name = module_name,
             platform = "native",
+            transitive_compile_klibs = depset([compile_klib], transitive = [compile_klib_deps]),
             transitive_klibs = depset([klib], transitive = [klib_deps]),
         ),
     ]
@@ -57,7 +67,13 @@ kt_native_library = rule(
 
     Experimental. Build for a konan target with `--platforms`, e.g.
     `--platforms=@rules_kotlin//kotlin/native/platforms:linux_x64`; the host platform builds for the
-    host's target.""",
+    host's target.
+
+    With `--@rules_kotlin//kotlin/settings:experimental_native_header_klibs=true`, the compilation also
+    writes `<name>.header.klib`, the declarations of the klib without function bodies. The compilations
+    of the dependents read it instead of the klib, so an edit that leaves the declarations unchanged
+    does not recompile them; links read the klib. The tag `kt_native_header_klib_incompatible` turns it
+    off for the library. See CompileAvoidance.md.""",
     implementation = _kt_native_library_impl,
     attrs = dict(TRANSITION_ATTRS, **{
         "deps": attr.label_list(

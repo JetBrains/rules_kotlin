@@ -14,16 +14,20 @@ load(
     ":common.bzl",
     "AIRPLANE_MODE",
     "DEPS",
+    "HEADER_KLIBS_ATTRS",
     "HOME",
     "PACKAGE",
     "argument_after",
+    "compile_klib_of",
     "fake_klib",
     "for_target",
     "launcher_arguments",
     "libraries",
     "not_on_windows",
+    "prefixed",
     "single_action",
     "tool_arguments",
+    "with_header_klibs",
 )
 
 # The prefix of the module names derived from the labels of the package.
@@ -37,8 +41,20 @@ def _klib_compile_test_impl(ctx):
 
     target = ctx.attr.konan_target
     action = single_action(env, "KotlinNativeKlibCompile")
-    klib = analysistest.target_under_test(env)[KtKlibInfo].klib
-    asserts.equals(env, [klib], action.outputs.to_list())
+    target_under_test = analysistest.target_under_test(env)
+    info = target_under_test[KtKlibInfo]
+    klib = info.klib
+
+    # With header klibs, the action also writes the header klib, which dependents compile against.
+    # The library lists its klib only.
+    header = info.compile_klib if ctx.attr.header_klib else None
+    if header:
+        asserts.equals(env, compile_klib_of(klib.path, True), header.path)
+        asserts.equals(env, sorted([klib.path, header.path]), sorted([f.path for f in action.outputs.to_list()]))
+    else:
+        asserts.equals(env, klib, info.compile_klib)
+        asserts.equals(env, [klib], action.outputs.to_list())
+    asserts.equals(env, [klib], target_under_test[DefaultInfo].files.to_list())
 
     inputs = [f.path for f in action.inputs.to_list()]
     for expected in [
@@ -78,7 +94,7 @@ def _klib_compile_test_impl(ctx):
     tool = tool_arguments(argv)
     asserts.equals(env, "library", argument_after(tool, "-produce"))
     asserts.equals(env, target, argument_after(tool, "-target"))
-    asserts.equals(env, "src_test_starlark_internal_native-greeter_" + target, argument_after(tool, "-module-name"))
+    asserts.equals(env, _NAMES + target_under_test.label.name, argument_after(tool, "-module-name"))
     for flag in [
         "-Xkonan-data-dir=%s.konan_data" % klib.path,
         "-Xauto-cache-dir=%s.konan_cache" % klib.path,
@@ -89,6 +105,11 @@ def _klib_compile_test_impl(ctx):
         asserts.true(env, flag in tool, "%s should be in %s" % (flag, tool))
     asserts.equals(env, klib.path, argument_after(tool, "-o"))
     asserts.equals(env, PACKAGE + "/testdata/greeter.kt", tool[-1])
+
+    # The header klib is an option of the rule, before the output and the sources.
+    asserts.equals(env, [header.path] if header else [], prefixed(tool, "-Xheader-klib-path="))
+    if header:
+        asserts.true(env, tool.index("-Xheader-klib-path=" + header.path) < tool.index("-o"))
     asserts.false(env, "-l" in tool, "a klib without deps compiles against no klibs: %s" % tool)
     asserts.false(env, "-Xmulti-platform" in tool, "a library without kmp_fragments compiles no fragments: %s" % tool)
 
@@ -127,35 +148,80 @@ def _provider_test_impl(ctx):
         _basenames(info.transitive_klibs.to_list()),
     )
 
-    # It compiles against its deps and exports, transitively.
+    # What its dependents compile against: the same closure, in the same order, with the header klib
+    # of every library when header klibs are on.
+    header_klibs = ctx.attr.header_klibs
+    asserts.equals(env, compile_klib_of(info.klib.path, header_klibs), info.compile_klib.path)
+    asserts.equals(
+        env,
+        [compile_klib_of(f.path, header_klibs) for f in info.transitive_klibs.to_list()],
+        [f.path for f in info.transitive_compile_klibs.to_list()],
+    )
+
+    # It compiles against the compile klibs of its deps and exports, transitively, in the order of
+    # their closure, and reads no other klib.
     action = single_action(env, "KotlinNativeKlibCompile")
     tool = tool_arguments(action.argv)
     libraries = [tool[i + 1] for i in range(len(tool)) if tool[i] == "-l"]
     asserts.equals(
         env,
-        ["base_linux_arm64.klib", "exported_linux_arm64.klib", "reexported_linux_arm64.klib"],
+        [f.path for f in info.transitive_compile_klibs.to_list() if f != info.compile_klib],
+        libraries,
+    )
+    asserts.equals(
+        env,
+        [
+            compile_klib_of(name, header_klibs)
+            for name in ["base_linux_arm64.klib", "exported_linux_arm64.klib", "reexported_linux_arm64.klib"]
+        ],
         sorted([path.rpartition("/")[2] for path in libraries]),
     )
     inputs = [f.basename for f in action.inputs.to_list()]
-    for library in libraries:
-        asserts.true(env, library.rpartition("/")[2] in inputs, "%s should be an input" % library)
+    asserts.equals(
+        env,
+        sorted([path.rpartition("/")[2] for path in libraries]),
+        sorted([name for name in inputs if name.endswith(".klib")]),
+    )
 
     return analysistest.end(env)
 
 def _consumer_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    # A dependent of the exporter compiles against the full closure, its exports included.
+    # A dependent of the exporter compiles against the full closure, its exports included: against
+    # their header klibs, with header klibs on.
     tool = tool_arguments(single_action(env, "KotlinNativeKlibCompile").argv)
     asserts.equals(
         env,
         [
-            "base_linux_arm64.klib",
-            "exported_linux_arm64.klib",
-            "exporter_linux_arm64.klib",
-            "reexported_linux_arm64.klib",
+            compile_klib_of(name, ctx.attr.header_klibs)
+            for name in [
+                "base_linux_arm64.klib",
+                "exported_linux_arm64.klib",
+                "exporter_linux_arm64.klib",
+                "reexported_linux_arm64.klib",
+            ]
         ],
         sorted([tool[i + 1].rpartition("/")[2] for i in range(len(tool)) if tool[i] == "-l"]),
+    )
+
+    return analysistest.end(env)
+
+def _header_incompatible_dep_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The library in the middle writes no header klib: the top one compiles against its klib, and
+    # against the header klib of the one below it. Its links read the klibs of both.
+    tool = tool_arguments(single_action(env, "KotlinNativeKlibCompile").argv)
+    asserts.equals(
+        env,
+        ["chain_bottom_linux_arm64.header.klib", "chain_middle_linux_arm64.klib"],
+        sorted([path.rpartition("/")[2] for path in libraries(tool)]),
+    )
+    asserts.equals(
+        env,
+        ["chain_bottom_linux_arm64.klib", "chain_middle_linux_arm64.klib", "chain_top_linux_arm64.klib"],
+        _basenames(analysistest.target_under_test(env)[KtKlibInfo].transitive_klibs.to_list()),
     )
 
     return analysistest.end(env)
@@ -305,6 +371,8 @@ def _refine_mismatch_test_impl(ctx):
 
 _KLIB_COMPILE_ATTRS = {
     "apple_sdk_platform": attr.string(),
+    # Whether the library writes a header klib.
+    "header_klib": attr.bool(),
     "konan_target": attr.string(),
     "other_target": attr.string(),
 }
@@ -319,8 +387,35 @@ klib_compile_macos_arm64_test = analysistest.make(
     attrs = _KLIB_COMPILE_ATTRS,
     config_settings = for_target("macos_arm64"),
 )
-provider_test = analysistest.make(_provider_test_impl, config_settings = for_target("linux_arm64"))
-consumer_test = analysistest.make(_consumer_test_impl, config_settings = for_target("linux_arm64"))
+klib_compile_header_klibs_test = analysistest.make(
+    _klib_compile_test_impl,
+    attrs = _KLIB_COMPILE_ATTRS,
+    config_settings = with_header_klibs(for_target("linux_arm64")),
+)
+provider_test = analysistest.make(
+    _provider_test_impl,
+    attrs = HEADER_KLIBS_ATTRS,
+    config_settings = for_target("linux_arm64"),
+)
+provider_header_klibs_test = analysistest.make(
+    _provider_test_impl,
+    attrs = HEADER_KLIBS_ATTRS,
+    config_settings = with_header_klibs(for_target("linux_arm64")),
+)
+consumer_test = analysistest.make(
+    _consumer_test_impl,
+    attrs = HEADER_KLIBS_ATTRS,
+    config_settings = for_target("linux_arm64"),
+)
+consumer_header_klibs_test = analysistest.make(
+    _consumer_test_impl,
+    attrs = HEADER_KLIBS_ATTRS,
+    config_settings = with_header_klibs(for_target("linux_arm64")),
+)
+header_incompatible_dep_test = analysistest.make(
+    _header_incompatible_dep_test_impl,
+    config_settings = with_header_klibs(for_target("linux_arm64")),
+)
 plugins_test = analysistest.make(_plugins_test_impl, config_settings = for_target("linux_arm64"))
 klib_target_mismatch_test = analysistest.make(
     _klib_target_mismatch_test_impl,
@@ -360,6 +455,16 @@ def native_library_test_suite(name):
             tags = ["manual"],
         )
 
+    # A library that writes no header klib, even with header klibs on.
+    kt_native_library(
+        name = "greeter_without_header_linux_arm64",
+        srcs = ["testdata/greeter.kt"],
+        tags = [
+            "kt_native_header_klib_incompatible",
+            "manual",
+        ],
+    )
+
     # exporter: deps = [base], exports = [exported], which exports reexported.
     for library in ["base", "reexported"]:
         kt_native_library(
@@ -386,6 +491,28 @@ def native_library_test_suite(name):
         srcs = ["testdata/greeter.kt"],
         tags = ["manual"],
         deps = [":exporter_linux_arm64"],
+    )
+
+    # chain_top: deps = [chain_middle], which writes no header klib and depends on chain_bottom.
+    kt_native_library(
+        name = "chain_bottom_linux_arm64",
+        srcs = ["testdata/greeter.kt"],
+        tags = ["manual"],
+    )
+    kt_native_library(
+        name = "chain_middle_linux_arm64",
+        srcs = ["testdata/greeter.kt"],
+        tags = [
+            "kt_native_header_klib_incompatible",
+            "manual",
+        ],
+        deps = [":chain_bottom_linux_arm64"],
+    )
+    kt_native_library(
+        name = "chain_top_linux_arm64",
+        srcs = ["testdata/greeter.kt"],
+        tags = ["manual"],
+        deps = [":chain_middle_linux_arm64"],
     )
 
     java_library(
@@ -538,9 +665,46 @@ def native_library_test_suite(name):
         target_under_test = ":exporter_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
+
+    # With header klibs, a library also writes its header klib, unless its tag opts it out.
+    klib_compile_header_klibs_test(
+        name = "klib_compile_header_test",
+        target_under_test = ":greeter_linux_arm64",
+        header_klib = True,
+        konan_target = "linux_arm64",
+        other_target = "macos_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+    klib_compile_header_klibs_test(
+        name = "klib_compile_header_incompatible_test",
+        target_under_test = ":greeter_without_header_linux_arm64",
+        konan_target = "linux_arm64",
+        other_target = "macos_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+    provider_header_klibs_test(
+        name = "klib_header_provider_test",
+        target_under_test = ":exporter_linux_arm64",
+        header_klibs = True,
+        target_compatible_with = not_on_windows(),
+    )
     consumer_test(
         name = "klib_exports_test",
         target_under_test = ":consumer_linux_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+
+    # With header klibs, dependents compile against the header klibs of the closure, but against the
+    # klib of a library that opts out.
+    consumer_header_klibs_test(
+        name = "klib_header_exports_test",
+        target_under_test = ":consumer_linux_arm64",
+        header_klibs = True,
+        target_compatible_with = not_on_windows(),
+    )
+    header_incompatible_dep_test(
+        name = "klib_header_incompatible_dep_test",
+        target_under_test = ":chain_top_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
     plugins_test(
@@ -582,11 +746,16 @@ def native_library_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
+            ":klib_compile_header_incompatible_test",
+            ":klib_compile_header_test",
             ":klib_compile_inputs_test",
             ":klib_empty_leaf_test",
             ":klib_exports_test",
             ":klib_file_in_two_fragments_test",
             ":klib_fragments_test",
+            ":klib_header_exports_test",
+            ":klib_header_incompatible_dep_test",
+            ":klib_header_provider_test",
             ":klib_platform_mismatch_test",
             ":klib_plugins_test",
             ":klib_provider_test",

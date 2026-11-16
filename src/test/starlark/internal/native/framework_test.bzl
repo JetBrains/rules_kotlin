@@ -8,9 +8,11 @@ load("//kotlin:native.bzl", "kt_native_framework", "kt_native_library")
 load(
     ":common.bzl",
     "DEPS",
+    "HEADER_KLIBS_ATTRS",
     "NO_LIGHT_DEBUG",
     "PACKAGE",
     "argument_after",
+    "compile_klib_of",
     "for_target",
     "launcher_arguments",
     "libraries",
@@ -18,6 +20,7 @@ load(
     "prefixed",
     "single_action",
     "tool_arguments",
+    "with_header_klibs",
 )
 
 def _basenames(paths):
@@ -26,8 +29,9 @@ def _basenames(paths):
 def _framework_link_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    # The srcs compile into the private klib, against the deps and the exports. The klib keeps its
-    # module name: the framework, like the prefix of its Objective-C names, is named after the target.
+    # The srcs compile into the private klib, against the compile klibs of the deps and the exports.
+    # The klib keeps its module name: the framework, like the prefix of its Objective-C names, is
+    # named after the target.
     compile = single_action(env, "KotlinNativeKlibCompile")
     main_klib = compile.outputs.to_list()[0]
     asserts.equals(env, PACKAGE + "/_kt_native/GreeterKit.klib", main_klib.short_path)
@@ -38,7 +42,7 @@ def _framework_link_test_impl(ctx):
         "fw_exported_ios_simulator_arm64.klib",
         "fw_reexported_ios_simulator_arm64.klib",
     ]
-    asserts.equals(env, closure, _basenames(libraries(compile_tool)))
+    asserts.equals(env, [compile_klib_of(name, ctx.attr.header_klibs) for name in closure], _basenames(libraries(compile_tool)))
 
     # The framework is a directory, the only output of the rule.
     link = single_action(env, "KotlinNativeLink")
@@ -62,7 +66,7 @@ def _framework_link_test_impl(ctx):
     asserts.equals(env, ["-o", framework.path], tool[-2:])
 
     # It exports the exports and their exports, but not the deps, each written as its -l argument,
-    # which is how konanc matches them.
+    # which is how konanc matches them. It links and exports klibs, whatever the srcs compiled against.
     asserts.equals(env, closure, _basenames(libraries(tool)))
     exported = [path for path in libraries(tool) if "/fw_dep_" not in path]
     asserts.equals(env, 2, len(exported))
@@ -78,6 +82,7 @@ def _framework_link_test_impl(ctx):
     )
     inputs = [f.path for f in link.inputs.to_list()]
     asserts.true(env, main_klib.path in inputs, "the private klib should be an input")
+    asserts.equals(env, [], [path for path in inputs if path.endswith(".header.klib")])
     asserts.equals(env, [], [path for path in inputs if path.startswith(DEPS + "/dependencies/gcc-fixture/")])
     asserts.equals(env, "iPhoneSimulator", link.env.get("APPLE_SDK_PLATFORM"), str(link.env))
 
@@ -166,7 +171,16 @@ def _framework_unstaged_test_impl(ctx):
 
     return analysistest.end(env)
 
-framework_link_test = analysistest.make(_framework_link_test_impl, config_settings = for_target("ios_simulator_arm64"))
+framework_link_test = analysistest.make(
+    _framework_link_test_impl,
+    attrs = HEADER_KLIBS_ATTRS,
+    config_settings = for_target("ios_simulator_arm64"),
+)
+framework_link_header_klibs_test = analysistest.make(
+    _framework_link_test_impl,
+    attrs = HEADER_KLIBS_ATTRS,
+    config_settings = with_header_klibs(for_target("ios_simulator_arm64")),
+)
 framework_files_test = analysistest.make(_framework_files_test_impl, config_settings = for_target("ios_simulator_arm64"))
 framework_without_srcs_test = analysistest.make(
     _framework_without_srcs_test_impl,
@@ -246,6 +260,15 @@ def native_framework_test_suite(name):
         target_under_test = ":GreeterKit",
         target_compatible_with = not_on_windows(),
     )
+
+    # With header klibs, the srcs compile against the header klibs of the deps and the exports; the
+    # link still links and exports their klibs.
+    framework_link_header_klibs_test(
+        name = "framework_link_header_klibs_test",
+        target_under_test = ":GreeterKit",
+        header_klibs = True,
+        target_compatible_with = not_on_windows(),
+    )
     framework_files_test(
         name = "framework_files_test",
         target_under_test = ":GreeterKit",
@@ -279,6 +302,7 @@ def native_framework_test_suite(name):
         tests = [
             ":framework_direct_exports_test",
             ":framework_files_test",
+            ":framework_link_header_klibs_test",
             ":framework_link_test",
             ":framework_non_apple_fails_test",
             ":framework_unstaged_fails_test",

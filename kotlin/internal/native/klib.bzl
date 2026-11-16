@@ -57,20 +57,8 @@ def native_module_name(ctx):
     """
     return utils.derive_module_name(ctx)
 
-def collect_klib_deps(konan_target, deps):
-    """The klibs a compilation against `deps` needs: their transitive klibs.
-
-    konanc resolves the `depends=` of a klib by name among the libraries it gets with -l only (it has
-    no library search path), so a compilation gets the full transitive closure. The `depends=` of the
-    klib it produces then lists that closure too, not only the direct deps.
-
-    Args:
-      konan_target: the konan target of the compilation.
-      deps: targets providing KtKlibInfo, which must be Kotlin/Native klibs of `konan_target`.
-
-    Returns:
-      A depset of the klib Files.
-    """
+def _check_klib_deps(konan_target, deps):
+    """Fails unless every dep is a Kotlin/Native klib of `konan_target`."""
     for dep in deps:
         info = dep[KtKlibInfo]
         if info.platform != "native":
@@ -81,7 +69,42 @@ def collect_klib_deps(konan_target, deps):
                 dt = info.konan_target,
                 t = konan_target,
             ))
+
+def collect_klib_deps(konan_target, deps):
+    """The klibs of `deps`, transitively: what a link of `deps` reads.
+
+    konanc resolves the `depends=` of a klib by name among the libraries it gets with -l only (it has
+    no library search path), so a compilation or a link gets the full transitive closure. The
+    `depends=` of the klib a compilation produces then lists that closure too, not only the direct
+    deps. A compilation reads the compile klibs of the closure instead (collect_compile_klib_deps),
+    which have the same unique_names.
+
+    Args:
+      konan_target: the konan target of the compilation.
+      deps: targets providing KtKlibInfo, which must be Kotlin/Native klibs of `konan_target`.
+
+    Returns:
+      A depset of the klib Files.
+    """
+    _check_klib_deps(konan_target, deps)
     return depset(transitive = [dep[KtKlibInfo].transitive_klibs for dep in deps])
+
+def collect_compile_klib_deps(konan_target, deps):
+    """The compile klibs of `deps`, transitively: what a compilation against `deps` reads.
+
+    The closure is the one of collect_klib_deps, in the same order, with every klib replaced by its
+    compile klib (KtKlibInfo.compile_klib): the header klib of a library that writes one, else the
+    klib itself.
+
+    Args:
+      konan_target: the konan target of the compilation.
+      deps: targets providing KtKlibInfo, which must be Kotlin/Native klibs of `konan_target`.
+
+    Returns:
+      A depset of the klib Files.
+    """
+    _check_klib_deps(konan_target, deps)
+    return depset(transitive = [dep[KtKlibInfo].transitive_compile_klibs for dep in deps])
 
 def _konanc_args(ctx, tc, *, produce, output, module_name = None, stage_link_deps = False):
     """The arguments every konanc action starts with: the launcher's own, then the common konanc ones.
@@ -129,13 +152,13 @@ def _konanc_args(ctx, tc, *, produce, output, module_name = None, stage_link_dep
     args.add("-Xdebug-prefix-map=%s=." % EXECROOT_PLACEHOLDER)
     return args
 
-def _run_konanc(ctx, tc, *, args, inputs, output, mnemonic, progress_message):
+def _run_konanc(ctx, tc, *, args, inputs, outputs, mnemonic, progress_message):
     """Registers the konanc action of `args`, which the KonanLauncher of the toolchain runs."""
     ctx.actions.run(
         executable = tc.launcher,
         arguments = [args],
         inputs = inputs,
-        outputs = [output],
+        outputs = outputs,
         env = dict(_ENV, **tc.action_env),
         execution_requirements = dict(_EXECUTION_REQUIREMENTS, **tc.execution_requirements),
         mnemonic = mnemonic,
@@ -154,14 +177,15 @@ def kt_native_compile(
         plugins = [],
         opts = [],
         friends = [],
-        fragments = None):
+        fragments = None,
+        header = None):
     """Registers the action compiling `srcs` into a klib with konanc, for the konan target of the toolchain.
 
     Args:
       ctx: the context of a rule using the Kotlin/Native toolchain type.
       output: the klib File konanc produces.
       srcs: the Kotlin source Files.
-      klib_deps: a depset of the klibs to compile against (see collect_klib_deps).
+      klib_deps: a depset of the klibs to compile against (see collect_compile_klib_deps).
       module_name: the module name, the unique_name of the klib.
       progress_message: the progress message of the action.
       plugins: targets providing KtCompilerPluginInfo. The plugins of the compile phase run, from
@@ -172,6 +196,8 @@ def kt_native_compile(
       fragments: the K2 fragments of a multiplatform compilation, from collect_fragments of
         //kotlin/internal/kmp:fragments.bzl, or None. The sources of the fragments, `srcs` among
         them, compile instead of `srcs`, with the fragment flags.
+      header: the File konanc also writes the header klib to, the declarations of the klib without
+        function bodies (-Xheader-klib-path), or None for none.
     """
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
     compile_plugins = [
@@ -191,6 +217,8 @@ def kt_native_compile(
             args.add("-P", "plugin:%s:%s=%s" % (plugin.id, option.key, option.value))
     args.add_all(klib_deps, before_each = "-l")
     args.add_joined("-friend-modules", friends, join_with = ":")
+    if header:
+        args.add(header, format = "-Xheader-klib-path=%s")
     args.add_all(opts)
     args.add("-o", output)
     args.add_all(srcs)
@@ -200,7 +228,7 @@ def kt_native_compile(
         tc,
         args = args,
         inputs = depset(srcs, transitive = [klib_deps, plugin_jars, tc.compile_inputs]),
-        output = output,
+        outputs = [output, header] if header else [output],
         mnemonic = "KotlinNativeKlibCompile",
         progress_message = progress_message,
     )
@@ -259,7 +287,7 @@ def kt_native_link(
             [main_klib] if main_klib else [],
             transitive = [klib_deps, tc.compile_inputs, tc.konan_deps.files],
         ),
-        output = output,
+        outputs = [output],
         mnemonic = "KotlinNativeLink",
         progress_message = progress_message,
     )

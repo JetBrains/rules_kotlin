@@ -28,7 +28,7 @@ def _kt_native_test_impl(ctx):
         produce = "program",
         output = binary,
         extra_deps = ctx.attr.associates,
-        friends = [associate[KtKlibInfo].klib for associate in ctx.attr.associates],
+        friends = [associate[KtKlibInfo].compile_klib for associate in ctx.attr.associates],
         extra_args = ["-generate-test-runner"],
         progress_message = "Linking Kotlin/Native test %{label} (" + tc.konan_target + ")",
     )
@@ -43,7 +43,8 @@ kt_native_test = rule(
     attrs = dict(LINK_ATTRS, **{
         "associates": attr.label_list(
             doc = """kt_native_library targets whose internal declarations the srcs see. They are deps of the test
-            too.""",
+            too. The srcs compile against their header klibs when they write one (see the build setting
+            experimental_native_header_klibs): a header klib keeps internal declarations.""",
             providers = [KtKlibInfo],
         ),
         "srcs": attr.label_list(

@@ -32,6 +32,21 @@ def for_target(konan_target):
         "//command_line_option:platforms": [str(Label("//kotlin/native/platforms:" + konan_target))],
     }
 
+def with_header_klibs(config_settings):
+    """`config_settings` with the build setting experimental_native_header_klibs on."""
+    settings = dict(config_settings)
+    settings[str(Label("//kotlin/settings:experimental_native_header_klibs"))] = True
+    return settings
+
+# The attributes of a test whose rule runs with header klibs on (see with_header_klibs) or off.
+HEADER_KLIBS_ATTRS = {
+    "header_klibs": attr.bool(),
+}
+
+def compile_klib_of(klib, header_klibs):
+    """The path or basename of the klib a compilation reads for `klib`: with header klibs, the header klib beside it."""
+    return klib[:-len(".klib")] + ".header.klib" if header_klibs else klib
+
 def not_on_windows():
     """target_compatible_with of the tests: Kotlin/Native has no Windows exec host."""
     return select({
@@ -71,11 +86,13 @@ def _fake_klib_impl(ctx):
         DefaultInfo(files = depset([klib])),
         KtKlibInfo(
             cc_info = None,
+            compile_klib = klib,
             exported_klibs = depset(),
             klib = klib,
             konan_target = ctx.attr.konan_target or None,
             module_name = ctx.label.name,
             platform = ctx.attr.platform,
+            transitive_compile_klibs = depset([klib]),
             transitive_klibs = depset([klib]),
         ),
     ]

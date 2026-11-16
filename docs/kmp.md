@@ -723,6 +723,11 @@ the `releaseFramework` task.
   to the standard library of the Kotlin toolchain. The dexing of `android_binary` tolerates the
   duplicate classes; a substitution of `kmp_maven.install` aligns the versions (see the
   [limitations of the dependencies](kmp_dependencies.md#limitations)).
+- Compilation avoidance differs between platforms. The JVM and Android libraries emit ABI jars,
+  which their dependents compile against. The Kotlin/Native libraries write header klibs only with
+  the build setting `experimental_native_header_klibs`, and a Kotlin/Native link reruns after every
+  edit to a klib it links. See [Kotlin Multiplatform](../CompileAvoidance.md#kotlin-multiplatform)
+  in the compilation avoidance docs.
 
 ## Examples
 
