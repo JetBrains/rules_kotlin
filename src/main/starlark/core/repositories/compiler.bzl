@@ -57,6 +57,14 @@ def _kotlin_capabilities_impl(repository_ctx):
         executable = False,
     )
 
+    # The compiler release, which a kotlinc_version override may set to an older one than the
+    # rules pin: the Kotlin toolchains and the CLI toolchain compile at its language level.
+    repository_ctx.file(
+        "version.bzl",
+        content = '"""The Kotlin compiler release of this repository."""\n\nKOTLINC_VERSION = "%s"\n' % attr.compiler_version,
+        executable = False,
+    )
+
     # Bazel <8.3.0 lacks repository_ctx.repo_metadata
     if not hasattr(repository_ctx, "repo_metadata"):
         return None

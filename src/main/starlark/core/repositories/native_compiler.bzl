@@ -24,18 +24,22 @@ load(":versions.bzl", "versions")
 # (klibs are coupled to the compiler version that produced them).
 KOTLIN_NATIVE_VERSION = versions.KOTLIN_CURRENT_COMPILER_RELEASE.version
 
-# Per-host prebuilt distribution, keyed by the exec hosts of EXEC_HOSTS. The sha256 values
-# belong to KOTLIN_NATIVE_VERSION; bump them together with the Kotlin release (see the
-# `.sha256` files published next to each archive on the GitHub release page).
+# The prebuilt distribution archive of each exec host of EXEC_HOSTS, named after the release.
+KOTLIN_NATIVE_PREBUILT_ARCHIVE = {
+    "linux-x86_64": "kotlin-native-prebuilt-linux-x86_64-{version}",
+    "macos-aarch64": "kotlin-native-prebuilt-macos-aarch64-{version}",
+}
+
+# The sha256 of the prebuilt distribution of each exec host of EXEC_HOSTS, per pinned Kotlin/Native
+# release: KOTLIN_NATIVE_VERSION, and the older releases a root module may still select with
+# kotlin_native.version(...) without giving checksums. The `.sha256` files published next to each
+# archive on the GitHub release page hold them. A release that is not here downloads unverified
+# unless its tag gives the checksums.
 KOTLIN_NATIVE_PREBUILT = {
-    "linux-x86_64": struct(
-        sha256 = "4935d8c8da90a2d2a8ff51da7d2c264c0d6026e1d35a8f169e218d9209965678",
-        archive = "kotlin-native-prebuilt-linux-x86_64-{version}",
-    ),
-    "macos-aarch64": struct(
-        sha256 = "bf4edb526d91e17d0862102f69250525d788e79011f86c2c64362749adf260ae",
-        archive = "kotlin-native-prebuilt-macos-aarch64-{version}",
-    ),
+    "2.4.21": {
+        "linux-x86_64": "4935d8c8da90a2d2a8ff51da7d2c264c0d6026e1d35a8f169e218d9209965678",
+        "macos-aarch64": "bf4edb526d91e17d0862102f69250525d788e79011f86c2c64362749adf260ae",
+    },
 }
 
 _URL_TEMPLATE = "https://github.com/JetBrains/kotlin/releases/download/v{version}/{archive}.tar.gz"
@@ -153,12 +157,12 @@ KOTLIN_NATIVE_ARCHIVES = {
 }
 
 # The LLVM each exec host of EXEC_HOSTS links with, per Kotlin/Native release: the essentials
-# build its distribution names in `llvm.<host>.user` of konan.properties, which is
-# `kotlin.native.llvm.default.<host>.essentials` of kotlin-native/gradle.properties at the tag of
-# the release. The LLVM is the link dependency that changes between releases, the others
-# (KOTLIN_NATIVE_DEPS) rarely. A release that is not here stages no LLVM, and its link bundle
-# fails with the one its konan.properties requires when it is fetched: add the release here and
-# its archives to KOTLIN_NATIVE_ARCHIVES (their `.sha256` files are published next to them).
+# build its distribution names in `llvm.<host>.user` of its `konan/konan.properties` (the
+# kotlin-native/gradle.properties of the release tag no longer names it). The LLVM is the link
+# dependency that changes between releases, the others (KOTLIN_NATIVE_DEPS) rarely. A release
+# that is not here stages no LLVM, and its link bundle fails with the one its konan.properties
+# requires when it is fetched: add the release here and its archives to KOTLIN_NATIVE_ARCHIVES
+# (their `.sha256` files are published next to them).
 KOTLIN_NATIVE_LLVM = {
     "2.4.21": {
         "linux-x86_64": "llvm-21-x86_64-linux-essentials-116",
@@ -350,12 +354,25 @@ def kotlin_native_distribution(host_key, version, sha256):
     Returns:
       struct(urls, sha256, strip_prefix), the attributes of kotlin_native_compiler_repository.
     """
-    archive = KOTLIN_NATIVE_PREBUILT[host_key].archive.format(version = version)
+    archive = KOTLIN_NATIVE_PREBUILT_ARCHIVE[host_key].format(version = version)
     return struct(
         urls = [_URL_TEMPLATE.format(version = version, archive = archive)],
         sha256 = sha256,
         strip_prefix = archive,
     )
+
+def kotlin_native_prebuilt_sha256(version):
+    """The pinned sha256 of the prebuilt distribution of a Kotlin/Native release per exec host.
+
+    Args:
+      version: the Kotlin/Native release, e.g. "2.4.21".
+
+    Returns:
+      A dict of each exec host of EXEC_HOSTS to the sha256 of its archive, "" for a release that
+      KOTLIN_NATIVE_PREBUILT does not pin.
+    """
+    pinned = KOTLIN_NATIVE_PREBUILT.get(version, {})
+    return {host: pinned.get(host, "") for host in EXEC_HOSTS}
 
 def kotlin_native_llvm(host_key, version):
     """The LLVM an exec host links with for a Kotlin/Native release, or None for a release without a pinned one.
@@ -409,7 +426,9 @@ def collect_kotlin_native_config(modules):
 
     Only the root module may declare the tags, each at most once, so a dependency cannot change
     the Kotlin/Native release or the link bundles of a build. Without tags, the extension
-    provides KOTLIN_NATIVE_VERSION and stages the link bundles of every konan target.
+    provides KOTLIN_NATIVE_VERSION and stages the link bundles of every konan target. A release
+    of KOTLIN_NATIVE_PREBUILT gets its pinned checksums, which the sha256 of the tag overrides;
+    any other release downloads unverified where the tag gives none.
 
     Args:
       modules: the modules of the module extension context.
@@ -435,16 +454,16 @@ def collect_kotlin_native_config(modules):
             targets_tag = tag
 
     version = KOTLIN_NATIVE_VERSION
-    sha256 = {host: KOTLIN_NATIVE_PREBUILT[host].sha256 for host in EXEC_HOSTS}
+    sha256 = {}
     if version_tag != None:
         for host in version_tag.sha256:
             if host not in EXEC_HOSTS:
                 fail("kotlin_native.version: unsupported exec host %s in sha256 (supported: %s)" %
                      (host, ", ".join(EXEC_HOSTS.keys())))
-        if version_tag.version != version:
-            sha256 = {host: "" for host in EXEC_HOSTS}
         version = version_tag.version
-        sha256 = {host: version_tag.sha256.get(host, sha256[host]) for host in EXEC_HOSTS}
+        sha256 = version_tag.sha256
+    pinned = kotlin_native_prebuilt_sha256(version)
+    sha256 = {host: sha256.get(host, pinned[host]) for host in EXEC_HOSTS}
 
     targets = sorted(KONAN_TARGETS.keys())
     if targets_tag != None:

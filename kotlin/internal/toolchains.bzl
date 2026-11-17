@@ -35,6 +35,7 @@ register_toolchains("//:custom_toolchain")
 """
 
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+load("@com_github_jetbrains_kotlin//:version.bzl", "KOTLINC_VERSION")
 load("@rules_java//java:defs.bzl", "JavaInfo", "java_common")
 load("//kotlin/internal:btapi_runtime.bzl", "BtapiRuntimeInfo")
 load(
@@ -48,6 +49,13 @@ load(
     "KotlincOptions",
     "kt_javac_options",
     "kt_kotlinc_options",
+)
+load("//src/main/starlark/core/repositories:language_level.bzl", "toolchain_language_level")
+load("//src/main/starlark/core/repositories:versions.bzl", "versions")
+
+_COMPILER_LEVEL = toolchain_language_level(
+    KOTLINC_VERSION,
+    versions.KOTLIN_CURRENT_COMPILER_RELEASE.version,
 )
 
 def _stdlib_providers(target, neverlink):
@@ -472,6 +480,11 @@ def define_kt_toolchain(
 
     Args:
         name: the toolchain name.
+        language_version: the `-language-version` of the compiler. Unset, it is the major and
+            minor version of the configured compiler release, such as `"2.4"` with a
+            `kotlinc_version` of 2.4.21, so that the compiler treats it as stable.
+        api_version: the `-api-version` of the compiler. Unset, it follows the configured
+            compiler release like `language_version`.
         experimental_build_tools_api: `True` enables the Build Tools API compilation for the
             toolchain. Unset, it is `True` when `btapi_runtime` is set and `False` otherwise.
             `False` keeps the legacy invocation until the build setting turns the Build Tools
@@ -485,6 +498,10 @@ def define_kt_toolchain(
         **kwargs: see the attributes of the toolchain rule.
     """
     impl_name = name + "_impl"
+    if language_version == None:
+        language_version = _COMPILER_LEVEL
+    if api_version == None:
+        api_version = _COMPILER_LEVEL
     experimental_kover_exclude = experimental_kover_exclude or []
     experimental_kover_exclude_annotation = experimental_kover_exclude_annotation or []
     experimental_kover_exclude_inherited_from = experimental_kover_exclude_inherited_from or []

@@ -11,6 +11,12 @@ btapi_impl_release_test_suite(name = "btapi_impl_release_tests")
 
 native_repositories_test_suite(name = "native_repositories_tests")
 
+# The upgrade tool regenerates it; its tests rewrite a copy.
+exports_files(
+    ["native_konan_properties.bzl"],
+    visibility = ["//src/test/kotlin/io/bazel/kotlin/upgrade:__pkg__"],
+)
+
 kmp_maven_test_suite(name = "kmp_maven_tests")
 
 strip_resource_prefix_test_suite(name = "resource_strip_prefix_tests")

@@ -52,7 +52,15 @@ bzl_library(
         "//src/main/starlark",
         "//src/main/starlark/core/compile",
         "//src/main/starlark/core/options",
+        "//src/main/starlark/core/repositories",
+        "@com_github_jetbrains_kotlin//:capabilities",
         "@rules_java//java:rules",
         "@rules_java//java/private:proto_support",
     ],
+)
+
+# The pins of the Kotlin release the upgrade tool rewrites; its tests rewrite a copy.
+exports_files(
+    ["toolchains.bzl"],
+    visibility = ["//src/test/kotlin/io/bazel/kotlin/upgrade:__pkg__"],
 )

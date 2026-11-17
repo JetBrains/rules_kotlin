@@ -21,6 +21,7 @@ load(
     "KOTLIN_NATIVE_DEPS",
     "KOTLIN_NATIVE_LLVM",
     "KOTLIN_NATIVE_PREBUILT",
+    "KOTLIN_NATIVE_PREBUILT_ARCHIVE",
     "KOTLIN_NATIVE_VERSION",
     "check_bundle_against_properties",
     "collect_kotlin_native_config",
@@ -30,8 +31,11 @@ load(
     "kotlin_native_deps_build_file",
     "kotlin_native_distribution",
     "kotlin_native_llvm",
+    "kotlin_native_prebuilt_sha256",
     "parse_konan_properties",
 )
+load("//src/main/starlark/core/repositories:versions.bzl", "versions")
+load(":native_konan_properties.bzl", "KONAN_PROPERTIES")
 
 # The apple_support platform (@build_bazel_apple_support//platforms) of each Apple konan target.
 _APPLE_SUPPORT_PLATFORMS = {
@@ -143,93 +147,23 @@ _LLVM_LINUX_DEV = "llvm-21-x86_64-linux-dev-116"
 _LLVM_MACOS = "llvm-21-aarch64-macos-essentials-97"
 _QEMU_AARCH64 = "qemu-aarch64-static-5.1.0-linux-2"
 
-# A release rules_kotlin pins no LLVM for, and the LLVM its konan.properties would name.
-_UNPINNED_RELEASE = "2.5.0"
+# A fake release rules_kotlin pins nothing for, and the LLVM its konan.properties would name.
+_UNPINNED_RELEASE = "9.9.0"
 _LLVM_MACOS_UNPINNED = "llvm-22-aarch64-macos-essentials-1"
 
-# An excerpt of the konan/konan.properties of the macOS distribution of Kotlin/Native 2.4.21,
-# copied verbatim: the entries the link dependencies of the supported exec hosts and targets
-# resolve through, and a few of their neighbors.
-_KONAN_PROPERTIES_MACOS_2_4_21 = """\
-#
-# Copyright 2010-2018 JetBrains s.r.o.
-#
-dependenciesUrl = https://download.jetbrains.com/kotlin/native
+# The older release rules_kotlin keeps pinned besides the default one, for root modules that stay
+# on it with kotlin_native.version(...).
+_KEPT_RELEASE = "2.4.21"
 
-toolchainDependency.linux_x64 = x86_64-unknown-linux-gnu-gcc-8.3.0-glibc-2.19-kernel-4.9-2
-toolchainDependency.linux_arm64 = aarch64-unknown-linux-gnu-gcc-8.3.0-glibc-2.25-kernel-4.9-2
+# The konan.properties of each pinned release, per exec host.
+_KONAN_PROPERTIES = KONAN_PROPERTIES
 
-dependencies.macos_x64 = \\
-    lldb-4-macos
-
-llvmHome.macos_arm64 = $llvm.macos_arm64.user
-targetToolchain.macos_arm64 = target-toolchain-xcode_26.4_17E192
-libffiDir.macos_arm64 = libffi-3.3-1-macos-arm64
-osVersionMin.macos_arm64 = $minVersion.macos
-
-dependencies.macos_arm64 = \\
-    lldb-4-macos
-
-targetToolchain.macos_arm64-ios_arm64 = target-toolchain-xcode_26.4_17E192
-targetToolchain.macos_arm64-ios_simulator_arm64 = target-toolchain-xcode_26.4_17E192
-
-# Linux x86-64.
-llvmHome.linux_x64 = $llvm.linux_x64.dev
-libffiDir.linux_x64 = libffi-3.2.1-2-linux-x86-64
-
-gccToolchain.linux_x64 = $toolchainDependency.linux_x64
-targetToolchain.linux_x64 = $gccToolchain.linux_x64/x86_64-unknown-linux-gnu
-dependencies.linux_x64 = \\
-    $toolchainDependency.linux_x64 \\
-    lldb-4-linux
-
-targetToolchain.macos_arm64-linux_x64 = $llvmHome.macos_arm64
-dependencies.macos_arm64-linux_x64 = \\
-    $toolchainDependency.linux_x64
-
-# Linux arm64
-gccToolchain.linux_arm64 = $toolchainDependency.linux_arm64
-
-targetToolchain.linux_x64-linux_arm64 = $gccToolchain.linux_arm64/aarch64-unknown-linux-gnu
-targetToolchain.macos_arm64-linux_arm64 = $llvmHome.macos_arm64
-
-emulatorDependency.linux_x64-linux_arm64 = qemu-aarch64-static-5.1.0-linux-2
-
-dependencies.linux_x64-linux_arm64 = \\
-    $toolchainDependency.linux_arm64
-dependencies.mingw_x64-linux_arm64 = \\
-    $toolchainDependency.linux_arm64 \\
-    $toolchainDependency.mingw_x64
-dependencies.macos_arm64-linux_arm64 = \\
-    $toolchainDependency.linux_arm64
-
-llvm.linux_x64.dev=llvm-21-x86_64-linux-dev-116
-llvm.linux_x64.user=llvm-21-x86_64-linux-essentials-116
-llvm.macos_arm64.dev=llvm-21-aarch64-macos-dev-97
-llvm.macos_arm64.user=llvm-21-aarch64-macos-essentials-97
-"""
-
-# The konan.properties of each exec host's distribution. The Linux one differs from the macOS one
-# only in the LLVM each host links with: every distribution points its own host at the
-# essentials LLVM and the other hosts at the dev one.
-_KONAN_PROPERTIES_2_4_21 = {
-    "linux-x86_64": _KONAN_PROPERTIES_MACOS_2_4_21.replace(
-        "llvmHome.macos_arm64 = $llvm.macos_arm64.user",
-        "llvmHome.macos_arm64 = $llvm.macos_arm64.dev",
-    ).replace(
-        "llvmHome.linux_x64 = $llvm.linux_x64.dev",
-        "llvmHome.linux_x64 = $llvm.linux_x64.user",
-    ),
-    "macos-aarch64": _KONAN_PROPERTIES_MACOS_2_4_21,
-}
+# The konan.properties of each exec host's distribution of 2.4.21, which the tests below that name
+# its link dependencies read.
+_KONAN_PROPERTIES_2_4_21 = KONAN_PROPERTIES["2.4.21"]
 
 # The konan.properties of the macOS distribution of a release linking with another LLVM.
-_KONAN_PROPERTIES_MACOS_UNPINNED = _KONAN_PROPERTIES_MACOS_2_4_21.replace(_LLVM_MACOS, _LLVM_MACOS_UNPINNED)
-
-# The konan.properties of each release with a pinned LLVM, per exec host.
-_KONAN_PROPERTIES = {
-    "2.4.21": _KONAN_PROPERTIES_2_4_21,
-}
+_KONAN_PROPERTIES_MACOS_UNPINNED = _KONAN_PROPERTIES_2_4_21["macos-aarch64"].replace(_LLVM_MACOS, _LLVM_MACOS_UNPINNED)
 
 def _native_module(name, is_root, version = None, targets = None):
     return struct(
@@ -246,10 +180,32 @@ def _tables_belong_to_the_default_release_test(ctx):
     """
     env = unittest.begin(ctx)
 
-    asserts.equals(env, "2.4.21", KOTLIN_NATIVE_VERSION, "update the Kotlin/Native tables for the new release")
+    asserts.equals(env, versions.KOTLIN_CURRENT_COMPILER_RELEASE.version, KOTLIN_NATIVE_VERSION)
+    asserts.true(env, KOTLIN_NATIVE_VERSION in KOTLIN_NATIVE_PREBUILT, "pin the distributions of the new release")
     asserts.true(env, KOTLIN_NATIVE_VERSION in KOTLIN_NATIVE_LLVM, "pin the LLVM of the new release")
+    asserts.equals(env, sorted(KOTLIN_NATIVE_LLVM.keys()), sorted(KOTLIN_NATIVE_PREBUILT.keys()))
     asserts.equals(env, sorted(KOTLIN_NATIVE_LLVM.keys()), sorted(_KONAN_PROPERTIES.keys()))
+    asserts.false(env, _UNPINNED_RELEASE in KOTLIN_NATIVE_PREBUILT)
     asserts.false(env, _UNPINNED_RELEASE in KOTLIN_NATIVE_LLVM)
+
+    return unittest.end(env)
+
+def _kept_release_stays_pinned_test(ctx):
+    """2.4.21 stays pinned besides the default release, so root modules can keep using it verified."""
+    env = unittest.begin(ctx)
+
+    asserts.true(env, _KEPT_RELEASE in KOTLIN_NATIVE_PREBUILT, "keep the distributions of %s pinned" % _KEPT_RELEASE)
+    asserts.true(env, _KEPT_RELEASE in KOTLIN_NATIVE_LLVM, "keep the LLVM of %s pinned" % _KEPT_RELEASE)
+    asserts.true(env, _KEPT_RELEASE in _KONAN_PROPERTIES, "keep the konan.properties of %s" % _KEPT_RELEASE)
+    asserts.equals(
+        env,
+        {
+            "linux-x86_64": "4935d8c8da90a2d2a8ff51da7d2c264c0d6026e1d35a8f169e218d9209965678",
+            "macos-aarch64": "bf4edb526d91e17d0862102f69250525d788e79011f86c2c64362749adf260ae",
+        },
+        KOTLIN_NATIVE_PREBUILT[_KEPT_RELEASE],
+    )
+    asserts.equals(env, {"linux-x86_64": _LLVM_LINUX, "macos-aarch64": _LLVM_MACOS}, KOTLIN_NATIVE_LLVM[_KEPT_RELEASE])
 
     return unittest.end(env)
 
@@ -257,7 +213,11 @@ def _deps_cover_every_exec_host_target_test(ctx):
     """Every exec host has a distribution, an LLVM per pinned release and pinned link dependencies for exactly its targets."""
     env = unittest.begin(ctx)
 
-    asserts.equals(env, sorted(EXEC_HOSTS.keys()), sorted(KOTLIN_NATIVE_PREBUILT.keys()))
+    asserts.equals(env, sorted(EXEC_HOSTS.keys()), sorted(KOTLIN_NATIVE_PREBUILT_ARCHIVE.keys()))
+    for version, prebuilt in KOTLIN_NATIVE_PREBUILT.items():
+        asserts.equals(env, sorted(EXEC_HOSTS.keys()), sorted(prebuilt.keys()), version)
+    for version, properties_of in _KONAN_PROPERTIES.items():
+        asserts.equals(env, sorted(EXEC_HOSTS.keys()), sorted(properties_of.keys()), version)
     asserts.equals(env, sorted(EXEC_HOSTS.keys()), sorted(KOTLIN_NATIVE_DEPS.keys()))
     used = {}
     for version, llvm in KOTLIN_NATIVE_LLVM.items():
@@ -285,7 +245,7 @@ def _llvm_follows_the_release_test(ctx):
     env = unittest.begin(ctx)
 
     asserts.equals(env, _LLVM_MACOS, kotlin_native_llvm("macos-aarch64", KOTLIN_NATIVE_VERSION))
-    asserts.equals(env, _LLVM_LINUX, kotlin_native_llvm("linux-x86_64", "2.4.21"))
+    asserts.equals(env, _LLVM_LINUX, kotlin_native_llvm("linux-x86_64", _KEPT_RELEASE))
     asserts.equals(env, None, kotlin_native_llvm("macos-aarch64", _UNPINNED_RELEASE))
     asserts.equals(env, None, kotlin_native_llvm("linux-x86_64", _UNPINNED_RELEASE))
 
@@ -300,9 +260,12 @@ def _archives_are_pinned_test(ctx):
         asserts.true(env, url.endswith("/%s.tar.gz" % name), url)
         asserts.equals(env, 64, len(sha256), name)
         asserts.equals(env, "", sha256.lstrip("0123456789abcdef"), name)
-    for key, spec in KOTLIN_NATIVE_PREBUILT.items():
-        asserts.equals(env, 64, len(spec.sha256), key)
-        asserts.equals(env, "", spec.sha256.lstrip("0123456789abcdef"), key)
+    for version, prebuilt in KOTLIN_NATIVE_PREBUILT.items():
+        for key, sha256 in prebuilt.items():
+            asserts.equals(env, 64, len(sha256), "%s: %s" % (version, key))
+            asserts.equals(env, "", sha256.lstrip("0123456789abcdef"), "%s: %s" % (version, key))
+    for key, archive in KOTLIN_NATIVE_PREBUILT_ARCHIVE.items():
+        asserts.equals(env, "kotlin-native-prebuilt-%s-{version}" % key, archive, key)
 
     return unittest.end(env)
 
@@ -581,7 +544,7 @@ def _config_defaults_test(ctx):
 
     config = collect_kotlin_native_config([_native_module("root", True), _native_module("dependency", False)])
     asserts.equals(env, KOTLIN_NATIVE_VERSION, config.version)
-    asserts.equals(env, {key: spec.sha256 for key, spec in KOTLIN_NATIVE_PREBUILT.items()}, config.sha256)
+    asserts.equals(env, KOTLIN_NATIVE_PREBUILT[KOTLIN_NATIVE_VERSION], config.sha256)
     asserts.equals(env, sorted(KONAN_TARGETS.keys()), config.targets)
 
     return unittest.end(env)
@@ -594,23 +557,23 @@ def _config_reads_the_root_tags_test(ctx):
         _native_module(
             "root",
             True,
-            version = [struct(version = "2.4.30", sha256 = {"macos-aarch64": "abc"})],
+            version = [struct(version = _UNPINNED_RELEASE, sha256 = {"macos-aarch64": "abc"})],
             targets = [struct(targets = ["macos_arm64", "linux_x64", "linux_x64"])],
         ),
         _native_module("dependency", False),
     ])
-    asserts.equals(env, "2.4.30", config.version)
+    asserts.equals(env, _UNPINNED_RELEASE, config.version)
     asserts.equals(env, {"linux-x86_64": "", "macos-aarch64": "abc"}, config.sha256)
     asserts.equals(env, ["linux_x64", "macos_arm64"], config.targets)
 
     dist = kotlin_native_distribution("macos-aarch64", config.version, config.sha256["macos-aarch64"])
     asserts.equals(
         env,
-        ["https://github.com/JetBrains/kotlin/releases/download/v2.4.30/kotlin-native-prebuilt-macos-aarch64-2.4.30.tar.gz"],
+        ["https://github.com/JetBrains/kotlin/releases/download/v9.9.0/kotlin-native-prebuilt-macos-aarch64-9.9.0.tar.gz"],
         dist.urls,
     )
     asserts.equals(env, "abc", dist.sha256)
-    asserts.equals(env, "kotlin-native-prebuilt-macos-aarch64-2.4.30", dist.strip_prefix)
+    asserts.equals(env, "kotlin-native-prebuilt-macos-aarch64-9.9.0", dist.strip_prefix)
 
     return unittest.end(env)
 
@@ -621,7 +584,61 @@ def _config_keeps_the_pinned_checksums_test(ctx):
     config = collect_kotlin_native_config([
         _native_module("root", True, version = [struct(version = KOTLIN_NATIVE_VERSION, sha256 = {})]),
     ])
-    asserts.equals(env, {key: spec.sha256 for key, spec in KOTLIN_NATIVE_PREBUILT.items()}, config.sha256)
+    asserts.equals(env, KOTLIN_NATIVE_PREBUILT[KOTLIN_NATIVE_VERSION], config.sha256)
+
+    # A checksum of the tag wins over the pinned one of its host only.
+    config = collect_kotlin_native_config([
+        _native_module("root", True, version = [struct(version = KOTLIN_NATIVE_VERSION, sha256 = {"macos-aarch64": "abc"})]),
+    ])
+    asserts.equals(
+        env,
+        {"linux-x86_64": KOTLIN_NATIVE_PREBUILT[KOTLIN_NATIVE_VERSION]["linux-x86_64"], "macos-aarch64": "abc"},
+        config.sha256,
+    )
+
+    return unittest.end(env)
+
+def _config_pins_the_kept_release_test(ctx):
+    """A version tag naming 2.4.21 without checksums gets the pinned ones; a tag checksum still wins."""
+    env = unittest.begin(ctx)
+
+    config = collect_kotlin_native_config([
+        _native_module("root", True, version = [struct(version = _KEPT_RELEASE, sha256 = {})]),
+    ])
+    asserts.equals(env, _KEPT_RELEASE, config.version)
+    asserts.equals(env, KOTLIN_NATIVE_PREBUILT[_KEPT_RELEASE], config.sha256)
+    asserts.equals(env, KOTLIN_NATIVE_PREBUILT[_KEPT_RELEASE], kotlin_native_prebuilt_sha256(_KEPT_RELEASE))
+    for key in EXEC_HOSTS:
+        asserts.equals(env, 64, len(config.sha256[key]), key)
+        dist = kotlin_native_distribution(key, config.version, config.sha256[key])
+        asserts.equals(env, KOTLIN_NATIVE_PREBUILT[_KEPT_RELEASE][key], dist.sha256, key)
+        asserts.equals(
+            env,
+            ["https://github.com/JetBrains/kotlin/releases/download/v2.4.21/kotlin-native-prebuilt-%s-2.4.21.tar.gz" % key],
+            dist.urls,
+        )
+
+    config = collect_kotlin_native_config([
+        _native_module("root", True, version = [struct(version = _KEPT_RELEASE, sha256 = {"linux-x86_64": "abc"})]),
+    ])
+    asserts.equals(
+        env,
+        {"linux-x86_64": "abc", "macos-aarch64": KOTLIN_NATIVE_PREBUILT[_KEPT_RELEASE]["macos-aarch64"]},
+        config.sha256,
+    )
+
+    return unittest.end(env)
+
+def _config_leaves_an_unpinned_release_unverified_test(ctx):
+    """A version tag naming a release without pinned checksums and giving none downloads it unverified."""
+    env = unittest.begin(ctx)
+
+    config = collect_kotlin_native_config([
+        _native_module("root", True, version = [struct(version = _UNPINNED_RELEASE, sha256 = {})]),
+    ])
+    asserts.equals(env, _UNPINNED_RELEASE, config.version)
+    asserts.equals(env, {key: "" for key in EXEC_HOSTS}, config.sha256)
+    asserts.equals(env, {key: "" for key in EXEC_HOSTS}, kotlin_native_prebuilt_sha256(_UNPINNED_RELEASE))
 
     return unittest.end(env)
 
@@ -689,6 +706,7 @@ only_apple_platforms_carry_the_apple_vendor_test = unittest.make(_only_apple_pla
 ios_platforms_match_apple_support_test = unittest.make(_ios_platforms_match_apple_support_test)
 apple_support_platforms_satisfy_the_targets_test = unittest.make(_apple_support_platforms_satisfy_the_targets_test)
 tables_belong_to_the_default_release_test = unittest.make(_tables_belong_to_the_default_release_test)
+kept_release_stays_pinned_test = unittest.make(_kept_release_stays_pinned_test)
 deps_cover_every_exec_host_target_test = unittest.make(_deps_cover_every_exec_host_target_test)
 llvm_follows_the_release_test = unittest.make(_llvm_follows_the_release_test)
 archives_are_pinned_test = unittest.make(_archives_are_pinned_test)
@@ -707,6 +725,8 @@ bundle_stages_every_target_by_default_test = unittest.make(_bundle_stages_every_
 config_defaults_test = unittest.make(_config_defaults_test)
 config_reads_the_root_tags_test = unittest.make(_config_reads_the_root_tags_test)
 config_keeps_the_pinned_checksums_test = unittest.make(_config_keeps_the_pinned_checksums_test)
+config_pins_the_kept_release_test = unittest.make(_config_pins_the_kept_release_test)
+config_leaves_an_unpinned_release_unverified_test = unittest.make(_config_leaves_an_unpinned_release_unverified_test)
 config_stages_no_target_on_request_test = unittest.make(_config_stages_no_target_on_request_test)
 compiler_build_file_declares_the_trees_test = unittest.make(_compiler_build_file_declares_the_trees_test)
 deps_build_file_declares_a_view_per_target_test = unittest.make(_deps_build_file_declares_a_view_per_target_test)
@@ -721,6 +741,7 @@ def native_repositories_test_suite(name):
         ios_platforms_match_apple_support_test,
         apple_support_platforms_satisfy_the_targets_test,
         tables_belong_to_the_default_release_test,
+        kept_release_stays_pinned_test,
         deps_cover_every_exec_host_target_test,
         llvm_follows_the_release_test,
         archives_are_pinned_test,
@@ -739,6 +760,8 @@ def native_repositories_test_suite(name):
         config_defaults_test,
         config_reads_the_root_tags_test,
         config_keeps_the_pinned_checksums_test,
+        config_pins_the_kept_release_test,
+        config_leaves_an_unpinned_release_unverified_test,
         config_stages_no_target_on_request_test,
         compiler_build_file_declares_the_trees_test,
         deps_build_file_declares_a_view_per_target_test,

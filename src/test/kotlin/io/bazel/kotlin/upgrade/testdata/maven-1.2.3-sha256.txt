@@ -1,0 +1,4 @@
+maven-1.2.3.zip 5e7053889b2261fa6e6e2bd041287ec66f69c8c27d3c0a6723796d5792990218
+org/jetbrains/kotlin/kotlin-stdlib/1.2.3/kotlin-stdlib-1.2.3-sources.jar 41b6de6f1a36cdff05ad45763a1320477c142e3174e3a8190579a12df4f7a28e
+org/jetbrains/kotlin/kotlin-stdlib/1.2.3/kotlin-stdlib-1.2.3.jar AA94E6F417847322AA58D9FBEC93278B74010F3CF593CF2038BD865E1EF42C3F
+org/jetbrains/kotlin/jvm-abi-gen/1.2.3/jvm-abi-gen-1.2.3.jar 5d301b0568874c25a0e6a1a602d7639b09af4964cbbf7976392ff11a24223702

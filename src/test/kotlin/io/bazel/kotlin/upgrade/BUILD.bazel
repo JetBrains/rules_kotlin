@@ -1,0 +1,56 @@
+load("//kotlin:jvm.bzl", "kt_jvm_test")
+load("//kotlin:lint.bzl", "ktlint_fix", "ktlint_test")
+
+kt_jvm_test(
+    name = "ParsersTest",
+    srcs = ["ParsersTest.kt"],
+    data = glob(["testdata/**"]),
+    test_class = "io.bazel.kotlin.upgrade.ParsersTest",
+    deps = [
+        "//src/main/kotlin/io/bazel/kotlin/upgrade:upgrade_kotlin_lib",
+        "@kotlin_rules_maven//:org_apache_commons_commons_compress",
+        "@kotlin_rules_maven_test//:com_google_truth_truth",
+    ],
+)
+
+# Runs the upgrade on copies of the files of this checkout the tool rewrites.
+kt_jvm_test(
+    name = "UpgradeTest",
+    srcs = ["UpgradeTest.kt"],
+    data = [
+        "testdata/dagger_MODULE.bazel.txt",
+        "testdata/jetpack_compose_MODULE.bazel.txt",
+        "testdata/kmp.md",
+        "//kotlin/internal:toolchains.bzl",
+        "//kotlin/internal/native:targets.bzl",
+        "//src/main/starlark/core/repositories:native_compiler.bzl",
+        "//src/main/starlark/core/repositories:versions.bzl",
+        "//src/test/starlark:native_konan_properties.bzl",
+        "//src/test/starlark/internal/jvm:kotlinc_options_test.bzl",
+    ],
+    test_class = "io.bazel.kotlin.upgrade.UpgradeTest",
+    deps = [
+        "//src/main/kotlin/io/bazel/kotlin/upgrade:upgrade_kotlin_lib",
+        "@kotlin_rules_maven_test//:com_google_truth_truth",
+    ],
+)
+
+ktlint_test(
+    name = "upgrade_tests_ktlint_test",
+    srcs = glob(["*.kt"]),
+    config = "//:ktlint_editorconfig",
+    tags = [
+        "ktlint",
+        "no-ide",
+    ],
+)
+
+ktlint_fix(
+    name = "upgrade_tests_ktlint_fix",
+    srcs = glob(["*.kt"]),
+    config = "//:ktlint_editorconfig",
+    tags = [
+        "ktlint",
+        "no-ide",
+    ],
+)

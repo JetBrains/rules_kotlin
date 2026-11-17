@@ -60,7 +60,9 @@ _version_tag = tag_class(
     attrs = {
         "sha256": attr.string_dict(
             doc = "The sha256 of the kotlin-native-prebuilt archive per exec host (linux-x86_64, " +
-                  "macos-aarch64). An archive without one downloads unverified.",
+                  "macos-aarch64). It overrides the checksum rules_kotlin pins for the release " +
+                  "(KOTLIN_NATIVE_PREBUILT in native_compiler.bzl). An archive of a release " +
+                  "without pinned checksums and without one here downloads unverified.",
         ),
         "version": attr.string(mandatory = True, doc = "The Kotlin/Native release, e.g. 2.4.21."),
     },

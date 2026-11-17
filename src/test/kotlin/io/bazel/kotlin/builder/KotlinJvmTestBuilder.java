@@ -336,7 +336,7 @@ public final class KotlinJvmTestBuilder extends KotlinAbstractTestBuilder<JvmCom
         }
 
         public TaskBuilder useK2() {
-            infoState.languageVersion = "2.0";
+            infoState.languageVersion = "2.2";
             return this;
         }
 

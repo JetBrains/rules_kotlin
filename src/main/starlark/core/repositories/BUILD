@@ -27,6 +27,7 @@ release_archive(
         "kmp_maven.bzl",
         "kmp_maven_impl.bzl",
         "ksp.bzl",
+        "language_level.bzl",
         "native.bzl",
         "native_compiler.bzl",
         "versions.bzl",
@@ -48,4 +49,13 @@ bzl_library(
         "//src/main/starlark/core/repositories/kotlin",
         "@bazel_skylib//lib:versions",
     ],
+)
+
+# The pins of the Kotlin release the upgrade tool rewrites; its tests rewrite a copy.
+exports_files(
+    [
+        "native_compiler.bzl",
+        "versions.bzl",
+    ],
+    visibility = ["//src/test/kotlin/io/bazel/kotlin/upgrade:__pkg__"],
 )

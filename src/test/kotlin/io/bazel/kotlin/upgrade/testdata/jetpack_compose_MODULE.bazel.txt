@@ -1,0 +1,11 @@
+module(name = "rules_kotlin_jetpack_compose_example")
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+maven.install(
+    name = "maven_rules_kotlin_example",
+    artifacts = [
+        "org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.4.21",
+        "androidx.compose.ui:ui:1.7.6",
+    ],
+    lock_file = "//:maven_install.json",
+)

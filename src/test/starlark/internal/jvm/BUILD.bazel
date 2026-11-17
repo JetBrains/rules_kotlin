@@ -12,8 +12,15 @@ load(":kt_jvm_binary_env_test.bzl", "kt_jvm_binary_env_test_suite")
 load(":manifest_lines_test.bzl", "manifest_lines_test_suite")
 load(":plugin_payload_test.bzl", "plugin_payload_test_suite")
 load(":sourceless_library_test.bzl", "sourceless_library_test_suite")
+load(":toolchain_language_level_test.bzl", "toolchain_language_level_test_suite")
 
 export_only_module_name_test_suite(name = "export_only_module_name_tests")
+
+# The upgrade tool rewrites the default versions it expects; its tests rewrite a copy.
+exports_files(
+    ["kotlinc_options_test.bzl"],
+    visibility = ["//src/test/kotlin/io/bazel/kotlin/upgrade:__pkg__"],
+)
 
 javac_encoding_test_suite(name = "javac_encoding_tests")
 
@@ -40,3 +47,5 @@ manifest_lines_test_suite(name = "manifest_lines_tests")
 plugin_payload_test_suite(name = "plugin_payload_tests")
 
 sourceless_library_test_suite(name = "sourceless_library_tests")
+
+toolchain_language_level_test_suite(name = "toolchain_language_level_tests")

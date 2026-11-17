@@ -88,11 +88,15 @@ load("@rules_kotlin//kotlin:core.bzl", "define_kt_toolchain")
 
 define_kt_toolchain(
     name = "kotlin_toolchain",
-    api_version = KOTLIN_LANGUAGE_LEVEL,  # "1.9", "2.0", "2.1", "2.2", or "2.3"
+    api_version = KOTLIN_LANGUAGE_LEVEL,  # "2.0" (deprecated), "2.1" (deprecated), "2.2", "2.3", or "2.4" (the default)
     jvm_target = JAVA_LANGUAGE_LEVEL, # "1.8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", or "25"
-    language_version = KOTLIN_LANGUAGE_LEVEL,  # "2.0", "2.1", "2.2", "2.3", or "2.4"
+    language_version = KOTLIN_LANGUAGE_LEVEL,  # "2.0" (deprecated), "2.1" (deprecated), "2.2", "2.3", or "2.4" (the default)
 )
 ```
+
+The values are those the default compiler, Kotlin 2.4.21, accepts; it deprecates `"2.0"` and
+`"2.1"`. Unset, `api_version` and `language_version` follow the configured compiler release, such
+as `"2.3"` with a `kotlinc_version` of Kotlin 2.3.20.
 
 Then register it in `MODULE.bazel`:
 

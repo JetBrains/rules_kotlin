@@ -1,0 +1,71 @@
+load("//kotlin:core.bzl", "kt_compiler_plugin")
+load("//kotlin:jvm.bzl", "kt_jvm_binary", "kt_jvm_import", "kt_jvm_library")
+load("//kotlin:lint.bzl", "ktlint_fix", "ktlint_test")
+
+kt_compiler_plugin(
+    name = "serialization_plugin",
+    compile_phase = True,
+    id = "org.jetbrains.kotlin.serialization",
+    stubs_phase = True,
+    deps = [
+        "//kotlin/compiler:kotlinx-serialization-compiler-plugin",
+    ],
+)
+
+kt_jvm_import(
+    name = "kotlinx_serialization_core",
+    jar = "@kotlinx_serialization_core_jvm//file",
+)
+
+kt_jvm_import(
+    name = "kotlinx_serialization_json",
+    jar = "@kotlinx_serialization_json_jvm//file",
+    deps = [
+        ":kotlinx_serialization_core",
+    ],
+)
+
+# Upgrades the Kotlin release train rules_kotlin pins; see docs/upgrading_kotlin.md.
+kt_jvm_library(
+    name = "upgrade_kotlin_lib",
+    srcs = glob(["*.kt"]),
+    plugins = [
+        ":serialization_plugin",
+    ],
+    visibility = [
+        "//src/test:__subpackages__",
+    ],
+    deps = [
+        ":kotlinx_serialization_core",
+        ":kotlinx_serialization_json",
+        "@kotlin_rules_maven//:org_apache_commons_commons_compress",
+    ],
+)
+
+kt_jvm_binary(
+    name = "upgrade_kotlin",
+    main_class = "io.bazel.kotlin.upgrade.UpgradeKotlin",
+    runtime_deps = [
+        ":upgrade_kotlin_lib",
+    ],
+)
+
+ktlint_test(
+    name = "upgrade_kotlin_lib_ktlint_test",
+    srcs = glob(["*.kt"]),
+    config = "//:ktlint_editorconfig",
+    tags = [
+        "ktlint",
+        "no-ide",
+    ],
+)
+
+ktlint_fix(
+    name = "upgrade_kotlin_lib_ktlint_fix",
+    srcs = glob(["*.kt"]),
+    config = "//:ktlint_editorconfig",
+    tags = [
+        "ktlint",
+        "no-ide",
+    ],
+)

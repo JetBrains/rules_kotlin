@@ -171,9 +171,9 @@ abstract class KotlinAbstractTestBuilder<T> {
         infoState.moduleName = "some_bogus_module";
         infoState.platform = Platform.JVM;
         infoState.ruleKind = RuleKind.LIBRARY;
-        infoState.apiVersion = "2.0";
+        infoState.apiVersion = "2.2";
         infoState.coroutines = "enabled";
-        infoState.languageVersion = "2.0";
+        infoState.languageVersion = "2.2";
         infoState.jvmTarget = "11";
         try {
             this.instanceRoot = Files.createTempDirectory(BAZEL_TEST_DIR, label);

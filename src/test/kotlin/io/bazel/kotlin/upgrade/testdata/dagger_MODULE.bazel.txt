@@ -1,0 +1,19 @@
+module(name = "dagger-example")
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+maven.install(
+    name = "maven_rules_kotlin_example",
+    artifacts = [
+        "com.google.dagger:dagger:2.57.2",
+        "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+        "org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.21",
+    ],
+    lock_file = "//:maven_install.json",
+)
+maven.install(
+    name = "unlocked",
+    artifacts = [
+        "org.jetbrains.kotlin:kotlin-reflect:2.4.21",
+    ],
+)
+use_repo(maven, "maven_rules_kotlin_example", "unlocked")
