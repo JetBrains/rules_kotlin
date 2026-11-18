@@ -104,8 +104,8 @@ java_binary(
 
 define_kt_toolchain(
     name = "kotlin_toolchain",
-    api_version = "2.0",
+    api_version = "2.3",
     # Dagger-generated code imports javax.annotation.processing.Generated (JDK 9+)
     jvm_target = "11",
-    language_version = "2.0",
+    language_version = "2.3",
 )

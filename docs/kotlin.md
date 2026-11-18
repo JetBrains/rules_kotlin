@@ -632,8 +632,8 @@ libraries they need, and the internal compiler plugins in the embeddable dialect
 | Name  | Description | Default Value |
 | :------------- | :------------- | :------------- |
 | <a id="define_kt_toolchain-name"></a>name |  the toolchain name.   |  none |
-| <a id="define_kt_toolchain-language_version"></a>language_version |  <p align="center"> - </p>   |  `None` |
-| <a id="define_kt_toolchain-api_version"></a>api_version |  <p align="center"> - </p>   |  `None` |
+| <a id="define_kt_toolchain-language_version"></a>language_version |  the `-language-version` of the compiler. Unset, it is the major and minor version of the configured compiler release, such as `"2.4"` with a `kotlinc_version` of 2.4.21, so that the compiler treats it as stable.   |  `None` |
+| <a id="define_kt_toolchain-api_version"></a>api_version |  the `-api-version` of the compiler. Unset, it follows the configured compiler release like `language_version`.   |  `None` |
 | <a id="define_kt_toolchain-jvm_target"></a>jvm_target |  <p align="center"> - </p>   |  `None` |
 | <a id="define_kt_toolchain-experimental_use_abi_jars"></a>experimental_use_abi_jars |  <p align="center"> - </p>   |  `False` |
 | <a id="define_kt_toolchain-experimental_treat_internal_as_private_in_abi_jars"></a>experimental_treat_internal_as_private_in_abi_jars |  <p align="center"> - </p>   |  `False` |
