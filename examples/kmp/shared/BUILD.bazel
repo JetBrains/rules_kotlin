@@ -107,9 +107,9 @@ kt_native_ksp_sources(
 # fragments of the Apple and Linux sources, so every platform compiles one `actual` per `expect`.
 #
 # The macro declares a private target per fragment (shared_fragment_<fragment>), shared_jvm,
-# shared_android, shared_native, shared_srcs and the alias shared, which selects the library of its
-# consumer: shared_native for a Kotlin/Native rule, shared_android for an Android platform,
-# shared_jvm otherwise.
+# shared_android, shared_native, shared_srcs, shared.fragments and the alias shared, which selects
+# the library of its consumer: shared_native for a Kotlin/Native rule, shared_android for an Android
+# platform, shared_jvm otherwise.
 kt_multiplatform_library(
     name = "shared",
     android = dict(

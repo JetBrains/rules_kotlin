@@ -86,3 +86,12 @@ build_test(
         "//shared:shared_jvm",
     ],
 )
+
+# --- the derived fragment graph of //shared ---
+
+sh_test(
+    name = "shared_fragments_test",
+    srcs = ["shared_fragments_test.sh"],
+    args = ["$(rootpath //shared:shared.fragments)"],
+    data = ["//shared:shared.fragments"],
+)

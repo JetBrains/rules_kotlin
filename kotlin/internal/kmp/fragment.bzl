@@ -1,12 +1,13 @@
-"""kt_kmp_fragment: sources that some platforms of a kt_multiplatform_library share, a K2 fragment of their compilations.
+"""kt_kmp_fragment and kt_kmp_fragments_graph: K2 fragment targets of a kt_multiplatform_library.
 
-kt_multiplatform_library declares one, `<name>_fragment_<fragment name>`, per set of two or more of
-its platforms that list the same sources (see derive.bzl). A fragment compiles nothing by itself and
-has no deps: kt_jvm_library, kt_android_library and kt_native_library list in `kmp_fragments` the
-fragments their srcs refine, and compile the sources of those fragments, and of the fragments they
-refine, transitively, with their srcs, against their own deps (see fragments.bzl).
+kt_multiplatform_library declares one kt_kmp_fragment, `<name>_fragment_<fragment name>`, per set
+of two or more of its platforms that list the same sources (see derive.bzl), and one
+kt_kmp_fragments_graph, `<name>.fragments`, printing the derived fragment graph. A fragment compiles
+nothing by itself and has no deps: kt_jvm_library, kt_android_library and kt_native_library list in
+`kmp_fragments` the fragments their srcs refine, and compile the sources of those fragments, and of
+the fragments they refine, transitively, with their srcs, against their own deps (see fragments.bzl).
 
-Internal: kt_multiplatform_library is its only user.
+Internal: kt_multiplatform_library is their only user.
 """
 
 load(":derive.bzl", "fragment_name")
@@ -20,6 +21,13 @@ KtFragmentInfo = provider(
         "srcs": "list of File: the Kotlin sources of the fragment.",
         "transitive_fragments": """depset of KtFragmentInfo, in postorder: the fragments this one refines,
         transitively, and this one, each after the fragments it refines. Their own transitive_fragments is None.""",
+    },
+)
+
+KtFragmentsGraphInfo = provider(
+    doc = "The formatted K2 fragment refinement graph of a kt_multiplatform_library.",
+    fields = {
+        "graph": "string: the formatted fragment graph.",
     },
 )
 
@@ -89,4 +97,57 @@ kt_kmp_fragment = rule(
         ),
     },
     provides = [KtFragmentInfo],
+)
+
+_BATCH_ESCAPED = ["\"", "&", "|", "<", ">", "(", ")"]
+
+def _unix_launcher(graph):
+    return "#!/usr/bin/env sh\nprintf '%%s' '%s'\n" % graph.replace("'", "'\\''")
+
+def _escape_batch_line(line):
+    escaped = line.replace("^", "^^").replace("%", "%%")
+    for ch in _BATCH_ESCAPED:
+        escaped = escaped.replace(ch, "^" + ch)
+    return "echo(" + escaped
+
+def _windows_launcher(graph):
+    lines = ["@echo off", "setlocal DisableDelayedExpansion"]
+    for line in graph.splitlines():
+        lines.append(_escape_batch_line(line))
+    return "\r\n".join(lines) + "\r\n"
+
+def _kt_kmp_fragments_graph_impl(ctx):
+    windows_constraint = ctx.attr._windows_constraint[platform_common.ConstraintValueInfo]
+    is_windows = ctx.target_platform_has_constraint(windows_constraint)
+    launcher = ctx.actions.declare_file(ctx.label.name + (".bat" if is_windows else ".sh"))
+    content = _windows_launcher(ctx.attr.graph) if is_windows else _unix_launcher(ctx.attr.graph)
+    ctx.actions.write(
+        output = launcher,
+        content = content,
+        is_executable = True,
+    )
+    return [
+        DefaultInfo(
+            files = depset([launcher]),
+            executable = launcher,
+        ),
+        KtFragmentsGraphInfo(graph = ctx.attr.graph),
+    ]
+
+kt_kmp_fragments_graph = rule(
+    doc = """Prints the derived K2 fragment refinement graph of a kt_multiplatform_library.
+
+    Internal: kt_multiplatform_library declares `<name>.fragments` with the formatted graph.""",
+    implementation = _kt_kmp_fragments_graph_impl,
+    attrs = {
+        "graph": attr.string(
+            doc = "The formatted fragment graph printed to stdout.",
+            mandatory = True,
+        ),
+        "_windows_constraint": attr.label(
+            default = "@platforms//os:windows",
+        ),
+    },
+    executable = True,
+    provides = [KtFragmentsGraphInfo],
 )

@@ -29,6 +29,7 @@ The macro declares:
   the sources only that target lists and the fragments they refine, with the other attributes of
   the group of that target; it is incompatible with other platforms;
 - shared_srcs: a filegroup of the sources of every platform;
+- shared.fragments: an executable target printing the derived fragment graph;
 - shared: an alias of shared_native for a Kotlin/Native consumer building for a konan target of the
   groups, of shared_android for an Android platform, and otherwise of shared_jvm, or of the only
   platform declared.
@@ -45,8 +46,8 @@ load("//kotlin/internal/jvm:kt_android_library.bzl", "kt_android_library")
 load("//kotlin/internal/jvm:kt_jvm_library.bzl", "kt_jvm_library")
 load("//kotlin/internal/native:library.bzl", "kt_native_library")
 load("//kotlin/internal/native:targets.bzl", "KONAN_TARGETS")
-load(":derive.bzl", "derive_fragments")
-load(":fragment.bzl", "kt_kmp_fragment")
+load(":derive.bzl", "derive_fragments", "format_fragments")
+load(":fragment.bzl", "kt_kmp_fragment", "kt_kmp_fragments_graph")
 
 # The keys of a group that are not attributes of the native library.
 _GROUP_KEYS = ["srcs", "targets"]
@@ -86,15 +87,49 @@ def _alias(**kwargs):
 def _as_written(label):
     return str(label)
 
-def _package_relative(label):
-    return str(native.package_relative_label(label))
+def _strip_colon(label):
+    text = str(label)
+    return text[1:] if text.startswith(":") else text
 
-def _label_normalizer():
-    """The function turning a label of srcs into the string of the label it names in the package of the macro.
+def display_label(label, pkg):
+    """Formats a resolved Label relative to `pkg` (`:__pkg__` of the macro's package).
 
-    Bazel versions without native.package_relative_label compare the labels as written.
+    Args:
+      label: a Label resolved in the package of the macro.
+      pkg: the Label of `:__pkg__` in the package of the macro.
+
+    Returns:
+      `label.name` in `pkg`, `//<package>:<name>` in another package of the same repository, or
+      `str(label)` in another repository.
     """
-    return _package_relative if hasattr(native, "package_relative_label") else _as_written
+    if label.repo_name != pkg.repo_name:
+        return str(label)
+    if label.package == pkg.package:
+        return label.name
+    return "//%s:%s" % (label.package, label.name)
+
+def _label_formatter():
+    """Returns `(normalize, label_of)` for source labels in the package of the macro.
+
+    Bazel versions without native.package_relative_label compare the labels as written and strip a
+    leading `:` for display.
+    """
+    if not hasattr(native, "package_relative_label"):
+        return _as_written, _strip_colon
+    pkg = native.package_relative_label(":__pkg__")
+    displayed = {}
+
+    def _normalize(label):
+        resolved = native.package_relative_label(label)
+        canonical = str(resolved)
+        if canonical not in displayed:
+            displayed[canonical] = display_label(resolved, pkg)
+        return canonical
+
+    def _label_of(canonical):
+        return displayed.get(canonical, canonical)
+
+    return _normalize, _label_of
 
 def _platforms(jvm, android, native_groups):
     """The platforms of a declaration as (what the errors call it, its attributes)."""
@@ -181,14 +216,15 @@ def kt_multiplatform_library(
         tags = [],
         testonly = False,
         **kwargs):
-    """Declares a Kotlin Multiplatform library: a library per platform, the fragments they share and an alias.
+    """Declares a Kotlin Multiplatform library: a library per platform, the fragments they share, `<name>.fragments` and an alias.
 
     Experimental. Each platform lists every source it compiles. The sources that exactly the same
     platforms list are a K2 fragment of the compilations of those platforms, named after them, and
     the sources of a single platform are its leaf fragment, so the `expect` declarations of shared
-    sources and the `actual` ones of a platform are in one module (see derive.bzl). A fragment has
-    no deps: each platform compiles it against its own deps. Sources are shared by label: a platform
-    lists a label once, and a file must be listed by the same label everywhere.
+    sources and the `actual` ones of a platform are in one module (see derive.bzl). Running
+    `<name>.fragments` prints the derived fragments, their `refines` edges and their sources. A
+    fragment has no deps: each platform compiles it against its own deps. Sources are shared by
+    label: a platform lists a label once, and a file must be listed by the same label everywhere.
 
     Args:
       name: the name of the alias, and the prefix of the names of the other targets.
@@ -206,7 +242,7 @@ def kt_multiplatform_library(
       testonly: whether the targets are testonly.
       **kwargs: more attributes common to every rule, e.g. `features`, of every target.
     """
-    normalize = _label_normalizer()
+    normalize, label_of = _label_formatter()
     error = multiplatform_declaration_error(jvm, android, native, normalize)
     if error:
         fail("kt_multiplatform_library %s: %s" % (name, error))
@@ -275,6 +311,12 @@ def kt_multiplatform_library(
     _filegroup(
         name = name + "_srcs",
         srcs = {label: None for labels in platform_srcs.values() for label in labels}.keys(),
+        **common_attrs
+    )
+
+    kt_kmp_fragments_graph(
+        name = name + ".fragments",
+        graph = format_fragments(derived, label_of = label_of),
         **common_attrs
     )
 

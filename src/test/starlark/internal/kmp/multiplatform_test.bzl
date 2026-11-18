@@ -11,10 +11,10 @@ load("//kotlin:kmp.bzl", "kt_multiplatform_library")
 load("//kotlin:native.bzl", "KtKlibInfo")
 
 # buildifier: disable=bzl-visibility
-load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo")
+load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo", "KtFragmentsGraphInfo", "kt_kmp_fragments_graph")
 
 # buildifier: disable=bzl-visibility
-load("//kotlin/internal/kmp:multiplatform.bzl", "konan_targets_compatibility", "multiplatform_declaration_error")
+load("//kotlin/internal/kmp:multiplatform.bzl", "display_label", "konan_targets_compatibility", "multiplatform_declaration_error")
 load(
     "//src/test/starlark/internal/native:common.bzl",
     "for_target",
@@ -127,6 +127,21 @@ def _files_test_impl(ctx):
 
     return analysistest.end(env)
 
+def _fragments_graph_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    target = analysistest.target_under_test(env)
+    asserts.equals(env, ctx.attr.graph, target[KtFragmentsGraphInfo].graph)
+    executable = target[DefaultInfo].files_to_run.executable
+    asserts.equals(env, [executable], target[DefaultInfo].files.to_list())
+    asserts.equals(env, ctx.attr.launcher, executable.basename)
+    action = single_action(env, "FileWrite")
+    asserts.true(env, action.content.startswith(ctx.attr.header), action.content)
+    if ctx.attr.expected_content:
+        asserts.equals(env, ctx.attr.expected_content, action.content)
+
+    return analysistest.end(env)
+
 def _failure_test_impl(ctx):
     env = analysistest.begin(ctx)
 
@@ -178,6 +193,26 @@ _FRAGMENT_ATTRS = {
 
 fragment_test = analysistest.make(_fragment_test_impl, attrs = _FRAGMENT_ATTRS)
 files_test = analysistest.make(_files_test_impl, attrs = {"files": attr.string_list()})
+_FRAGMENTS_GRAPH_ATTRS = {
+    "expected_content": attr.string(),
+    "graph": attr.string(mandatory = True),
+    "header": attr.string(mandatory = True),
+    "launcher": attr.string(mandatory = True),
+}
+fragments_graph_unix_test = analysistest.make(
+    _fragments_graph_test_impl,
+    attrs = _FRAGMENTS_GRAPH_ATTRS,
+    config_settings = {
+        "//command_line_option:platforms": [str(Label("//%s:jvm_platform" % _PACKAGE))],
+    },
+)
+fragments_graph_windows_test = analysistest.make(
+    _fragments_graph_test_impl,
+    attrs = _FRAGMENTS_GRAPH_ATTRS,
+    config_settings = {
+        "//command_line_option:platforms": [str(Label("//%s:windows_platform" % _PACKAGE))],
+    },
+)
 failure_test = analysistest.make(
     _failure_test_impl,
     attrs = {"message": attr.string()},
@@ -297,9 +332,26 @@ def _konan_targets_compatibility_test(ctx):
 
     return unittest.end(env)
 
+def _display_label_test(ctx):
+    env = unittest.begin(ctx)
+
+    pkg = Label("//shared:__pkg__")
+    asserts.equals(env, "common/A.kt", display_label(Label("//shared:common/A.kt"), pkg))
+    asserts.equals(env, "shared_ksp_jvm", display_label(Label("//shared:shared_ksp_jvm"), pkg))
+    asserts.equals(env, "//other/sub:A.kt", display_label(Label("//other/sub:A.kt"), pkg))
+    asserts.equals(env, "//:A.kt", display_label(Label("//:A.kt"), pkg))
+    asserts.equals(env, str(Label("@platforms//os:linux")), display_label(Label("@platforms//os:linux"), pkg))
+
+    root_pkg = Label("//:__pkg__")
+    asserts.equals(env, "common/A.kt", display_label(Label("//:common/A.kt"), root_pkg))
+    asserts.equals(env, "//sub:A.kt", display_label(Label("//sub:A.kt"), root_pkg))
+
+    return unittest.end(env)
+
 valid_declaration_test = unittest.make(_valid_declaration_test)
 invalid_declarations_test = unittest.make(_invalid_declarations_test)
 konan_targets_compatibility_test = unittest.make(_konan_targets_compatibility_test)
+display_label_test = unittest.make(_display_label_test)
 
 def multiplatform_test_suite(name):
     """Declares multiplatform libraries and the tests of what kt_multiplatform_library declares.
@@ -378,6 +430,7 @@ def multiplatform_test_suite(name):
     # A single platform shares nothing: its library compiles no fragment.
     kt_multiplatform_library(
         name = "mpp_single",
+        testonly = True,
         jvm = dict(srcs = _COMMON + ["testdata/Platform.jvm.kt"]),
         tags = ["manual"],
     )
@@ -411,6 +464,18 @@ def multiplatform_test_suite(name):
             "@platforms//cpu:riscv64",
             "@platforms//os:linux",
         ],
+    )
+    native.platform(
+        name = "windows_platform",
+        constraint_values = [
+            "@platforms//cpu:x86_64",
+            "@platforms//os:windows",
+        ],
+    )
+    kt_kmp_fragments_graph(
+        name = "mpp_special_chars.fragments",
+        graph = "-e 'single' \"double\" $VAR `cmd` \\back %1% ^caret & < > | (paren) !bang\n",
+        tags = ["manual"],
     )
 
     native_linux_arm64_test(
@@ -585,11 +650,112 @@ def multiplatform_test_suite(name):
             "Platform.linux.kt",
         ],
     )
+    fragments_graph_unix_test(
+        name = "multiplatform_fragments_graph_test",
+        target_under_test = ":mpp.fragments",
+        graph = """\
+fragment ios_simulator_arm64-jvm-linux_arm64-macos_arm64
+  srcs:
+    testdata/Platform.kt
+    testdata/Greeting.kt
+fragment ios_simulator_arm64-linux_arm64-macos_arm64
+  refines: ios_simulator_arm64-jvm-linux_arm64-macos_arm64
+  srcs:
+    testdata/Description.native.kt
+fragment ios_simulator_arm64-macos_arm64
+  refines: ios_simulator_arm64-linux_arm64-macos_arm64
+  srcs:
+    testdata/Platform.apple.kt
+leaf ios_simulator_arm64
+  refines: ios_simulator_arm64-macos_arm64
+leaf jvm
+  refines: ios_simulator_arm64-jvm-linux_arm64-macos_arm64
+  srcs:
+    testdata/Platform.jvm.kt
+leaf linux_arm64
+  refines: ios_simulator_arm64-linux_arm64-macos_arm64
+  srcs:
+    testdata/Platform.linux.kt
+leaf macos_arm64
+  refines: ios_simulator_arm64-macos_arm64
+""",
+        header = "#!/usr/bin/env sh\n",
+        launcher = "mpp.fragments.sh",
+    )
+    fragments_graph_unix_test(
+        name = "multiplatform_collapse_fragments_graph_test",
+        target_under_test = ":mpp_collapse.fragments",
+        graph = """\
+fragment jvm-linux_arm64
+  srcs:
+    testdata/Platform.kt
+    testdata/Platform.linux.kt
+leaf jvm
+  refines: jvm-linux_arm64
+leaf linux_arm64
+  refines: jvm-linux_arm64
+""",
+        header = "#!/usr/bin/env sh\n",
+        launcher = "mpp_collapse.fragments.sh",
+    )
+    fragments_graph_unix_test(
+        name = "multiplatform_incomparable_fragments_graph_test",
+        target_under_test = ":mpp_incomparable.fragments",
+        graph = """\
+fragment jvm-linux_arm64-macos_arm64
+  srcs:
+    testdata/Platform.kt
+fragment jvm-linux_arm64
+  refines: jvm-linux_arm64-macos_arm64
+  srcs:
+    testdata/Description.native.kt
+fragment jvm-macos_arm64
+  refines: jvm-linux_arm64-macos_arm64
+  srcs:
+    testdata/Platform.apple.kt
+leaf jvm
+  refines: jvm-linux_arm64, jvm-macos_arm64
+  srcs:
+    testdata/Platform.jvm.kt
+leaf linux_arm64
+  refines: jvm-linux_arm64
+leaf macos_arm64
+  refines: jvm-macos_arm64
+""",
+        header = "#!/usr/bin/env sh\n",
+        launcher = "mpp_incomparable.fragments.sh",
+    )
+    fragments_graph_unix_test(
+        name = "multiplatform_single_fragments_graph_test",
+        target_under_test = ":mpp_single.fragments",
+        graph = """\
+leaf jvm
+  srcs:
+    testdata/Platform.kt
+    testdata/Greeting.kt
+    testdata/Platform.jvm.kt
+""",
+        header = "#!/usr/bin/env sh\n",
+        launcher = "mpp_single.fragments.sh",
+    )
+    fragments_graph_windows_test(
+        name = "multiplatform_windows_fragments_graph_test",
+        target_under_test = ":mpp_special_chars.fragments",
+        expected_content = (
+            "@echo off\r\n" +
+            "setlocal DisableDelayedExpansion\r\n" +
+            "echo(-e 'single' ^\"double^\" $VAR `cmd` \\back %%1%% ^^caret ^& ^< ^> ^| ^(paren^) !bang\r\n"
+        ),
+        graph = "-e 'single' \"double\" $VAR `cmd` \\back %1% ^caret & < > | (paren) !bang\n",
+        header = "@echo off\r\n",
+        launcher = "mpp_special_chars.fragments.bat",
+    )
     unittest.suite(
         "multiplatform_declarations",
         valid_declaration_test,
         invalid_declarations_test,
         konan_targets_compatibility_test,
+        display_label_test,
     )
 
     native.test_suite(
@@ -599,16 +765,21 @@ def multiplatform_test_suite(name):
             ":multiplatform_alias_jvm_test",
             ":multiplatform_alias_native_test",
             ":multiplatform_apple_fragment_test",
+            ":multiplatform_collapse_fragments_graph_test",
             ":multiplatform_collapse_test",
             ":multiplatform_common_fragment_test",
             ":multiplatform_declarations",
             ":multiplatform_file_in_two_fragments_fails_test",
+            ":multiplatform_fragments_graph_test",
+            ":multiplatform_incomparable_fragments_graph_test",
             ":multiplatform_incomparable_test",
             ":multiplatform_jvm_test",
             ":multiplatform_native_apple_test",
             ":multiplatform_native_linux_test",
             ":multiplatform_shared_srcs_test",
+            ":multiplatform_single_fragments_graph_test",
             ":multiplatform_single_platform_test",
             ":multiplatform_srcs_test",
+            ":multiplatform_windows_fragments_graph_test",
         ],
     )

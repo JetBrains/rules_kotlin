@@ -24,3 +24,22 @@ sh_test(
     args = ["$(rootpath //kotlin/internal/kmp:ksp_run.sh)"],
     data = ["//kotlin/internal/kmp:ksp_run.sh"],
 )
+
+sh_test(
+    name = "fragments_graph_test",
+    srcs = ["fragments_graph_test.sh"],
+    args = [
+        "$(rootpath :mpp.fragments)",
+        "$(rootpath :mpp_collapse.fragments)",
+        "$(rootpath :mpp_incomparable.fragments)",
+        "$(rootpath :mpp_single.fragments)",
+        "$(rootpath :mpp_special_chars.fragments)",
+    ],
+    data = [
+        ":mpp.fragments",
+        ":mpp_collapse.fragments",
+        ":mpp_incomparable.fragments",
+        ":mpp_single.fragments",
+        ":mpp_special_chars.fragments",
+    ],
+)

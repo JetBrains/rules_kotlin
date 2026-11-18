@@ -3,7 +3,7 @@
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 
 # buildifier: disable=bzl-visibility
-load("//kotlin/internal/kmp:derive.bzl", "derive_fragments", "fragment_name")
+load("//kotlin/internal/kmp:derive.bzl", "derive_fragments", "format_fragments", "fragment_name")
 
 COMMON = ["common/Platform.kt", "common/Greeting.kt"]
 NON_ANDROID = ["non_android/Greeting.nonAndroid.kt"]
@@ -162,6 +162,156 @@ def _source_order_test(ctx):
 
     return unittest.end(env)
 
+def _strip_pkg(label):
+    return label.removeprefix("//pkg:")
+
+def _format_hierarchy_and_empty_leaves_test(ctx):
+    """format_fragments renders shared fragments most shared first, then sorted platform leaves, omitting empty blocks."""
+    env = unittest.begin(ctx)
+
+    derived = derive_fragments({
+        "android": COMMON + ANDROID,
+        "ios_arm64": COMMON + NON_ANDROID + APPLE,
+        "jvm": COMMON + NON_ANDROID + JVM,
+        "macos_arm64": COMMON + NON_ANDROID + APPLE,
+    })
+
+    asserts.equals(
+        env,
+        """\
+fragment android-ios_arm64-jvm-macos_arm64
+  srcs:
+    common/Platform.kt
+    common/Greeting.kt
+fragment ios_arm64-jvm-macos_arm64
+  refines: android-ios_arm64-jvm-macos_arm64
+  srcs:
+    non_android/Greeting.nonAndroid.kt
+fragment ios_arm64-macos_arm64
+  refines: ios_arm64-jvm-macos_arm64
+  srcs:
+    apple/Platform.apple.kt
+leaf android
+  refines: android-ios_arm64-jvm-macos_arm64
+  srcs:
+    android/Platform.android.kt
+leaf ios_arm64
+  refines: ios_arm64-macos_arm64
+leaf jvm
+  refines: ios_arm64-jvm-macos_arm64
+  srcs:
+    jvm/Platform.jvm.kt
+leaf macos_arm64
+  refines: ios_arm64-macos_arm64
+""",
+        format_fragments(derived),
+    )
+
+    relabeled = derive_fragments({
+        "android": ["//pkg:common/A.kt"],
+        "jvm": ["//pkg:common/A.kt", "//other:B.kt"],
+    })
+    asserts.equals(
+        env,
+        """\
+fragment android-jvm
+  srcs:
+    common/A.kt
+leaf android
+  refines: android-jvm
+leaf jvm
+  refines: android-jvm
+  srcs:
+    //other:B.kt
+""",
+        format_fragments(relabeled, label_of = _strip_pkg),
+    )
+
+    return unittest.end(env)
+
+def _format_incomparable_sets_test(ctx):
+    """Multiple refined fragments are rendered comma-separated in deterministic fragment order."""
+    env = unittest.begin(ctx)
+
+    derived = derive_fragments({
+        "android": COMMON + ["shared/AndroidJvm.kt"],
+        "jvm": COMMON + ["shared/AndroidJvm.kt", "shared/JvmLinux.kt"] + JVM,
+        "linux_x64": COMMON + ["shared/JvmLinux.kt"],
+    })
+
+    asserts.equals(
+        env,
+        """\
+fragment android-jvm-linux_x64
+  srcs:
+    common/Platform.kt
+    common/Greeting.kt
+fragment android-jvm
+  refines: android-jvm-linux_x64
+  srcs:
+    shared/AndroidJvm.kt
+fragment jvm-linux_x64
+  refines: android-jvm-linux_x64
+  srcs:
+    shared/JvmLinux.kt
+leaf android
+  refines: android-jvm
+leaf jvm
+  refines: android-jvm, jvm-linux_x64
+  srcs:
+    jvm/Platform.jvm.kt
+leaf linux_x64
+  refines: jvm-linux_x64
+""",
+        format_fragments(derived),
+    )
+
+    return unittest.end(env)
+
+def _format_single_and_empty_platform_test(ctx):
+    """Single-platform and source-less platform leaves omit empty fragment, refines and srcs sections."""
+    env = unittest.begin(ctx)
+
+    single = derive_fragments({"jvm": COMMON + JVM})
+    asserts.equals(
+        env,
+        """\
+leaf jvm
+  srcs:
+    common/Platform.kt
+    common/Greeting.kt
+    jvm/Platform.jvm.kt
+""",
+        format_fragments(single),
+    )
+
+    with_empty = derive_fragments({
+        "android": COMMON,
+        "jvm": COMMON + JVM,
+        "linux_x64": [],
+    })
+    asserts.equals(
+        env,
+        """\
+fragment android-jvm
+  srcs:
+    common/Platform.kt
+    common/Greeting.kt
+leaf android
+  refines: android-jvm
+leaf jvm
+  refines: android-jvm
+  srcs:
+    jvm/Platform.jvm.kt
+leaf linux_x64
+""",
+        format_fragments(with_empty),
+    )
+
+    asserts.equals(env, "", format_fragments(derive_fragments({})))
+
+    return unittest.end(env)
+
 fragment_name_test = unittest.make(_fragment_name_test)
 common_and_leaves_test = unittest.make(_common_and_leaves_test)
 three_level_chain_test = unittest.make(_three_level_chain_test)
@@ -170,6 +320,9 @@ identical_sets_collapse_test = unittest.make(_identical_sets_collapse_test)
 single_platform_test = unittest.make(_single_platform_test)
 empty_leaf_test = unittest.make(_empty_leaf_test)
 source_order_test = unittest.make(_source_order_test)
+format_hierarchy_and_empty_leaves_test = unittest.make(_format_hierarchy_and_empty_leaves_test)
+format_incomparable_sets_test = unittest.make(_format_incomparable_sets_test)
+format_single_and_empty_platform_test = unittest.make(_format_single_and_empty_platform_test)
 
 def derive_test_suite(name):
     unittest.suite(
@@ -182,4 +335,7 @@ def derive_test_suite(name):
         single_platform_test,
         empty_leaf_test,
         source_order_test,
+        format_hierarchy_and_empty_leaves_test,
+        format_incomparable_sets_test,
+        format_single_and_empty_platform_test,
     )

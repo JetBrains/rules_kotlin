@@ -117,3 +117,35 @@ def derive_fragments(platform_srcs):
         leaf_srcs = leaf_srcs,
         leaf_refines = {platform: _refined({platform: True}, sets) for platform in platform_srcs},
     )
+
+def _identity(label):
+    return label
+
+def _append_node(lines, kind, name, refines, srcs, label_of):
+    lines.append("%s %s" % (kind, name))
+    if refines:
+        lines.append("  refines: %s" % ", ".join(refines))
+    if srcs:
+        lines.append("  srcs:")
+        for src in srcs:
+            lines.append("    %s" % label_of(src))
+
+def format_fragments(derived, label_of = None):
+    """Renders the derived shared fragments and platform leaves as deterministic text.
+
+    Args:
+      derived: a struct returned by `derive_fragments`.
+      label_of: an optional function turning each source label in `derived` into its display
+        string; when None, labels are rendered as stored in `derived`.
+
+    Returns:
+      The formatted fragment graph: shared fragments in `derived.fragments` order, followed by
+      platform leaves in sorted platform order, ending with `\\n` (or `""` when empty).
+    """
+    display = label_of if label_of != None else _identity
+    lines = []
+    for fragment in derived.fragments:
+        _append_node(lines, "fragment", fragment.name, fragment.refines, fragment.srcs, display)
+    for platform in sorted(derived.leaf_srcs):
+        _append_node(lines, "leaf", platform, derived.leaf_refines[platform], derived.leaf_srcs[platform], display)
+    return "\n".join(lines) + "\n" if lines else ""

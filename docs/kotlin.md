@@ -1003,14 +1003,15 @@ load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
 kt_multiplatform_library(<a href="#kt_multiplatform_library-name">name</a>, <a href="#kt_multiplatform_library-jvm">jvm</a>, <a href="#kt_multiplatform_library-android">android</a>, <a href="#kt_multiplatform_library-native">native</a>, <a href="#kt_multiplatform_library-visibility">visibility</a>, <a href="#kt_multiplatform_library-tags">tags</a>, <a href="#kt_multiplatform_library-testonly">testonly</a>, <a href="#kt_multiplatform_library-kwargs">**kwargs</a>)
 </pre>
 
-Declares a Kotlin Multiplatform library: a library per platform, the fragments they share and an alias.
+Declares a Kotlin Multiplatform library: a library per platform, the fragments they share, `<name>.fragments` and an alias.
 
 Experimental. Each platform lists every source it compiles. The sources that exactly the same
 platforms list are a K2 fragment of the compilations of those platforms, named after them, and
 the sources of a single platform are its leaf fragment, so the `expect` declarations of shared
-sources and the `actual` ones of a platform are in one module (see derive.bzl). A fragment has
-no deps: each platform compiles it against its own deps. Sources are shared by label: a platform
-lists a label once, and a file must be listed by the same label everywhere.
+sources and the `actual` ones of a platform are in one module (see derive.bzl). Running
+`<name>.fragments` prints the derived fragments, their `refines` edges and their sources. A
+fragment has no deps: each platform compiles it against its own deps. Sources are shared by
+label: a platform lists a label once, and a file must be listed by the same label everywhere.
 
 
 **PARAMETERS**
