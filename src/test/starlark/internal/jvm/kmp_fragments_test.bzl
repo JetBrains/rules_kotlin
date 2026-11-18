@@ -148,8 +148,21 @@ _abi_jar_test = analysistest.make(
     },
 )
 
-# The toolchain removes internal declarations from ABI jars, and does not turn ABI jars on.
+_ABI_TOOLCHAIN = str(Label("//src/test/starlark/internal/jvm:kf_abi_toolchain"))
+
+# The toolchain turns ABI jars on and removes internal declarations from them.
 _PUBLIC_ONLY_ABI_TOOLCHAIN = str(Label("//src/test/starlark/internal/jvm:kf_public_only_abi_toolchain"))
+
+_abi_jar_enabled_test = analysistest.make(
+    _abi_jar_test_impl,
+    attrs = {
+        # Whether KotlinCompile writes <name>-kt.abi.jar.
+        "abi_jar": attr.bool(),
+    },
+    config_settings = {
+        "//command_line_option:extra_toolchains": [_ABI_TOOLCHAIN],
+    },
+)
 
 _class_jar_of_associate_test = analysistest.make(
     _class_jar_of_associate_test_impl,
@@ -253,11 +266,17 @@ def _kmp_fragments_contents():
         ],
     )
 
+    define_kt_toolchain(
+        name = "kf_abi_toolchain",
+        experimental_use_abi_jars = True,
+    )
+
     # A test library of kf_library, under a toolchain whose ABI jars keep no internal declarations.
     define_kt_toolchain(
         name = "kf_public_only_abi_toolchain",
         experimental_remove_private_classes_in_abi_jars = True,
         experimental_treat_internal_as_private_in_abi_jars = True,
+        experimental_use_abi_jars = True,
     )
     kt_jvm_library(
         name = "kf_associating_library",
@@ -387,19 +406,29 @@ def _kmp_fragments_contents():
         target_under_test = ":kf_free_library",
     )
     _abi_jar_test(
-        name = "kmp_fragments_abi_jar_test",
+        name = "kmp_fragments_default_no_abi_jar_test",
         target_under_test = ":kf_library",
-        abi_jar = True,
-    )
-    _abi_jar_test(
-        name = "kmp_fragments_abi_jar_incompatible_test",
-        target_under_test = ":kf_abi_incompatible_library",
         abi_jar = False,
     )
     _abi_jar_test(
         name = "kmp_fragments_none_abi_jar_test",
         target_under_test = ":kf_free_library",
         abi_jar = False,
+    )
+    _abi_jar_enabled_test(
+        name = "kmp_fragments_abi_jar_test",
+        target_under_test = ":kf_library",
+        abi_jar = True,
+    )
+    _abi_jar_enabled_test(
+        name = "kmp_fragments_abi_jar_incompatible_test",
+        target_under_test = ":kf_abi_incompatible_library",
+        abi_jar = False,
+    )
+    _abi_jar_enabled_test(
+        name = "kmp_fragments_sourceless_abi_jar_test",
+        target_under_test = ":kf_sourceless_library",
+        abi_jar = True,
     )
     _class_jar_of_associate_test(
         name = "kmp_fragments_public_only_associate_test",
@@ -445,6 +474,7 @@ def kmp_fragments_test_suite(name):
         tests = [
             ":kmp_fragments_abi_jar_incompatible_test",
             ":kmp_fragments_abi_jar_test",
+            ":kmp_fragments_default_no_abi_jar_test",
             ":kmp_fragments_duplicate_fragment_fails_test",
             ":kmp_fragments_kapt_fails_test",
             ":kmp_fragments_ksp_fails_test",
@@ -454,6 +484,7 @@ def kmp_fragments_test_suite(name):
             ":kmp_fragments_not_superset_fails_test",
             ":kmp_fragments_public_only_associate_test",
             ":kmp_fragments_source_in_two_fragments_fails_test",
+            ":kmp_fragments_sourceless_abi_jar_test",
             ":kmp_fragments_sourceless_library_test",
             ":kmp_fragments_srcjar_fails_test",
         ],

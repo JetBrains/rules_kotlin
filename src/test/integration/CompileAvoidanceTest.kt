@@ -16,10 +16,11 @@ import kotlin.io.path.useLines
 import kotlin.io.path.writeText
 
 /**
- * Builds a Kotlin Multiplatform library and its JVM and Kotlin/Native dependents, edits the library
- * and builds them again. An edit to a private body leaves the ABI jar and the header klib of the
- * library unchanged, so the compilations of the dependents stay cached; a public signature edit
- * changes both, and the dependents recompile.
+ * Builds a Kotlin Multiplatform library and its JVM and Kotlin/Native dependents with
+ * `experimental_use_abi_jars` on the Kotlin toolchain and `experimental_native_header_klibs`
+ * enabled, edits the library and builds them again. An edit to a private body leaves the ABI jar
+ * and the header klib of the library unchanged, so the compilations of the dependents stay cached;
+ * a public signature edit changes both, and the dependents recompile.
  */
 class CompileAvoidanceTest : BazelIntegrationTestBase() {
   /** The actions a build ran, as (mnemonic, label), and the files of its targets by name. */
@@ -88,13 +89,20 @@ class CompileAvoidanceTest : BazelIntegrationTestBase() {
       """
       module(name = "compile_avoidance")
       bazel_dep(name = "rules_kotlin", version = "2.2.0")
+      register_toolchains("//:kotlin_toolchain")
       """.trimIndent(),
     )
     workspace.resolve("BUILD.bazel").writeText(
       """
+      load("@rules_kotlin//kotlin:core.bzl", "define_kt_toolchain")
       load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_library")
       load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
       load("@rules_kotlin//kotlin:native.bzl", "kt_native_library")
+
+      define_kt_toolchain(
+          name = "kotlin_toolchain",
+          experimental_use_abi_jars = True,
+      )
 
       # Greeter.kt is a fragment of the JVM and of the konan targets of the exec hosts: lib_jvm
       # compiles it with kmp_fragments, and lib_native for the konan target of the host.

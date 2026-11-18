@@ -87,8 +87,10 @@ kt_jvm_library(
 ## JVM and Android
 
 The JVM and Android libraries of a `kt_multiplatform_library` (`<name>_jvm` and `<name>_android`),
-and every other `kt_jvm_library` or `kt_android_library` with `kmp_fragments`, emit an ABI jar even
-when the toolchain leaves `experimental_use_abi_jars` off. Their dependents compile against it.
+and every other `kt_jvm_library` or `kt_android_library` with `kmp_fragments`, emit an ABI jar when
+the Kotlin toolchain sets `experimental_use_abi_jars = True`, like any other `kt_jvm_library` or
+`kt_android_library`. Their dependents then compile against it; by default `experimental_use_abi_jars`
+is off and they compile against the class jar.
 
 The ABI jar keeps internal declarations, unless the toolchain sets
 `experimental_treat_internal_as_private_in_abi_jars` or `experimental_remove_private_classes_in_abi_jars`.
