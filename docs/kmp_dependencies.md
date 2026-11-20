@@ -40,24 +40,22 @@ use_repo(kmp_maven, "kmp_maven")
 
 Then depend on the alias of a library, `@<name>//:<group>_<artifact>` with every character but
 letters and digits replaced by `_`, from any Kotlin rule. A multiplatform library lists it in the
-`deps` of every platform whose sources use it: a fragment has no deps of its own, and each platform
-compiles the sources it shares against its own deps, in which the alias is the variant of the
-platform:
+`deps` of every platform whose sources use it, or once in the `deps` of the macro when the common
+code uses it: a fragment has no deps of its own, and each platform compiles the sources it shares
+against its own deps, the common ones first, in which the alias is the variant of the platform:
 
 ```starlark
 COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 
 kt_multiplatform_library(
     name = "shared",
-    jvm = dict(
-        srcs = ["common/Greeting.kt", "jvm/Platform.jvm.kt"],
-        deps = [COROUTINES],
-    ),
+    srcs = ["common/Greeting.kt"],
+    jvm = dict(srcs = ["jvm/Platform.jvm.kt"]),
     native = {"linux": dict(
-        srcs = ["common/Greeting.kt", "linux/Platform.linux.kt"],
+        srcs = ["linux/Platform.linux.kt"],
         targets = ["linux_x64"],
-        deps = [COROUTINES],
     )},
+    deps = [COROUTINES],
 )
 ```
 

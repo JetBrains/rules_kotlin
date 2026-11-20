@@ -4,12 +4,13 @@ load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
 # The alias of kotlinx.coroutines (see MODULE.bazel), which selects its variant like //shared does.
 COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 
-# The common code of src/commonMain, which every platform lists with its own sources.
+# The common code of src/commonMain, which every platform compiles with its own sources.
 COMMON = glob(["src/commonMain/kotlin/**/*.kt"])
 
 # The shared module of the wizard's project, whose Gradle build declares the androidTarget, iosArm64,
-# iosSimulatorArm64 and jvm targets. Each platform lists every source it compiles, and the deps of
-# the common code: the common sources, which all of them list, are the fragment
+# iosSimulatorArm64 and jvm targets. The common sources and the deps of the common code are listed
+# once, in the srcs and the deps of the macro, which it prepends to those of every platform, and
+# each platform lists its own sources: the common sources are the fragment
 # android-ios_arm64-ios_simulator_arm64-jvm, and those of src/iosMain, which both iOS targets list,
 # the fragment ios_arm64-ios_simulator_arm64, which refines it. The sources of src/androidMain and
 # src/jvmMain are the leaves of their platforms, with the `actual` getPlatform() of each. The macro
@@ -19,27 +20,24 @@ COMMON = glob(["src/commonMain/kotlin/**/*.kt"])
 # shared_jvm otherwise, such as GreetingTest.
 kt_multiplatform_library(
     name = "shared",
+    srcs = COMMON,
     android = dict(
-        srcs = COMMON + glob(["src/androidMain/kotlin/**/*.kt"]),
+        srcs = glob(["src/androidMain/kotlin/**/*.kt"]),
         custom_package = "org.example.kmpapp",
         manifest = "src/androidMain/AndroidManifest.xml",
-        deps = [COROUTINES],
     ),
-    jvm = dict(
-        srcs = COMMON + glob(["src/jvmMain/kotlin/**/*.kt"]),
-        deps = [COROUTINES],
-    ),
+    jvm = dict(srcs = glob(["src/jvmMain/kotlin/**/*.kt"])),
     native = {
         "ios": dict(
-            srcs = COMMON + glob(["src/iosMain/kotlin/**/*.kt"]),
+            srcs = glob(["src/iosMain/kotlin/**/*.kt"]),
             targets = [
                 "ios_arm64",
                 "ios_simulator_arm64",
             ],
-            deps = [COROUTINES],
         ),
     },
     visibility = ["//visibility:public"],
+    deps = [COROUTINES],
 )
 
 # The common tests, on the JVM of the host: the JVM variant of the common code and of

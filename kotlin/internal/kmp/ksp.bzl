@@ -18,8 +18,11 @@ instead, as the Kotlin Gradle plugin does for a multiplatform module: `KSPJvmMai
 
     kt_multiplatform_library(
         name = "shared",
+        # The macro prepends its srcs to the srcs of every platform; the KSP target takes them in
+        # its srcs and again in its common_srcs.
+        srcs = COMMON_SRCS,
         # Only the JVM lists the generated sources: its leaf fragment compiles them.
-        jvm = dict(srcs = COMMON_SRCS + JVM_SRCS + [":shared_ksp_jvm"]),
+        jvm = dict(srcs = JVM_SRCS + [":shared_ksp_jvm"]),
         ...
     )
 

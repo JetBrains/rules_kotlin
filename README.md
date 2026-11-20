@@ -465,9 +465,10 @@ build's platform: `linux_x64`, `linux_arm64`, `macos_arm64`, `ios_arm64` or `ios
 `kt_multiplatform_library` (`@rules_kotlin//kotlin:kmp.bzl`) declares a Kotlin Multiplatform module
 as the Kotlin Gradle plugin does: a library per platform, which compiles the sources it shares with
 other platforms and its own in one module, the `expect` declarations of the shared code with the
-`actual` ones of the platform, behind one label. Each platform lists every source it compiles, and
-the sources that exactly the same platforms list are a K2 fragment of their compilations. The rules
-are experimental and may change.
+`actual` ones of the platform, behind one label. The sources and deps of the common code are listed
+once, in the macro's `srcs` and `deps`, each platform lists the sources it adds, and the sources
+that exactly the same platforms compile are a K2 fragment of their compilations. The rules are
+experimental and may change.
 
 ```python
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
@@ -478,23 +479,20 @@ COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 
 kt_multiplatform_library(
     name = "shared",
+    srcs = COMMON,
     android = dict(
-        srcs = COMMON + glob(["src/androidMain/kotlin/**/*.kt"]),
+        srcs = glob(["src/androidMain/kotlin/**/*.kt"]),
         custom_package = "org.example.kmpapp",
         manifest = "src/androidMain/AndroidManifest.xml",
-        deps = [COROUTINES],
     ),
-    jvm = dict(
-        srcs = COMMON + glob(["src/jvmMain/kotlin/**/*.kt"]),
-        deps = [COROUTINES],
-    ),
+    jvm = dict(srcs = glob(["src/jvmMain/kotlin/**/*.kt"])),
     native = {
         "ios": dict(
-            srcs = COMMON + glob(["src/iosMain/kotlin/**/*.kt"]),
+            srcs = glob(["src/iosMain/kotlin/**/*.kt"]),
             targets = ["ios_arm64", "ios_simulator_arm64"],
-            deps = [COROUTINES],
         ),
     },
+    deps = [COROUTINES],
 )
 ```
 

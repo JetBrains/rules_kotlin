@@ -909,12 +909,14 @@ the klibs of other Kotlin platforms (JS, Wasm), which share the format.
 Public API for Kotlin Multiplatform.
 
 Experimental:
-- kt_multiplatform_library: a multiplatform library whose platforms each list every source they
-  compile: a library per platform, compiling the sources it shares with other platforms as K2
-  fragments, so `expect` declarations and their `actual` ones are in one module, and an alias
-  selecting the library of its consumer: the native one for a Kotlin/Native rule
+- kt_multiplatform_library: a multiplatform library declared once for its platforms: a library per
+  platform, compiling the sources it shares with other platforms as K2 fragments, so `expect`
+  declarations and their `actual` ones are in one module, and an alias selecting the library of
+  its consumer: the native one for a Kotlin/Native rule
   (`@rules_kotlin//kotlin/native/platforms:native_<konan target>`), the Android one for an Android
-  platform and the JVM one otherwise.
+  platform and the JVM one otherwise. The sources, deps, exports and compiler plugins of every
+  platform go once in its own `srcs`, `deps`, `exports` and `plugins`, which it prepends to those
+  of each platform, and each platform lists only what it adds.
 - kt_jvm_ksp_sources, kt_native_ksp_sources: KSP2 over the sources of a platform, as a separate
   action whose generated Kotlin files the library of the platform compiles.
 
@@ -1000,18 +1002,24 @@ kt_native_library of the platform (or of a group of a kt_multiplatform_library).
 <pre>
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
 
-kt_multiplatform_library(<a href="#kt_multiplatform_library-name">name</a>, <a href="#kt_multiplatform_library-jvm">jvm</a>, <a href="#kt_multiplatform_library-android">android</a>, <a href="#kt_multiplatform_library-native">native</a>, <a href="#kt_multiplatform_library-visibility">visibility</a>, <a href="#kt_multiplatform_library-tags">tags</a>, <a href="#kt_multiplatform_library-testonly">testonly</a>, <a href="#kt_multiplatform_library-kwargs">**kwargs</a>)
+kt_multiplatform_library(<a href="#kt_multiplatform_library-name">name</a>, <a href="#kt_multiplatform_library-jvm">jvm</a>, <a href="#kt_multiplatform_library-android">android</a>, <a href="#kt_multiplatform_library-native">native</a>, <a href="#kt_multiplatform_library-srcs">srcs</a>, <a href="#kt_multiplatform_library-deps">deps</a>, <a href="#kt_multiplatform_library-exports">exports</a>, <a href="#kt_multiplatform_library-plugins">plugins</a>, <a href="#kt_multiplatform_library-visibility">visibility</a>, <a href="#kt_multiplatform_library-tags">tags</a>,
+                         <a href="#kt_multiplatform_library-testonly">testonly</a>, <a href="#kt_multiplatform_library-kwargs">**kwargs</a>)
 </pre>
 
 Declares a Kotlin Multiplatform library: a library per platform, the fragments they share, `<name>.fragments` and an alias.
 
-Experimental. Each platform lists every source it compiles. The sources that exactly the same
-platforms list are a K2 fragment of the compilations of those platforms, named after them, and
-the sources of a single platform are its leaf fragment, so the `expect` declarations of shared
-sources and the `actual` ones of a platform are in one module (see derive.bzl). Running
-`<name>.fragments` prints the derived fragments, their `refines` edges and their sources. A
-fragment has no deps: each platform compiles it against its own deps. Sources are shared by
-label: a platform lists a label once, and a file must be listed by the same label everywhere.
+Experimental. Each platform compiles the sources of every platform, the `srcs` of the macro,
+and its own `srcs`: the macro prepends its own `srcs`, `deps`, `exports` and `plugins` to the
+same attribute of every platform, so the library is the same as one listing them in every
+platform. The sources that exactly the same platforms compile are a K2 fragment of the
+compilations of those platforms, named after them, and the sources of a single platform are
+its leaf fragment, so the `expect` declarations of shared sources and the `actual` ones of a
+platform are in one module (see derive.bzl). Running `<name>.fragments` prints the derived
+fragments, their `refines` edges and their sources. A fragment has no deps: each platform
+compiles it against its own deps, the common ones first. Sources are shared by label: a
+platform gets a label once, from the `srcs` of the macro or from its own, and a file must be
+listed by the same label everywhere. The macro fails on a label that a platform lists twice
+or repeats from a common list.
 
 
 **PARAMETERS**
@@ -1020,9 +1028,13 @@ label: a platform lists a label once, and a file must be listed by the same labe
 | Name  | Description | Default Value |
 | :------------- | :------------- | :------------- |
 | <a id="kt_multiplatform_library-name"></a>name |  the name of the alias, and the prefix of the names of the other targets.   |  none |
-| <a id="kt_multiplatform_library-jvm"></a>jvm |  the attributes of the kt_jvm_library `<name>_jvm`, e.g. `dict(srcs = COMMON + JVM, deps = [...])`, or None for no JVM library. Its `srcs`, a list of labels, are every source the JVM compiles.   |  `None` |
-| <a id="kt_multiplatform_library-android"></a>android |  the attributes of the kt_android_library `<name>_android`, e.g. `srcs`, `deps` and `manifest`, or None for no Android library. Its `srcs`, a list of labels, are every source Android compiles.   |  `None` |
-| <a id="kt_multiplatform_library-native"></a>native |  the groups of konan targets, `{"<group>": dict(srcs = [...], deps = [...], targets = [...])}`. A group stands for each of its targets: its `srcs`, a list of labels, are every source they compile, and its other attributes, e.g. `deps` and `opts`, are attributes of `<name>_native` for them.   |  `{}` |
+| <a id="kt_multiplatform_library-jvm"></a>jvm |  the attributes of the kt_jvm_library `<name>_jvm`, e.g. `dict(srcs = JVM, deps = [...])`, or None for no JVM library; `{}` is a JVM library of the common entries alone. Its `srcs`, a list of labels, are the sources the JVM compiles besides the `srcs` of the macro.   |  `None` |
+| <a id="kt_multiplatform_library-android"></a>android |  the attributes of the kt_android_library `<name>_android`, e.g. `srcs`, `deps` and `manifest`, or None for no Android library. Its `srcs`, a list of labels, are the sources Android compiles besides the `srcs` of the macro.   |  `None` |
+| <a id="kt_multiplatform_library-native"></a>native |  the groups of konan targets, `{"<group>": dict(srcs = [...], deps = [...], targets = [...])}`. A group stands for each of its targets: its `srcs`, a list of labels, are the sources they compile besides the `srcs` of the macro, and its other attributes, e.g. `deps` and `opts`, are attributes of `<name>_native` for them.   |  `{}` |
+| <a id="kt_multiplatform_library-srcs"></a>srcs |  the sources of every platform, a list of labels, e.g. those of Gradle's `commonMain`, prepended to the `srcs` of each platform. The sources of only some platforms, e.g. of an intermediate source set, are a list in the `srcs` of those platforms.   |  `[]` |
+| <a id="kt_multiplatform_library-deps"></a>deps |  the deps of every platform, a list of labels prepended to the `deps` of each. Each resolves for every platform: an alias selecting the variant of the platform, such as those of `kmp_maven`, or another kt_multiplatform_library.   |  `[]` |
+| <a id="kt_multiplatform_library-exports"></a>exports |  the exports of every platform, a list of labels prepended to the `exports` of each; like `deps`, each resolves for every platform.   |  `[]` |
+| <a id="kt_multiplatform_library-plugins"></a>plugins |  the Kotlin compiler plugins of every platform, a list of kt_compiler_plugin targets, the only kind kt_native_library takes, prepended to the `plugins` of each.   |  `[]` |
 | <a id="kt_multiplatform_library-visibility"></a>visibility |  the visibility of the targets; the fragments are private.   |  `None` |
 | <a id="kt_multiplatform_library-tags"></a>tags |  the tags of the targets.   |  `[]` |
 | <a id="kt_multiplatform_library-testonly"></a>testonly |  whether the targets are testonly.   |  `False` |
