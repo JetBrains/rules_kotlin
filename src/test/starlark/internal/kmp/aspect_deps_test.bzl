@@ -91,31 +91,24 @@ def aspect_deps_test_suite(name):
         tags = ["manual"],
     )
 
-    # The common sources use the common lib, which every platform lists, and the JVM sources the JVM
-    # one.
+    # The common sources use the common lib, and the JVM sources the JVM one: both are Java libraries,
+    # deps of the JVM alone.
     kt_multiplatform_library(
         name = "ad_mpp",
-        jvm = dict(
-            srcs = [
-                "testdata/Platform.kt",
-                "testdata/Greeting.kt",
-                "testdata/Platform.jvm.kt",
-            ],
-            deps = [
-                ":ad_common_lib",
-                ":ad_jvm_lib",
-            ],
-        ),
-        native = {
-            "linux": dict(
-                srcs = [
-                    "testdata/Platform.kt",
-                    "testdata/Greeting.kt",
-                    "testdata/Platform.linux.kt",
-                ],
-                targets = ["linux_arm64"],
-            ),
-        },
+        platforms = [
+            "jvm",
+            "linux_arm64",
+        ],
+        srcs = [
+            "testdata/Platform.kt",
+            "testdata/Greeting.kt",
+        ],
+        deps_jvm = [
+            ":ad_common_lib",
+            ":ad_jvm_lib",
+        ],
+        srcs_jvm = ["testdata/Platform.jvm.kt"],
+        srcs_linux_arm64 = ["testdata/Platform.linux.kt"],
         tags = ["manual"],
     )
 

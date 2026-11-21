@@ -8,34 +8,31 @@ COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 COMMON = glob(["src/commonMain/kotlin/**/*.kt"])
 
 # The shared module of the wizard's project, whose Gradle build declares the androidTarget, iosArm64,
-# iosSimulatorArm64 and jvm targets. The common sources and the deps of the common code are listed
-# once, in the srcs and the deps of the macro, which it prepends to those of every platform, and
-# each platform lists its own sources: the common sources are the fragment
-# android-ios_arm64-ios_simulator_arm64-jvm, and those of src/iosMain, which both iOS targets list,
-# the fragment ios_arm64-ios_simulator_arm64, which refines it. The sources of src/androidMain and
-# src/jvmMain are the leaves of their platforms, with the `actual` getPlatform() of each. The macro
-# declares the fragments, shared_android, shared_jvm, shared_native, shared_srcs and the alias shared,
-# which selects the library of its consumer: shared_native for a Kotlin/Native rule, such as the
-# framework of //iosApp; shared_android for an Android platform, such as the deps of //androidApp;
-# shared_jvm otherwise, such as GreetingTest.
+# iosSimulatorArm64 and jvm targets, the platforms of the macro. The common sources and the deps of
+# the common code are its srcs and deps, which every platform compiles, and the sources of
+# src/<group or platform>Main those of that group or platform: the common sources are the fragment
+# common, and those of src/iosMain, in srcs_ios, the fragment ios, which refines it. The sources of
+# src/androidMain and src/jvmMain are the leaves of their platforms, with the `actual` getPlatform()
+# of each. The macro declares the fragments, shared_android, shared_jvm, shared_native, shared_srcs
+# and the alias shared, which selects the library of its consumer: shared_native for a Kotlin/Native
+# rule, such as the framework of //iosApp; shared_android for an Android platform, such as the deps
+# of //androidApp; shared_jvm otherwise, such as GreetingTest.
 kt_multiplatform_library(
     name = "shared",
     srcs = COMMON,
     android = dict(
-        srcs = glob(["src/androidMain/kotlin/**/*.kt"]),
         custom_package = "org.example.kmpapp",
         manifest = "src/androidMain/AndroidManifest.xml",
     ),
-    jvm = dict(srcs = glob(["src/jvmMain/kotlin/**/*.kt"])),
-    native = {
-        "ios": dict(
-            srcs = glob(["src/iosMain/kotlin/**/*.kt"]),
-            targets = [
-                "ios_arm64",
-                "ios_simulator_arm64",
-            ],
-        ),
-    },
+    platforms = [
+        "jvm",
+        "android",
+        "ios_arm64",
+        "ios_simulator_arm64",
+    ],
+    srcs_android = glob(["src/androidMain/kotlin/**/*.kt"]),
+    srcs_ios = glob(["src/iosMain/kotlin/**/*.kt"]),
+    srcs_jvm = glob(["src/jvmMain/kotlin/**/*.kt"]),
     visibility = ["//visibility:public"],
     deps = [COROUTINES],
 )

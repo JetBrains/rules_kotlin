@@ -230,9 +230,10 @@ these deps. This is not true for regular (non-exported) deps.""",
         providers = [JavaInfo],
     ),
     "kmp_fragments": attr.label_list(
-        doc = """The K2 fragments of a `kt_multiplatform_library` that the srcs refine: the sources the library shares with
-        other platforms. `kt_multiplatform_library` sets it from the sources each platform lists; it is not set by hand.
-        The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one compilation
+        doc = """The K2 fragments of a `kt_multiplatform_library` that the srcs refine: the sources of the groups above the
+        platform in its hierarchy, e.g. `common`, and those the platform shares with other groups or platforms.
+        `kt_multiplatform_library` sets it from the sources of each group and platform; it is not set by hand. The Kotlin
+        sources of the fragments, and of the fragments they refine, compile with the srcs in one compilation
         (`-Xmulti-platform`), against the deps of the target, so the `actual` declarations of the srcs implement the
         `expect` ones of the fragments; the srcs are the leaf fragment, `jvm` or `android`. A target with fragments cannot
         have .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in

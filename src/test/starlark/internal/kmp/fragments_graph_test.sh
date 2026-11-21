@@ -29,53 +29,63 @@ assert_graph() {
 }
 
 assert_graph mpp "$mpp" <<'EOF'
-fragment ios_simulator_arm64-jvm-linux_arm64-macos_arm64
+fragment common
+  platforms: jvm, linux_arm64, macos_arm64, ios_simulator_arm64
   srcs:
     testdata/Platform.kt
     testdata/Greeting.kt
-fragment ios_simulator_arm64-linux_arm64-macos_arm64
-  refines: ios_simulator_arm64-jvm-linux_arm64-macos_arm64
+fragment native
+  refines: common
+  platforms: linux_arm64, macos_arm64, ios_simulator_arm64
   srcs:
     testdata/Description.native.kt
-fragment ios_simulator_arm64-macos_arm64
-  refines: ios_simulator_arm64-linux_arm64-macos_arm64
+fragment apple
+  refines: native
+  platforms: macos_arm64, ios_simulator_arm64
   srcs:
     testdata/Platform.apple.kt
+fragment linux
+  refines: native
+  platforms: linux_arm64
+  srcs:
+    testdata/Platform.linux.kt
 leaf ios_simulator_arm64
-  refines: ios_simulator_arm64-macos_arm64
+  refines: apple
 leaf jvm
-  refines: ios_simulator_arm64-jvm-linux_arm64-macos_arm64
+  refines: common
   srcs:
     testdata/Platform.jvm.kt
 leaf linux_arm64
-  refines: ios_simulator_arm64-linux_arm64-macos_arm64
-  srcs:
-    testdata/Platform.linux.kt
+  refines: linux
 leaf macos_arm64
-  refines: ios_simulator_arm64-macos_arm64
+  refines: apple
 EOF
 
 assert_graph mpp_collapse "$mpp_collapse" <<'EOF'
-fragment jvm-linux_arm64
+fragment jvm-native
+  platforms: jvm, linux_arm64
   srcs:
     testdata/Platform.kt
     testdata/Platform.linux.kt
 leaf jvm
-  refines: jvm-linux_arm64
+  refines: jvm-native
 leaf linux_arm64
-  refines: jvm-linux_arm64
+  refines: jvm-native
 EOF
 
 assert_graph mpp_incomparable "$mpp_incomparable" <<'EOF'
-fragment jvm-linux_arm64-macos_arm64
+fragment common
+  platforms: jvm, linux_arm64, macos_arm64
   srcs:
     testdata/Platform.kt
 fragment jvm-linux_arm64
-  refines: jvm-linux_arm64-macos_arm64
+  refines: common
+  platforms: jvm, linux_arm64
   srcs:
     testdata/Description.native.kt
 fragment jvm-macos_arm64
-  refines: jvm-linux_arm64-macos_arm64
+  refines: common
+  platforms: jvm, macos_arm64
   srcs:
     testdata/Platform.apple.kt
 leaf jvm
@@ -89,10 +99,14 @@ leaf macos_arm64
 EOF
 
 assert_graph mpp_single "$mpp_single" <<'EOF'
-leaf jvm
+fragment common
+  platforms: jvm
   srcs:
     testdata/Platform.kt
     testdata/Greeting.kt
+leaf jvm
+  refines: common
+  srcs:
     testdata/Platform.jvm.kt
 EOF
 

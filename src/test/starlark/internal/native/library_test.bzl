@@ -365,7 +365,7 @@ def _file_in_two_fragments_test_impl(ctx):
 def _refine_mismatch_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    asserts.expect_failure(env, "the fragment 'linux_arm64-linux_x64' cannot refine 'jvm-linux_arm64'")
+    asserts.expect_failure(env, "the fragment 'linux_arm64-linux_x64' cannot refine 'jvm-linux_arm64', which linux_x64 does not compile")
 
     return analysistest.end(env)
 
@@ -627,8 +627,8 @@ def native_library_test_suite(name):
         tags = ["manual"],
     )
 
-    # frag_bad_refine cannot refine frag_with_actual, which is not shared by more platforms: as many,
-    # and not linux_x64.
+    # frag_bad_refine cannot refine frag_with_actual, which linux_x64, one of its platforms, does not
+    # compile.
     kt_kmp_fragment(
         name = "frag_bad_refine",
         srcs = ["testdata/greeter.kt"],

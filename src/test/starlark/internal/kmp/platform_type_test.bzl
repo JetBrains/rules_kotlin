@@ -122,27 +122,18 @@ def platform_type_test_suite(name):
         deps = [":pt_lib"],
     )
 
-    # Each platform of a multiplatform library resolves the deps it lists in its own configuration,
-    # and compiles the fragment of the sources they share against them.
+    # Each platform of a multiplatform library resolves the deps of every platform in its own
+    # configuration, and compiles the fragment of the sources they share against them.
     kt_multiplatform_library(
         name = "pt_mpp",
-        jvm = dict(
-            srcs = [
-                "testdata/Platform.kt",
-                "testdata/Platform.jvm.kt",
-            ],
-            deps = [":pt_lib"],
-        ),
-        native = {
-            "linux": dict(
-                srcs = [
-                    "testdata/Platform.kt",
-                    "testdata/Platform.linux.kt",
-                ],
-                targets = ["linux_arm64"],
-                deps = [":pt_lib"],
-            ),
-        },
+        platforms = [
+            "jvm",
+            "linux_arm64",
+        ],
+        srcs = ["testdata/Platform.kt"],
+        deps = [":pt_lib"],
+        srcs_jvm = ["testdata/Platform.jvm.kt"],
+        srcs_linux = ["testdata/Platform.linux.kt"],
         tags = ["manual"],
     )
 

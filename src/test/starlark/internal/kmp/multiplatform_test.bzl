@@ -14,7 +14,7 @@ load("//kotlin:native.bzl", "KtKlibInfo")
 load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo", "KtFragmentsGraphInfo", "kt_kmp_fragments_graph")
 
 # buildifier: disable=bzl-visibility
-load("//kotlin/internal/kmp:multiplatform.bzl", "display_label", "konan_targets_compatibility", "multiplatform_declaration_error")
+load("//kotlin/internal/kmp:multiplatform.bzl", "display_label", "konan_targets_compatibility")
 load(
     "//src/test/starlark/internal/native:common.bzl",
     "for_target",
@@ -35,14 +35,6 @@ _COMMON = [
     "testdata/Greeting.kt",
 ]
 _NON_JVM = ["testdata/Description.native.kt"]
-
-# The fragments of the mpp fixture: of the common sources, of the non-JVM ones and of the Apple ones.
-_ALL = "ios_simulator_arm64-jvm-linux_arm64-macos_arm64"
-_NATIVE = "ios_simulator_arm64-linux_arm64-macos_arm64"
-_APPLE = "ios_simulator_arm64-macos_arm64"
-
-# The srcs of a platform as a select(), whose branches are only known at analysis.
-_SELECTED_SRCS = select({"//conditions:default": ["testdata/Platform.jvm.kt"]})
 
 def _basename(path):
     return path.rpartition("/")[2]
@@ -169,6 +161,11 @@ native_macos_arm64_test = analysistest.make(
     attrs = _NATIVE_ATTRS,
     config_settings = for_target("macos_arm64"),
 )
+native_ios_simulator_arm64_test = analysistest.make(
+    _native_test_impl,
+    attrs = _NATIVE_ATTRS,
+    config_settings = for_target("ios_simulator_arm64"),
+)
 jvm_test = analysistest.make(_jvm_test_impl, attrs = _FRAGMENT_FLAGS_ATTRS)
 alias_native_test = analysistest.make(
     _alias_native_test_impl,
@@ -219,95 +216,6 @@ failure_test = analysistest.make(
     expect_failure = True,
 )
 
-def _relative(label):
-    """Normalizes the labels of the package as package_relative_label does for the unit tests: `:a.kt` is `a.kt`."""
-    return label[1:] if label.startswith(":") else label
-
-def _valid_declaration_test(ctx):
-    env = unittest.begin(ctx)
-
-    asserts.equals(env, None, multiplatform_declaration_error(dict(srcs = []), None, {}))
-    asserts.equals(env, None, multiplatform_declaration_error(None, dict(srcs = ["a.kt"], deps = [":lib"]), {}))
-    asserts.equals(
-        env,
-        None,
-        multiplatform_declaration_error(
-            None,
-            None,
-            {
-                "apple": dict(srcs = ["a.kt", "b.kt"], targets = ["ios_arm64", "macos_arm64"]),
-                "linux": dict(srcs = ["a.kt"], targets = ["linux_x64"], opts = ["-opt"], deps = [":klib"]),
-            },
-        ),
-    )
-
-    return unittest.end(env)
-
-def _invalid_declarations_test(ctx):
-    env = unittest.begin(ctx)
-
-    for message, jvm, android, native in [
-        ("it declares no platform: give jvm, android or native", None, None, {}),
-        ("jvm must be a dict of attributes of its library, not a list", [], None, {}),
-        ("native must be a dict of groups of konan targets, not a list", None, None, ["apple"]),
-        (
-            "the native group 'a-b' must be a name of letters, digits and '_'",
-            None,
-            None,
-            {"a-b": dict(targets = ["linux_x64"])},
-        ),
-        ("the native group 'linux' lists no konan targets", None, None, {"linux": dict(srcs = [])}),
-        (
-            "the native group 'linux' lists the unknown konan target 'linux_riscv64'; the known ones are " +
-            "ios_arm64, ios_simulator_arm64, linux_arm64, linux_x64, macos_arm64",
-            None,
-            None,
-            {"linux": dict(targets = ["linux_riscv64"])},
-        ),
-        (
-            "the konan target 'ios_arm64' is in both native groups 'apple' and 'ios'",
-            None,
-            None,
-            {"apple": dict(targets = ["ios_arm64", "macos_arm64"]), "ios": dict(targets = ["ios_arm64"])},
-        ),
-        (
-            "android sets kmp_fragments, which the macro derives from the srcs of the platforms",
-            None,
-            dict(srcs = [], kmp_fragments = [":common"]),
-            {},
-        ),
-        (
-            "the srcs of jvm must be a list of labels, not a select: the macro derives the fragments from the srcs " +
-            "of the platforms when it is called, before any select() is resolved",
-            dict(srcs = _SELECTED_SRCS),
-            None,
-            {},
-        ),
-        (
-            "the srcs of jvm must be a list of labels, not a select: the macro derives the fragments from the srcs " +
-            "of the platforms when it is called, before any select() is resolved",
-            dict(srcs = ["a.kt"] + _SELECTED_SRCS),
-            None,
-            {},
-        ),
-        (
-            "the srcs of the native group 'linux' list a.kt twice",
-            None,
-            None,
-            {"linux": dict(srcs = ["a.kt", "b.kt", "a.kt"], targets = ["linux_x64"])},
-        ),
-    ]:
-        asserts.equals(env, message, multiplatform_declaration_error(jvm, android, native))
-
-    # A label written twice in different forms is repeated once normalized, as the macro normalizes it.
-    asserts.equals(
-        env,
-        "the srcs of jvm list a.kt twice",
-        multiplatform_declaration_error(dict(srcs = ["a.kt", ":a.kt"]), None, {}, normalize = _relative),
-    )
-
-    return unittest.end(env)
-
 def _konan_targets_compatibility_test(ctx):
     env = unittest.begin(ctx)
 
@@ -348,8 +256,6 @@ def _display_label_test(ctx):
 
     return unittest.end(env)
 
-valid_declaration_test = unittest.make(_valid_declaration_test)
-invalid_declarations_test = unittest.make(_invalid_declarations_test)
 konan_targets_compatibility_test = unittest.make(_konan_targets_compatibility_test)
 display_label_test = unittest.make(_display_label_test)
 
@@ -359,84 +265,109 @@ def multiplatform_test_suite(name):
     Args:
       name: the name of the generated test_suite target.
     """
+
+    # Every platform compiles the common sources, the konan targets the non-JVM ones of native, and
+    # each konan target those of apple or linux too. The opt-in of native is for the Linux target alone.
     kt_multiplatform_library(
         name = "mpp",
-        jvm = dict(srcs = _COMMON + ["testdata/Platform.jvm.kt"]),
-        native = {
-            "apple": dict(
-                srcs = _COMMON + _NON_JVM + ["testdata/Platform.apple.kt"],
-                targets = [
-                    "ios_simulator_arm64",
-                    "macos_arm64",
-                ],
-            ),
-            "linux": dict(
-                srcs = _COMMON + _NON_JVM + ["testdata/Platform.linux.kt"],
-                opts = ["-opt-in=kotlin.ExperimentalStdlibApi"],
-                targets = ["linux_arm64"],
-            ),
-        },
+        platforms = [
+            "jvm",
+            "linux_arm64",
+            "macos_arm64",
+            "ios_simulator_arm64",
+        ],
+        srcs = _COMMON,
+        native = dict(opts = select({
+            "//kotlin/native/platforms:is_linux_arm64": ["-opt-in=kotlin.ExperimentalStdlibApi"],
+            "//conditions:default": [],
+        })),
+        srcs_apple = ["testdata/Platform.apple.kt"],
+        srcs_jvm = ["testdata/Platform.jvm.kt"],
+        srcs_linux = ["testdata/Platform.linux.kt"],
+        srcs_native = _NON_JVM,
         tags = ["manual"],
     )
 
-    # Two platforms listing the same sources, one label of them written in another form: they are
+    # The JVM and native list the same sources, one label of them written in another form: they are
     # one fragment, both leaves are empty, and the filegroup of the sources lists each file once.
     kt_multiplatform_library(
         name = "mpp_collapse",
-        jvm = dict(srcs = [
+        platforms = [
+            "jvm",
+            "linux_arm64",
+        ],
+        srcs_jvm = [
             "testdata/Platform.kt",
             "testdata/Platform.linux.kt",
-        ]),
-        native = {
-            "linux": dict(
-                srcs = [
-                    "testdata/Platform.kt",
-                    ":testdata/Platform.linux.kt",
-                ],
-                targets = ["linux_arm64"],
-            ),
-        },
+        ],
+        srcs_native = [
+            "testdata/Platform.kt",
+            ":testdata/Platform.linux.kt",
+        ],
         tags = ["manual"],
     )
 
     # Two fragments of sets of platforms neither of which includes the other: the JVM leaf refines both.
     kt_multiplatform_library(
         name = "mpp_incomparable",
-        jvm = dict(srcs = [
-            "testdata/Platform.kt",
+        platforms = [
+            "jvm",
+            "linux_arm64",
+            "macos_arm64",
+        ],
+        srcs = ["testdata/Platform.kt"],
+        srcs_jvm = [
             "testdata/Description.native.kt",
             "testdata/Platform.apple.kt",
             "testdata/Platform.jvm.kt",
-        ]),
-        native = {
-            "linux": dict(
-                srcs = [
-                    "testdata/Platform.kt",
-                    "testdata/Description.native.kt",
-                ],
-                targets = ["linux_arm64"],
-            ),
-            "mac": dict(
-                srcs = [
-                    "testdata/Platform.kt",
-                    "testdata/Platform.apple.kt",
-                ],
-                targets = ["macos_arm64"],
-            ),
-        },
+        ],
+        srcs_linux_arm64 = ["testdata/Description.native.kt"],
+        srcs_macos_arm64 = ["testdata/Platform.apple.kt"],
         tags = ["manual"],
     )
 
-    # A single platform shares nothing: its library compiles no fragment.
+    # Every level of the lineage of the iOS simulator has sources: the native library compiles their
+    # chain of fragments, native and apple of as many platforms in the order they refine.
+    kt_multiplatform_library(
+        name = "mpp_ios_chain",
+        platforms = [
+            "jvm",
+            "macos_arm64",
+            "ios_simulator_arm64",
+        ],
+        srcs = _COMMON,
+        srcs_apple = ["testdata/Platform.apple.kt"],
+        srcs_ios = ["testdata/Ios.kt"],
+        srcs_jvm = ["testdata/Platform.jvm.kt"],
+        srcs_native = _NON_JVM,
+        tags = ["manual"],
+    )
+
+    # A library of iOS targets only: common and ios cover the same platforms and stay two fragments,
+    # so the actual declarations of ios implement the expect ones of common.
+    kt_multiplatform_library(
+        name = "mpp_ios_only",
+        platforms = [
+            "ios_arm64",
+            "ios_simulator_arm64",
+        ],
+        srcs = ["testdata/Platform.kt"],
+        srcs_ios = ["testdata/Platform.apple.kt"],
+        tags = ["manual"],
+    )
+
+    # A single platform compiles the common sources as the fragment common, which its leaf refines.
     kt_multiplatform_library(
         name = "mpp_single",
         testonly = True,
-        jvm = dict(srcs = _COMMON + ["testdata/Platform.jvm.kt"]),
+        platforms = ["jvm"],
+        srcs = _COMMON,
+        srcs_jvm = ["testdata/Platform.jvm.kt"],
         tags = ["manual"],
     )
 
-    # A file the JVM lists through two labels: the one the Linux target lists too is in a fragment,
-    # the other in the JVM leaf.
+    # A file of every platform that the JVM lists again through a filegroup: the label of every
+    # platform is in a fragment, the filegroup in the JVM leaf.
     native.filegroup(
         name = "mpp_platform_file",
         srcs = ["testdata/Platform.kt"],
@@ -444,16 +375,12 @@ def multiplatform_test_suite(name):
     )
     kt_multiplatform_library(
         name = "mpp_two_labels",
-        jvm = dict(srcs = [
-            "testdata/Platform.kt",
-            ":mpp_platform_file",
-        ]),
-        native = {
-            "linux": dict(
-                srcs = ["testdata/Platform.kt"],
-                targets = ["linux_arm64"],
-            ),
-        },
+        platforms = [
+            "jvm",
+            "linux_arm64",
+        ],
+        srcs = ["testdata/Platform.kt"],
+        srcs_jvm = [":mpp_platform_file"],
         tags = ["manual"],
     )
 
@@ -482,20 +409,22 @@ def multiplatform_test_suite(name):
         name = "multiplatform_native_linux_test",
         target_under_test = ":mpp_native",
         fragments = [
-            _ALL,
-            _NATIVE,
+            "common",
+            "native",
+            "linux",
             "linux_arm64",
         ],
         opt_in = True,
         refines = [
-            _NATIVE + ":" + _ALL,
-            "linux_arm64:" + _NATIVE,
+            "native:common",
+            "linux:native",
+            "linux_arm64:linux",
         ],
         sources = [
-            _ALL + ":Platform.kt",
-            _ALL + ":Greeting.kt",
-            _NATIVE + ":Description.native.kt",
-            "linux_arm64:Platform.linux.kt",
+            "common:Platform.kt",
+            "common:Greeting.kt",
+            "native:Description.native.kt",
+            "linux:Platform.linux.kt",
         ],
         srcs = [
             "Platform.kt",
@@ -506,27 +435,27 @@ def multiplatform_test_suite(name):
         target_compatible_with = not_on_windows(),
     )
 
-    # The Apple targets share one more fragment, and their leaves are empty.
+    # The Apple targets compile the fragment of apple instead, and their leaves are empty.
     native_macos_arm64_test(
         name = "multiplatform_native_apple_test",
         target_under_test = ":mpp_native",
         fragments = [
-            _ALL,
-            _NATIVE,
-            _APPLE,
+            "common",
+            "native",
+            "apple",
             "macos_arm64",
         ],
         opt_in = False,
         refines = [
-            _NATIVE + ":" + _ALL,
-            _APPLE + ":" + _NATIVE,
-            "macos_arm64:" + _APPLE,
+            "native:common",
+            "apple:native",
+            "macos_arm64:apple",
         ],
         sources = [
-            _ALL + ":Platform.kt",
-            _ALL + ":Greeting.kt",
-            _NATIVE + ":Description.native.kt",
-            _APPLE + ":Platform.apple.kt",
+            "common:Platform.kt",
+            "common:Greeting.kt",
+            "native:Description.native.kt",
+            "apple:Platform.apple.kt",
         ],
         srcs = [
             "Platform.kt",
@@ -536,17 +465,73 @@ def multiplatform_test_suite(name):
         ],
         target_compatible_with = not_on_windows(),
     )
+
+    # The chain of the iOS simulator: one fragment per group, native and apple of the same platforms.
+    native_ios_simulator_arm64_test(
+        name = "multiplatform_native_ios_chain_test",
+        target_under_test = ":mpp_ios_chain_native",
+        fragments = [
+            "common",
+            "native",
+            "apple",
+            "ios",
+            "ios_simulator_arm64",
+        ],
+        refines = [
+            "native:common",
+            "apple:native",
+            "ios:apple",
+            "ios_simulator_arm64:ios",
+        ],
+        sources = [
+            "common:Platform.kt",
+            "common:Greeting.kt",
+            "native:Description.native.kt",
+            "apple:Platform.apple.kt",
+            "ios:Ios.kt",
+        ],
+        srcs = [
+            "Platform.kt",
+            "Greeting.kt",
+            "Description.native.kt",
+            "Platform.apple.kt",
+            "Ios.kt",
+        ],
+        target_compatible_with = not_on_windows(),
+    )
+    native_ios_simulator_arm64_test(
+        name = "multiplatform_native_ios_only_test",
+        target_under_test = ":mpp_ios_only_native",
+        fragments = [
+            "common",
+            "ios",
+            "ios_simulator_arm64",
+        ],
+        refines = [
+            "ios:common",
+            "ios_simulator_arm64:ios",
+        ],
+        sources = [
+            "common:Platform.kt",
+            "ios:Platform.apple.kt",
+        ],
+        srcs = [
+            "Platform.kt",
+            "Platform.apple.kt",
+        ],
+        target_compatible_with = not_on_windows(),
+    )
     jvm_test(
         name = "multiplatform_jvm_test",
         target_under_test = ":mpp_jvm",
         fragments = [
-            _ALL,
+            "common",
             "jvm",
         ],
-        refines = ["jvm:" + _ALL],
+        refines = ["jvm:common"],
         sources = [
-            _ALL + ":Platform.kt",
-            _ALL + ":Greeting.kt",
+            "common:Platform.kt",
+            "common:Greeting.kt",
             "jvm:Platform.jvm.kt",
         ],
     )
@@ -554,32 +539,32 @@ def multiplatform_test_suite(name):
         name = "multiplatform_collapse_test",
         target_under_test = ":mpp_collapse_jvm",
         fragments = [
-            "jvm-linux_arm64",
+            "jvm-native",
             "jvm",
         ],
-        refines = ["jvm:jvm-linux_arm64"],
+        refines = ["jvm:jvm-native"],
         sources = [
-            "jvm-linux_arm64:Platform.kt",
-            "jvm-linux_arm64:Platform.linux.kt",
+            "jvm-native:Platform.kt",
+            "jvm-native:Platform.linux.kt",
         ],
     )
     jvm_test(
         name = "multiplatform_incomparable_test",
         target_under_test = ":mpp_incomparable_jvm",
         fragments = [
-            "jvm-linux_arm64-macos_arm64",
+            "common",
             "jvm-linux_arm64",
             "jvm-macos_arm64",
             "jvm",
         ],
         refines = [
-            "jvm-linux_arm64:jvm-linux_arm64-macos_arm64",
-            "jvm-macos_arm64:jvm-linux_arm64-macos_arm64",
+            "jvm-linux_arm64:common",
+            "jvm-macos_arm64:common",
             "jvm:jvm-linux_arm64",
             "jvm:jvm-macos_arm64",
         ],
         sources = [
-            "jvm-linux_arm64-macos_arm64:Platform.kt",
+            "common:Platform.kt",
             "jvm-linux_arm64:Description.native.kt",
             "jvm-macos_arm64:Platform.apple.kt",
             "jvm:Platform.jvm.kt",
@@ -588,33 +573,43 @@ def multiplatform_test_suite(name):
     jvm_test(
         name = "multiplatform_single_platform_test",
         target_under_test = ":mpp_single_jvm",
+        fragments = [
+            "common",
+            "jvm",
+        ],
+        refines = ["jvm:common"],
+        sources = [
+            "common:Platform.kt",
+            "common:Greeting.kt",
+            "jvm:Platform.jvm.kt",
+        ],
     )
     failure_test(
         name = "multiplatform_file_in_two_fragments_fails_test",
         target_under_test = ":mpp_two_labels_jvm",
-        message = "testdata/Platform.kt is in both fragment 'jvm-linux_arm64' and 'jvm'",
+        message = "testdata/Platform.kt is in both fragment 'common' and 'jvm'",
     )
     fragment_test(
         name = "multiplatform_apple_fragment_test",
-        target_under_test = ":mpp_fragment_" + _APPLE,
-        fragment = _APPLE,
-        refines = [_NATIVE],
+        target_under_test = ":mpp_fragment_apple",
+        fragment = "apple",
+        refines = ["native"],
         srcs = ["Platform.apple.kt"],
         transitive = [
-            _ALL,
-            _NATIVE,
-            _APPLE,
+            "common",
+            "native",
+            "apple",
         ],
     )
     fragment_test(
         name = "multiplatform_common_fragment_test",
-        target_under_test = ":mpp_fragment_" + _ALL,
-        fragment = _ALL,
+        target_under_test = ":mpp_fragment_common",
+        fragment = "common",
         srcs = [
             "Platform.kt",
             "Greeting.kt",
         ],
-        transitive = [_ALL],
+        transitive = ["common"],
     )
     alias_native_test(
         name = "multiplatform_alias_native_test",
@@ -654,30 +649,36 @@ def multiplatform_test_suite(name):
         name = "multiplatform_fragments_graph_test",
         target_under_test = ":mpp.fragments",
         graph = """\
-fragment ios_simulator_arm64-jvm-linux_arm64-macos_arm64
+fragment common
+  platforms: jvm, linux_arm64, macos_arm64, ios_simulator_arm64
   srcs:
     testdata/Platform.kt
     testdata/Greeting.kt
-fragment ios_simulator_arm64-linux_arm64-macos_arm64
-  refines: ios_simulator_arm64-jvm-linux_arm64-macos_arm64
+fragment native
+  refines: common
+  platforms: linux_arm64, macos_arm64, ios_simulator_arm64
   srcs:
     testdata/Description.native.kt
-fragment ios_simulator_arm64-macos_arm64
-  refines: ios_simulator_arm64-linux_arm64-macos_arm64
+fragment apple
+  refines: native
+  platforms: macos_arm64, ios_simulator_arm64
   srcs:
     testdata/Platform.apple.kt
+fragment linux
+  refines: native
+  platforms: linux_arm64
+  srcs:
+    testdata/Platform.linux.kt
 leaf ios_simulator_arm64
-  refines: ios_simulator_arm64-macos_arm64
+  refines: apple
 leaf jvm
-  refines: ios_simulator_arm64-jvm-linux_arm64-macos_arm64
+  refines: common
   srcs:
     testdata/Platform.jvm.kt
 leaf linux_arm64
-  refines: ios_simulator_arm64-linux_arm64-macos_arm64
-  srcs:
-    testdata/Platform.linux.kt
+  refines: linux
 leaf macos_arm64
-  refines: ios_simulator_arm64-macos_arm64
+  refines: apple
 """,
         header = "#!/usr/bin/env sh\n",
         launcher = "mpp.fragments.sh",
@@ -686,14 +687,15 @@ leaf macos_arm64
         name = "multiplatform_collapse_fragments_graph_test",
         target_under_test = ":mpp_collapse.fragments",
         graph = """\
-fragment jvm-linux_arm64
+fragment jvm-native
+  platforms: jvm, linux_arm64
   srcs:
     testdata/Platform.kt
     testdata/Platform.linux.kt
 leaf jvm
-  refines: jvm-linux_arm64
+  refines: jvm-native
 leaf linux_arm64
-  refines: jvm-linux_arm64
+  refines: jvm-native
 """,
         header = "#!/usr/bin/env sh\n",
         launcher = "mpp_collapse.fragments.sh",
@@ -702,15 +704,18 @@ leaf linux_arm64
         name = "multiplatform_incomparable_fragments_graph_test",
         target_under_test = ":mpp_incomparable.fragments",
         graph = """\
-fragment jvm-linux_arm64-macos_arm64
+fragment common
+  platforms: jvm, linux_arm64, macos_arm64
   srcs:
     testdata/Platform.kt
 fragment jvm-linux_arm64
-  refines: jvm-linux_arm64-macos_arm64
+  refines: common
+  platforms: jvm, linux_arm64
   srcs:
     testdata/Description.native.kt
 fragment jvm-macos_arm64
-  refines: jvm-linux_arm64-macos_arm64
+  refines: common
+  platforms: jvm, macos_arm64
   srcs:
     testdata/Platform.apple.kt
 leaf jvm
@@ -729,14 +734,39 @@ leaf macos_arm64
         name = "multiplatform_single_fragments_graph_test",
         target_under_test = ":mpp_single.fragments",
         graph = """\
-leaf jvm
+fragment common
+  platforms: jvm
   srcs:
     testdata/Platform.kt
     testdata/Greeting.kt
+leaf jvm
+  refines: common
+  srcs:
     testdata/Platform.jvm.kt
 """,
         header = "#!/usr/bin/env sh\n",
         launcher = "mpp_single.fragments.sh",
+    )
+    fragments_graph_unix_test(
+        name = "multiplatform_ios_only_fragments_graph_test",
+        target_under_test = ":mpp_ios_only.fragments",
+        graph = """\
+fragment common
+  platforms: ios_arm64, ios_simulator_arm64
+  srcs:
+    testdata/Platform.kt
+fragment ios
+  refines: common
+  platforms: ios_arm64, ios_simulator_arm64
+  srcs:
+    testdata/Platform.apple.kt
+leaf ios_arm64
+  refines: ios
+leaf ios_simulator_arm64
+  refines: ios
+""",
+        header = "#!/usr/bin/env sh\n",
+        launcher = "mpp_ios_only.fragments.sh",
     )
     fragments_graph_windows_test(
         name = "multiplatform_windows_fragments_graph_test",
@@ -751,9 +781,7 @@ leaf jvm
         launcher = "mpp_special_chars.fragments.bat",
     )
     unittest.suite(
-        "multiplatform_declarations",
-        valid_declaration_test,
-        invalid_declarations_test,
+        "multiplatform_helpers",
         konan_targets_compatibility_test,
         display_label_test,
     )
@@ -768,13 +796,16 @@ leaf jvm
             ":multiplatform_collapse_fragments_graph_test",
             ":multiplatform_collapse_test",
             ":multiplatform_common_fragment_test",
-            ":multiplatform_declarations",
             ":multiplatform_file_in_two_fragments_fails_test",
             ":multiplatform_fragments_graph_test",
+            ":multiplatform_helpers",
             ":multiplatform_incomparable_fragments_graph_test",
             ":multiplatform_incomparable_test",
+            ":multiplatform_ios_only_fragments_graph_test",
             ":multiplatform_jvm_test",
             ":multiplatform_native_apple_test",
+            ":multiplatform_native_ios_chain_test",
+            ":multiplatform_native_ios_only_test",
             ":multiplatform_native_linux_test",
             ":multiplatform_shared_srcs_test",
             ":multiplatform_single_fragments_graph_test",

@@ -29,7 +29,9 @@ def _error(message):
     return struct(error = message)
 
 def _most_shared_first(fragment):
-    return (-len(fragment.platforms), fragment.name)
+    # A fragment comes after those it refines, which its platforms all compile: they have more
+    # platforms, or as many and a lower rank.
+    return (-len(fragment.platforms), fragment.rank, fragment.name)
 
 def plan_fragments(fragments, leaf_name, leaf_srcs):
     """The fragments of the compilation of `leaf_srcs`, which refine `fragments`.
@@ -44,7 +46,8 @@ def plan_fragments(fragments, leaf_name, leaf_srcs):
 
     Returns:
       A struct of `error`, the message of an invalid compilation, or None. Without an error, also:
-      - `names`: the fragment names, most shared first, then by name, and the leaf last;
+      - `names`: the fragment names, most shared first, each after those it refines (by rank among
+        fragments of as many platforms), then by name, and the leaf last;
       - `fragments`: a struct(name, srcs) per fragment, in the order of `names`;
       - `srcs`: the sources of the fragments, in the same order;
       - `refines`: the refinements, `<fragment>:<refined fragment>`.

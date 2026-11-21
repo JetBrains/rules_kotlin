@@ -1,9 +1,9 @@
 load("@rules_kotlin//kotlin:core.bzl", "kt_ksp_plugin")
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_jvm_ksp_sources", "kt_multiplatform_library", "kt_native_ksp_sources")
 
-# The sources of the module, in lists the platforms share: every platform compiles the common
-# sources, which the macro adds to the sources each platform lists, and the sources that exactly the
-# same platforms compile form one K2 fragment.
+# The sources of the module, in the lists of the groups and platforms of the hierarchy they belong
+# to: each platform compiles those of its lineage, from the common sources down to its own, and the
+# sources that exactly the same platforms compile form one K2 fragment.
 
 # Every platform, through the srcs of the macro: Gradle's commonMain, which declares platformName(),
 # PlatformInfo, Clock, injectedGreeting() and injectedNow() with `expect`.
@@ -15,7 +15,8 @@ COMMON = [
     "common/di/Injected.kt",
 ]
 
-# The JVM and the konan targets, not Android: Gradle's nonAndroidMain, an intermediate source set.
+# The JVM and the konan targets, not Android: Gradle's nonAndroidMain, an intermediate source set
+# outside the hierarchy, which the JVM and native both list.
 NON_ANDROID = ["non_android/Greeting.nonAndroid.kt"]
 
 JVM = [
@@ -60,9 +61,10 @@ COMMON_DEPS = [
 # them after the platform's, so the `@Inject expect class Clock` of the common sources resolves to
 # the `actual` of the platform, as in the compilation of that platform.
 #
-# Only the platform that compiles the generated files lists the KSP target in its srcs: those of the
-# JVM and Android are the leaves of their platforms, next to JvmComponent and AndroidComponent; those
-# of the Apple group, which all its konan targets list, are in its fragment, next to AppleComponent.
+# Only the platform or the group that compiles the generated files lists the KSP target in its srcs:
+# those of the JVM and Android, in srcs_jvm and srcs_android, are the leaves of their platforms, next
+# to JvmComponent and AndroidComponent; those of the Apple targets, in srcs_apple, are in its
+# fragment, next to AppleComponent.
 
 kt_ksp_plugin(
     name = "kotlin_inject_ksp",
@@ -98,12 +100,12 @@ kt_native_ksp_sources(
     deps = COMMON_DEPS,
 )
 
-# The fragments the macro derives, named after the platforms compiling their sources, each refining
-# the smallest fragments of more platforms that include its own:
-#   COMMON       android-ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64
-#   NON_ANDROID  ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64, refines COMMON
-#   APPLE        ios_arm64-ios_simulator_arm64-macos_arm64, refines NON_ANDROID
-#   LINUX        linux_arm64-linux_x64, refines NON_ANDROID
+# The fragments the macro derives, one per group with sources and one of the sources the JVM and
+# native share, each refining the fragments above it in the hierarchy:
+#   COMMON       common, the srcs of the macro
+#   NON_ANDROID  jvm-native, which the JVM and native both list, refines common
+#   APPLE        apple, refines jvm-native
+#   LINUX        linux, refines jvm-native
 # JVM and ANDROID are the leaves `jvm` and `android`, with their KSP outputs; the leaves of the konan
 # targets are empty. The `actual` declarations are in the leaves of the JVM and Android and in the
 # fragments of the Apple and Linux sources, so every platform compiles one `actual` per `expect`.
@@ -111,36 +113,29 @@ kt_native_ksp_sources(
 # The macro declares a private target per fragment (shared_fragment_<fragment>), shared_jvm,
 # shared_android, shared_native, shared_srcs, shared.fragments and the alias shared, which selects
 # the library of its consumer: shared_native for a Kotlin/Native rule, shared_android for an Android
-# platform, shared_jvm otherwise. It prepends its srcs and deps to those of every platform, which
-# list only what they add.
+# platform, shared_jvm otherwise. Every platform compiles the srcs and deps of the macro, then the
+# srcs of the groups above it and its own.
 kt_multiplatform_library(
     name = "shared",
     srcs = COMMON,
     android = dict(
-        srcs = ANDROID + [":shared_ksp_android"],
         custom_package = "examples.kmp.shared",
         manifest = "android/AndroidManifest.xml",
     ),
-    jvm = dict(
-        srcs = NON_ANDROID + JVM + [":shared_ksp_jvm"],
-    ),
-    native = {
-        "apple": dict(
-            srcs = NON_ANDROID + APPLE + [":shared_ksp_apple"],
-            targets = [
-                "ios_arm64",
-                "ios_simulator_arm64",
-                "macos_arm64",
-            ],
-        ),
-        "linux": dict(
-            srcs = NON_ANDROID + LINUX,
-            targets = [
-                "linux_arm64",
-                "linux_x64",
-            ],
-        ),
-    },
+    platforms = [
+        "jvm",
+        "android",
+        "ios_arm64",
+        "ios_simulator_arm64",
+        "macos_arm64",
+        "linux_arm64",
+        "linux_x64",
+    ],
+    srcs_android = ANDROID + [":shared_ksp_android"],
+    srcs_apple = APPLE + [":shared_ksp_apple"],
+    srcs_jvm = NON_ANDROID + JVM + [":shared_ksp_jvm"],
+    srcs_linux = LINUX,
+    srcs_native = NON_ANDROID,
     visibility = ["//visibility:public"],
     deps = COMMON_DEPS,
 )

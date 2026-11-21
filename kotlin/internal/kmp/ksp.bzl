@@ -18,11 +18,12 @@ instead, as the Kotlin Gradle plugin does for a multiplatform module: `KSPJvmMai
 
     kt_multiplatform_library(
         name = "shared",
-        # The macro prepends its srcs to the srcs of every platform; the KSP target takes them in
-        # its srcs and again in its common_srcs.
+        platforms = ["jvm", ...],
+        # Every platform compiles the srcs of the macro; the KSP target takes them in its srcs and
+        # again in its common_srcs.
         srcs = COMMON_SRCS,
         # Only the JVM lists the generated sources: its leaf fragment compiles them.
-        jvm = dict(srcs = JVM_SRCS + [":shared_ksp_jvm"]),
+        srcs_jvm = JVM_SRCS + [":shared_ksp_jvm"],
         ...
     )
 
@@ -254,8 +255,8 @@ kt_jvm_ksp_sources = rule(
     doc = """Runs KSP2 (`KSPJvmMain`) over the sources of a JVM or Android platform and declares the Kotlin files it generates.
 
     Experimental. See the documentation of kotlin/internal/kmp/ksp.bzl. Compiling the generated files: list the
-    target in the `srcs` of the `jvm` or `android` platform of the kt_multiplatform_library, and of no other
-    platform, so they are the leaf fragment of that platform.""",
+    target in the `srcs_jvm` or `srcs_android` of the kt_multiplatform_library, and in no other list, so they are
+    the leaf fragment of that platform.""",
     implementation = _kt_jvm_ksp_sources_impl,
     attrs = dict(_COMMON_ATTRS, **{
         "android": attr.bool(
@@ -305,7 +306,8 @@ kt_native_ksp_sources = rule(
     Experimental. See the documentation of kotlin/internal/kmp/ksp.bzl. The target is for the konan target of the
     build's platform, like kt_native_library: its `deps` are klibs of that target, which KSP resolves symbols
     against, with the standard library and platform libraries of the distribution. List it in the `srcs` of the
-    kt_native_library of the platform (or of a group of a kt_multiplatform_library).""",
+    kt_native_library of the platform, or in the srcs of the group or the platform of a kt_multiplatform_library
+    whose konan targets compile them, e.g. its `srcs_apple` for the Apple targets.""",
     implementation = _kt_native_ksp_sources_impl,
     attrs = dict(_COMMON_ATTRS, **dict(TRANSITION_ATTRS, **{
         "deps": attr.label_list(

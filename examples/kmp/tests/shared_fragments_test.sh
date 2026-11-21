@@ -6,54 +6,58 @@ fragments_bin="$1"
 tmp="$(mktemp -d "${TEST_TMPDIR:-/tmp}/shared_fragments_test.XXXXXX")"
 
 cat > "$tmp/expected" <<'EOF'
-fragment android-ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64
+fragment common
+  platforms: jvm, android, linux_x64, linux_arm64, macos_arm64, ios_arm64, ios_simulator_arm64
   srcs:
     common/Greeting.kt
     common/Platform.kt
     common/di/Clock.kt
     common/di/GreetingRepository.kt
     common/di/Injected.kt
-fragment ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64
-  refines: android-ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64
+fragment jvm-native
+  refines: common
+  platforms: jvm, linux_x64, linux_arm64, macos_arm64, ios_arm64, ios_simulator_arm64
   srcs:
     non_android/Greeting.nonAndroid.kt
-fragment ios_arm64-ios_simulator_arm64-macos_arm64
-  refines: ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64
+fragment apple
+  refines: jvm-native
+  platforms: macos_arm64, ios_arm64, ios_simulator_arm64
   srcs:
     apple/Platform.apple.kt
     apple/di/AppleComponent.kt
     apple/di/Clock.apple.kt
     shared_ksp_apple
-fragment linux_arm64-linux_x64
-  refines: ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64
+fragment linux
+  refines: jvm-native
+  platforms: linux_x64, linux_arm64
   srcs:
     linux/Injected.linux.kt
     linux/Platform.linux.kt
     linux/di/Clock.linux.kt
 leaf android
-  refines: android-ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64
+  refines: common
   srcs:
     android/Platform.android.kt
     android/di/AndroidComponent.kt
     android/di/Clock.android.kt
     shared_ksp_android
 leaf ios_arm64
-  refines: ios_arm64-ios_simulator_arm64-macos_arm64
+  refines: apple
 leaf ios_simulator_arm64
-  refines: ios_arm64-ios_simulator_arm64-macos_arm64
+  refines: apple
 leaf jvm
-  refines: ios_arm64-ios_simulator_arm64-jvm-linux_arm64-linux_x64-macos_arm64
+  refines: jvm-native
   srcs:
     jvm/Platform.jvm.kt
     jvm/di/Clock.jvm.kt
     jvm/di/JvmComponent.kt
     shared_ksp_jvm
 leaf linux_arm64
-  refines: linux_arm64-linux_x64
+  refines: linux
 leaf linux_x64
-  refines: linux_arm64-linux_x64
+  refines: linux
 leaf macos_arm64
-  refines: ios_arm64-ios_simulator_arm64-macos_arm64
+  refines: apple
 EOF
 
 case "$fragments_bin" in

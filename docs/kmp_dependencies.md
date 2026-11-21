@@ -39,10 +39,11 @@ use_repo(kmp_maven, "kmp_maven")
 | `fetch_sources` | Whether to download the sources jars, as the `srcjar` of the JVM and Android imports; `False` by default.                                                                                                    |
 
 Then depend on the alias of a library, `@<name>//:<group>_<artifact>` with every character but
-letters and digits replaced by `_`, from any Kotlin rule. A multiplatform library lists it in the
-`deps` of every platform whose sources use it, or once in the `deps` of the macro when the common
-code uses it: a fragment has no deps of its own, and each platform compiles the sources it shares
-against its own deps, the common ones first, in which the alias is the variant of the platform:
+letters and digits replaced by `_`, from any Kotlin rule. A multiplatform library lists it once in
+the `deps` of the macro when the common code uses it, or in the deps of the group or the platform
+whose sources use it, e.g. `deps_apple` or `deps_jvm`: a fragment has no deps of its own, and each
+platform compiles the sources it shares against the deps of its lineage, from those of the macro
+down to its own, in which the alias is the variant of the platform:
 
 ```starlark
 COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
@@ -50,11 +51,9 @@ COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 kt_multiplatform_library(
     name = "shared",
     srcs = ["common/Greeting.kt"],
-    jvm = dict(srcs = ["jvm/Platform.jvm.kt"]),
-    native = {"linux": dict(
-        srcs = ["linux/Platform.linux.kt"],
-        targets = ["linux_x64"],
-    )},
+    platforms = ["jvm", "linux_x64"],
+    srcs_jvm = ["jvm/Platform.jvm.kt"],
+    srcs_linux = ["linux/Platform.linux.kt"],
     deps = [COROUTINES],
 )
 ```

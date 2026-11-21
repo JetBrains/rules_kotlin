@@ -465,10 +465,11 @@ build's platform: `linux_x64`, `linux_arm64`, `macos_arm64`, `ios_arm64` or `ios
 `kt_multiplatform_library` (`@rules_kotlin//kotlin:kmp.bzl`) declares a Kotlin Multiplatform module
 as the Kotlin Gradle plugin does: a library per platform, which compiles the sources it shares with
 other platforms and its own in one module, the `expect` declarations of the shared code with the
-`actual` ones of the platform, behind one label. The sources and deps of the common code are listed
-once, in the macro's `srcs` and `deps`, each platform lists the sources it adds, and the sources
-that exactly the same platforms compile are a K2 fragment of their compilations. The rules are
-experimental and may change.
+`actual` ones of the platform, behind one label. It follows the default hierarchy of Kotlin
+Multiplatform, as the Kotlin Toolchain does: `platforms` lists the platforms of the module, the
+macro's `srcs` and `deps` are those of every platform, those of a group or a platform are its own
+lists, e.g. `srcs_ios` or `deps_apple`, and the sources of each group are a K2 fragment of the
+compilations of its platforms. The rules are experimental and may change.
 
 ```python
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
@@ -481,17 +482,13 @@ kt_multiplatform_library(
     name = "shared",
     srcs = COMMON,
     android = dict(
-        srcs = glob(["src/androidMain/kotlin/**/*.kt"]),
         custom_package = "org.example.kmpapp",
         manifest = "src/androidMain/AndroidManifest.xml",
     ),
-    jvm = dict(srcs = glob(["src/jvmMain/kotlin/**/*.kt"])),
-    native = {
-        "ios": dict(
-            srcs = glob(["src/iosMain/kotlin/**/*.kt"]),
-            targets = ["ios_arm64", "ios_simulator_arm64"],
-        ),
-    },
+    platforms = ["jvm", "android", "ios_arm64", "ios_simulator_arm64"],
+    srcs_android = glob(["src/androidMain/kotlin/**/*.kt"]),
+    srcs_ios = glob(["src/iosMain/kotlin/**/*.kt"]),
+    srcs_jvm = glob(["src/jvmMain/kotlin/**/*.kt"]),
     deps = [COROUTINES],
 )
 ```

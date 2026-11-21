@@ -12,11 +12,16 @@ load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo", "kt_kmp_fragment")
 # buildifier: disable=bzl-visibility
 load("//kotlin/internal/kmp:fragments.bzl", "plan_fragments")
 
-def _fragment(platforms, srcs = [], refines = []):
-    """A struct with the fields of KtFragmentInfo that plan_fragments reads, refining the structs of `refines`."""
+def _fragment(platforms, srcs = [], refines = [], name = None):
+    """A struct with the fields of KtFragmentInfo that plan_fragments reads, refining the structs of `refines`.
+
+    Its name is `name`, by default its platforms sorted and joined with `-`, and its rank is computed
+    as kt_kmp_fragment computes it.
+    """
     own = struct(
-        name = "-".join(sorted(platforms)),
+        name = name or "-".join(sorted(platforms)),
         platforms = tuple(sorted(platforms)),
+        rank = 1 + max([refined.rank for refined in refines]) if refines else 0,
         refines = tuple([refined.name for refined in refines]),
         srcs = tuple(srcs),
         transitive_fragments = None,
@@ -24,6 +29,7 @@ def _fragment(platforms, srcs = [], refines = []):
     return struct(
         name = own.name,
         platforms = own.platforms,
+        rank = own.rank,
         refines = own.refines,
         srcs = own.srcs,
         transitive_fragments = depset(
@@ -66,7 +72,7 @@ def _chain_test(ctx):
     return unittest.end(env)
 
 def _most_shared_first_test(ctx):
-    """The order is by the number of platforms, then by name, whatever the order of the walk; the leaf may be empty."""
+    """The order is by the number of platforms, then by rank, then by name, whatever the order of the walk; the leaf may be empty."""
     env = unittest.begin(ctx)
 
     common = _fragment(["jvm", "linux_arm64", "linux_x64", "macos_arm64"], srcs = ["Common.kt"])
@@ -74,28 +80,48 @@ def _most_shared_first_test(ctx):
     arm = _fragment(["jvm", "linux_arm64"], srcs = ["Arm.kt"], refines = [linux])
     mac = _fragment(["jvm", "macos_arm64"], srcs = ["Mac.kt"], refines = [common])
 
-    # The leaf refines two incomparable fragments.
+    # The leaf refines two incomparable fragments of as many platforms: jvm-macos_arm64, which
+    # refines common, ranks before jvm-linux_arm64, which refines linux.
     plan = plan_fragments([mac, arm], "jvm", [])
 
     asserts.equals(env, None, plan.error)
+    asserts.equals(env, [1, 2], [mac.rank, arm.rank])
     asserts.equals(
         env,
-        [common.name, linux.name, "jvm-linux_arm64", "jvm-macos_arm64", "jvm"],
+        [common.name, linux.name, "jvm-macos_arm64", "jvm-linux_arm64", "jvm"],
         plan.names,
     )
-    asserts.equals(env, ["Common.kt", "Linux.kt", "Arm.kt", "Mac.kt"], plan.srcs)
+    asserts.equals(env, ["Common.kt", "Linux.kt", "Mac.kt", "Arm.kt"], plan.srcs)
     asserts.equals(env, [], plan.fragments[-1].srcs)
     asserts.equals(
         env,
         [
             linux.name + ":" + common.name,
-            "jvm-linux_arm64:" + linux.name,
             "jvm-macos_arm64:" + common.name,
+            "jvm-linux_arm64:" + linux.name,
             "jvm:jvm-macos_arm64",
             "jvm:jvm-linux_arm64",
         ],
         plan.refines,
     )
+
+    return unittest.end(env)
+
+def _rank_order_test(ctx):
+    """Fragments of the same platforms, e.g. of the groups of a library of iOS targets only, come in the order they refine, whatever their names."""
+    env = unittest.begin(ctx)
+
+    ios = ["ios_arm64", "ios_simulator_arm64"]
+    common = _fragment(ios, srcs = ["Common.kt"], name = "common")
+    native = _fragment(ios, srcs = ["Native.kt"], refines = [common], name = "native")
+    apple = _fragment(ios, srcs = ["Apple.kt"], refines = [native], name = "apple")
+    plan = plan_fragments([apple], "ios_arm64", ["IosArm64.kt"])
+
+    asserts.equals(env, None, plan.error)
+    asserts.equals(env, [0, 1, 2], [common.rank, native.rank, apple.rank])
+    asserts.equals(env, ["common", "native", "apple", "ios_arm64"], plan.names)
+    asserts.equals(env, ["Common.kt", "Native.kt", "Apple.kt", "IosArm64.kt"], plan.srcs)
+    asserts.equals(env, ["native:common", "apple:native", "ios_arm64:apple"], plan.refines)
 
     return unittest.end(env)
 
@@ -181,6 +207,7 @@ def _source_in_two_fragments_test(ctx):
 
 chain_test = unittest.make(_chain_test)
 most_shared_first_test = unittest.make(_most_shared_first_test)
+rank_order_test = unittest.make(_rank_order_test)
 fragment_reached_twice_test = unittest.make(_fragment_reached_twice_test)
 repeated_source_test = unittest.make(_repeated_source_test)
 duplicate_name_test = unittest.make(_duplicate_name_test)
@@ -190,12 +217,13 @@ source_in_two_fragments_test = unittest.make(_source_in_two_fragments_test)
 def _fragment_info_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    # The fragment is named after its platforms, sorted, and refines the fragments of its refines,
-    # which come first in its transitive fragments.
+    # Without fragment_name, the fragment is named after its platforms, sorted, and refines the
+    # fragments of its refines, which come first in its transitive fragments.
     target = analysistest.target_under_test(env)
     info = target[KtFragmentInfo]
     asserts.equals(env, "linux_x64-macos_arm64", info.name)
     asserts.equals(env, ("linux_x64", "macos_arm64"), info.platforms)
+    asserts.equals(env, 1, info.rank)
     asserts.equals(env, ("jvm-linux_x64-macos_arm64",), info.refines)
     asserts.equals(env, ["Description.native.kt"], [src.basename for src in info.srcs])
     asserts.equals(
@@ -210,6 +238,35 @@ def _fragment_info_test_impl(ctx):
 
     return analysistest.end(env)
 
+def _named_fragment_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # A fragment named after a group refines one of the same platforms, and ranks after it.
+    info = analysistest.target_under_test(env)[KtFragmentInfo]
+    asserts.equals(env, "apple", info.name)
+    asserts.equals(env, ("linux_x64", "macos_arm64"), info.platforms)
+    asserts.equals(env, 2, info.rank)
+    asserts.equals(env, ("linux_x64-macos_arm64",), info.refines)
+    asserts.equals(
+        env,
+        ["jvm-linux_x64-macos_arm64", "linux_x64-macos_arm64", "apple"],
+        [fragment.name for fragment in info.transitive_fragments.to_list()],
+    )
+
+    return analysistest.end(env)
+
+def _one_platform_fragment_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # A fragment of a single platform, e.g. the common sources of a library of one platform.
+    info = analysistest.target_under_test(env)[KtFragmentInfo]
+    asserts.equals(env, "common", info.name)
+    asserts.equals(env, ("jvm",), info.platforms)
+    asserts.equals(env, 0, info.rank)
+    asserts.equals(env, (), info.refines)
+
+    return analysistest.end(env)
+
 def _fragment_failure_test_impl(ctx):
     env = analysistest.begin(ctx)
 
@@ -218,6 +275,8 @@ def _fragment_failure_test_impl(ctx):
     return analysistest.end(env)
 
 fragment_info_test = analysistest.make(_fragment_info_test_impl)
+named_fragment_test = analysistest.make(_named_fragment_test_impl)
+one_platform_fragment_test = analysistest.make(_one_platform_fragment_test_impl)
 fragment_failure_test = analysistest.make(
     _fragment_failure_test_impl,
     attrs = {"message": attr.string()},
@@ -234,6 +293,7 @@ def fragments_test_suite(name):
         "fragments_plan_tests",
         chain_test,
         most_shared_first_test,
+        rank_order_test,
         fragment_reached_twice_test,
         repeated_source_test,
         duplicate_name_test,
@@ -275,8 +335,20 @@ def fragments_test_suite(name):
         tags = ["manual"],
     )
     kt_kmp_fragment(
+        name = "frag_apple",
+        srcs = ["testdata/Platform.apple.kt"],
+        fragment_name = "apple",
+        platforms = [
+            "linux_x64",
+            "macos_arm64",
+        ],
+        refines = [":frag_native"],
+        tags = ["manual"],
+    )
+    kt_kmp_fragment(
         name = "frag_one_platform",
         srcs = ["testdata/Platform.jvm.kt"],
+        fragment_name = "common",
         platforms = ["jvm"],
         tags = ["manual"],
     )
@@ -294,27 +366,31 @@ def fragments_test_suite(name):
         name = "fragments_info_test",
         target_under_test = ":frag_native",
     )
+    named_fragment_test(
+        name = "fragments_named_test",
+        target_under_test = ":frag_apple",
+    )
+    one_platform_fragment_test(
+        name = "fragments_one_platform_test",
+        target_under_test = ":frag_one_platform",
+    )
     fragment_failure_test(
         name = "fragments_refine_not_superset_fails_test",
         target_under_test = ":frag_jvm_linux",
-        message = "the fragment 'jvm-linux_x64' cannot refine 'linux_x64-macos_arm64', which is not shared by more platforms, including its own",
-    )
-    fragment_failure_test(
-        name = "fragments_one_platform_fails_test",
-        target_under_test = ":frag_one_platform",
-        message = "a fragment is shared by two or more distinct platforms, not [\"jvm\"]",
+        message = "the fragment 'jvm-linux_x64' cannot refine 'linux_x64-macos_arm64', which jvm does not compile",
     )
     fragment_failure_test(
         name = "fragments_repeated_platform_fails_test",
         target_under_test = ":frag_repeated_platform",
-        message = "a fragment is shared by two or more distinct platforms, not [\"jvm\", \"jvm\"]",
+        message = "a fragment is compiled by one or more distinct platforms, not [\"jvm\", \"jvm\"]",
     )
 
     native.test_suite(
         name = name,
         tests = [
             ":fragments_info_test",
-            ":fragments_one_platform_fails_test",
+            ":fragments_named_test",
+            ":fragments_one_platform_test",
             ":fragments_plan_tests",
             ":fragments_refine_not_superset_fails_test",
             ":fragments_repeated_platform_fails_test",

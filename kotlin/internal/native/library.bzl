@@ -86,9 +86,10 @@ kt_native_library = rule(
             providers = [KtKlibInfo],
         ),
         "kmp_fragments": attr.label_list(
-            doc = """The K2 fragments of a `kt_multiplatform_library` that the srcs refine: the sources the library shares
-            with other platforms. `kt_multiplatform_library` sets it from the sources each platform lists; it is not set
-            by hand. The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one
+            doc = """The K2 fragments of a `kt_multiplatform_library` that the srcs refine: the sources of the groups above
+            the konan target in its hierarchy, e.g. `common`, `native` and `apple`, and those it shares with other groups
+            or platforms. `kt_multiplatform_library` sets it from the sources of each group and platform; it is not set by
+            hand. The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one
             compilation (`-Xmulti-platform`), against the deps, so the `actual` declarations of the srcs implement the
             `expect` ones of the fragments; the srcs are the leaf fragment, named after the konan target. Expect/actual
             classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.""",

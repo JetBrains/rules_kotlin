@@ -29,6 +29,8 @@ bzl_library(
 bzl_library(
     name = "multiplatform",
     srcs = [
+        "declaration.bzl",
+        "hierarchy.bzl",
         "ksp.bzl",
         "multiplatform.bzl",
     ],

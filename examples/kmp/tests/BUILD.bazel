@@ -13,7 +13,7 @@ COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 # --- JVM: the common code with the JVM actuals, through the alias ---
 # The aliases //shared and COROUTINES select a klib for the Kotlin/Native rules only, which set the
 # Kotlin platform type to native, so a JVM target gets shared_jvm and the JVM variant of
-# kotlinx.coroutines on any host, even one whose konan target a native group of //shared lists.
+# kotlinx.coroutines on any host, even one whose konan target the platforms of //shared list.
 
 kt_jvm_test(
     name = "greeting_jvm_test",

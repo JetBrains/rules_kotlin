@@ -108,16 +108,12 @@ class CompileAvoidanceTest : BazelIntegrationTestBase() {
       # compiles it with kmp_fragments, and lib_native for the konan target of the host.
       kt_multiplatform_library(
           name = "lib",
-          jvm = dict(srcs = ["Greeter.kt"]),
-          native = {
-              "native": dict(
-                  srcs = ["Greeter.kt"],
-                  targets = [
-                      "linux_x64",
-                      "macos_arm64",
-                  ],
-              ),
-          },
+          platforms = [
+              "jvm",
+              "linux_x64",
+              "macos_arm64",
+          ],
+          srcs = ["Greeter.kt"],
       )
 
       kt_jvm_library(

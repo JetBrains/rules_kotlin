@@ -458,7 +458,7 @@ def _kmp_fragments_contents():
     _expect_failure_test(
         name = "kmp_fragments_not_superset_fails_test",
         target_under_test = ":kf_not_superset_library",
-        message = "the fragment 'jvm-macos_arm64' cannot refine 'android-jvm-linux_x64', which is not shared by more platforms, including its own",
+        message = "the fragment 'jvm-macos_arm64' cannot refine 'android-jvm-linux_x64', which macos_arm64 does not compile",
     )
     _expect_failure_test(
         name = "kmp_fragments_duplicate_fragment_fails_test",
