@@ -20,7 +20,6 @@ import io.bazel.kotlin.builder.toolchain.CompilationStatusException
 import io.bazel.kotlin.builder.toolchain.CompilationTaskContext
 import io.bazel.kotlin.builder.utils.jars.JarOwner
 import io.bazel.kotlin.builder.utils.jars.SourceDependencies
-import io.bazel.kotlin.builder.utils.jars.jdepsOf
 import io.bazel.kotlin.model.JvmCompilationTask
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -127,4 +126,44 @@ object JDepsGenerator {
     }
     return false
   }
+}
+
+/**
+ * The jdeps of a compilation: the direct dependencies no source uses, the jars the sources use
+ * explicitly, and the ones they need only implicitly, e.g. for a supertype. The builder writes
+ * them from the dependencies of each source, see
+ * [io.bazel.kotlin.builder.utils.jars.SourceDependenciesFile], so that a compilation of some of
+ * the sources writes the bytes a compilation of all of them writes.
+ */
+fun jdepsOf(
+  label: String,
+  directDependencies: List<String>,
+  explicitJars: Collection<String>,
+  implicitJars: Collection<String>,
+): Deps.Dependencies {
+  val explicit = explicitJars.toSet()
+
+  fun dependency(
+    kind: Deps.Dependency.Kind,
+    jar: String,
+  ) = Deps.Dependency
+    .newBuilder()
+    .setKind(kind)
+    .setPath(jar)
+    .build()
+  val dependencies =
+    directDependencies.distinct().filterNot(explicit::contains).map {
+      dependency(Deps.Dependency.Kind.UNUSED, it)
+    } +
+      explicit.map { dependency(Deps.Dependency.Kind.EXPLICIT, it) } +
+      implicitJars.distinct().filterNot(explicit::contains).map {
+        dependency(Deps.Dependency.Kind.IMPLICIT, it)
+      }
+  return Deps.Dependencies
+    .newBuilder()
+    .setSuccess(true)
+    .setRuleLabel(label)
+    // A stable sort: a direct dependency only used implicitly lists as unused, then implicit.
+    .addAllDependency(dependencies.sortedBy { it.path })
+    .build()
 }

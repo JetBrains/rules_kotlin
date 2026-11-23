@@ -19,4 +19,4 @@ class CompilationStatusException(
   msg: String,
   val status: Int,
   val lines: List<String> = emptyList(),
-) : RuntimeException("$msg:${lines.joinToString("\n", "\n")}")
+) : RuntimeException(if (lines.isEmpty()) msg else "$msg:${lines.joinToString("\n", "\n")}")

@@ -1,49 +1,9 @@
 package io.bazel.kotlin.builder.utils.jars
 
-import com.google.devtools.build.lib.view.proto.Deps
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
-
-/**
- * The jdeps of a compilation: the direct dependencies no source uses, the jars the sources use
- * explicitly, and the ones they need only implicitly, e.g. for a supertype. The builder writes
- * them from the dependencies of each source, see [SourceDependenciesFile], so that a compilation
- * of some of the sources writes the bytes a compilation of all of them writes.
- */
-fun jdepsOf(
-  label: String,
-  directDependencies: List<String>,
-  explicitJars: Collection<String>,
-  implicitJars: Collection<String>,
-): Deps.Dependencies {
-  val explicit = explicitJars.toSet()
-
-  fun dependency(
-    kind: Deps.Dependency.Kind,
-    jar: String,
-  ) = Deps.Dependency
-    .newBuilder()
-    .setKind(kind)
-    .setPath(jar)
-    .build()
-  val dependencies =
-    directDependencies.distinct().filterNot(explicit::contains).map {
-      dependency(Deps.Dependency.Kind.UNUSED, it)
-    } +
-      explicit.map { dependency(Deps.Dependency.Kind.EXPLICIT, it) } +
-      implicitJars.distinct().filterNot(explicit::contains).map {
-        dependency(Deps.Dependency.Kind.IMPLICIT, it)
-      }
-  return Deps.Dependencies
-    .newBuilder()
-    .setSuccess(true)
-    .setRuleLabel(label)
-    // A stable sort: a direct dependency only used implicitly lists as unused, then implicit.
-    .addAllDependency(dependencies.sortedBy { it.path })
-    .build()
-}
 
 /** The jars one source file uses. */
 data class SourceDependencies(
@@ -57,43 +17,87 @@ data class SourceDependencies(
  * plugin appends a record for each source a round analyzes, without reading the file, and a
  * source's last record replaces its earlier ones.
  *
- * A record is a `source` line, then an `explicit` or `implicit` line for each jar the source uses:
- * the kind and the path, separated by a tab.
+ * The empty path holds the jars used outside any source file. No source owns them, so a record of
+ * the empty path adds to its earlier ones.
+ *
+ * The plugin appends in place. An interrupted write cuts the last line, and [read] cannot always
+ * tell a cut line from a complete one. A consumer that keeps the records across compilations
+ * therefore gives the plugin a new file for each compilation, and merges that file into the kept
+ * records after the compilation succeeds.
+ *
+ * The fields of a line are separated by tabs. An append starts with a `jar` line for each jar its
+ * sources use: the index of the jar, which counts from 0 in the order of the lines, and the path
+ * of the jar. The record of a source is one `src` line: the path of the source, the indexes of
+ * the jars it uses explicitly, and the indexes of the jars it needs implicitly, each list
+ * separated by commas. The indexes refer to the `jar` lines of the same append, so an append
+ * writes the path of a jar once, not once per source that uses it.
  */
 object SourceDependenciesFile {
-  private const val SOURCE = "source"
-  private const val EXPLICIT = "explicit"
-  private const val IMPLICIT = "implicit"
+  private const val JAR = "jar"
+  private const val SOURCE = "src"
 
-  /** The dependencies of each source, from its last record. */
+  /**
+   * The dependencies of each source, from its last record, and of the empty path, from all its
+   * records.
+   */
   fun read(path: Path): Map<String, SourceDependencies> {
     if (!Files.isRegularFile(path)) {
       return emptyMap()
     }
-    val explicit = LinkedHashMap<String, MutableSet<String>>()
-    val implicit = LinkedHashMap<String, MutableSet<String>>()
-    var source: String? = null
+    val jars = mutableListOf<String>()
+    val explicit = linkedMapOf<String, MutableSet<String>>()
+    val implicit = linkedMapOf<String, MutableSet<String>>()
+    // A jar used in several appends has one String, which the sets of every source share.
+    val interned = hashMapOf<String, String>()
 
-    fun currentSource(line: String) = checkNotNull(source) { "$path: no source before: $line" }
+    fun jarsOf(
+      indexes: String,
+      line: String,
+    ): MutableSet<String> =
+      if (indexes.isEmpty()) {
+        linkedSetOf()
+      } else {
+        indexes.split(',').mapTo(linkedSetOf()) { index ->
+          index.toIntOrNull()?.let(jars::getOrNull) ?: error("$path: no jar $index in: $line")
+        }
+      }
     Files.readAllLines(path, StandardCharsets.UTF_8).forEach { line ->
-      val (kind, value) = line.split('\t', limit = 2)
-      when (kind) {
+      val fields = line.split('\t')
+      when (fields[0]) {
+        JAR -> {
+          check(fields.size == 3) {
+            "$path: a jar line has 3 fields, not ${fields.size}, in: $line"
+          }
+          // The jar lines of an append count from 0, so jar 0 starts a new table.
+          if (fields[1] == "0") {
+            jars.clear()
+          }
+          check(fields[1] == jars.size.toString()) {
+            "$path: jar ${jars.size} expected in: $line"
+          }
+          val jar = fields[2]
+          jars.add(interned.getOrPut(jar) { jar })
+        }
+
         SOURCE -> {
-          explicit[value] = linkedSetOf()
-          implicit[value] = linkedSetOf()
-          source = value
-        }
-
-        EXPLICIT -> {
-          explicit.getValue(currentSource(line)).add(value)
-        }
-
-        IMPLICIT -> {
-          implicit.getValue(currentSource(line)).add(value)
+          check(fields.size == 4) {
+            "$path: a source line has 4 fields, not ${fields.size}, in: $line"
+          }
+          val source = fields[1]
+          val explicitJars = jarsOf(fields[2], line)
+          val implicitJars = jarsOf(fields[3], line)
+          // The records of the empty path add up.
+          if (source.isEmpty() && source in explicit) {
+            explicit.getValue(source).addAll(explicitJars)
+            implicit.getValue(source).addAll(implicitJars)
+          } else {
+            explicit[source] = explicitJars
+            implicit[source] = implicitJars
+          }
         }
 
         else -> {
-          error("$path: unknown dependency kind in: $line")
+          error("$path: unknown line kind in: $line")
         }
       }
     }
@@ -102,15 +106,10 @@ object SourceDependenciesFile {
     }
   }
 
-  /** Writes a record for each source, replacing the file. */
-  fun write(
-    path: Path,
-    dependencies: Map<String, SourceDependencies>,
-  ) {
-    Files.write(path, records(dependencies), StandardCharsets.UTF_8)
-  }
-
-  /** Appends a record for each source, which replaces the source's earlier records. */
+  /**
+   * Appends a record for each source, which replaces the source's earlier records. The write is
+   * not atomic.
+   */
   fun append(
     path: Path,
     dependencies: Map<String, SourceDependencies>,
@@ -124,10 +123,16 @@ object SourceDependenciesFile {
     )
   }
 
-  private fun records(dependencies: Map<String, SourceDependencies>): List<String> =
-    dependencies.flatMap { (source, used) ->
-      listOf("$SOURCE\t$source") +
-        used.explicitJars.map { "$EXPLICIT\t$it" } +
-        used.implicitJars.map { "$IMPLICIT\t$it" }
-    }
+  /** The `jar` lines of the jars the sources use, then the record of each source. */
+  private fun records(dependencies: Map<String, SourceDependencies>): List<String> {
+    val indexes = linkedMapOf<String, Int>()
+
+    fun indexesOf(jars: Set<String>): String =
+      jars.joinToString(",") { indexes.getOrPut(it) { indexes.size }.toString() }
+    val sources =
+      dependencies.map { (source, used) ->
+        "$SOURCE\t$source\t${indexesOf(used.explicitJars)}\t${indexesOf(used.implicitJars)}"
+      }
+    return indexes.map { (jar, index) -> "$JAR\t$index\t$jar" } + sources
+  }
 }

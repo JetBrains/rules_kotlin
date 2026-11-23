@@ -183,7 +183,7 @@ abstract class KotlinAbstractTestBuilder<T> {
         setupForNext();
     }
 
-    final Path directory(DirectoryType type) {
+    public final Path directory(DirectoryType type) {
         return type.resolve(instanceRoot);
     }
 
