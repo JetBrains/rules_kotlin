@@ -6,6 +6,10 @@ package(default_visibility = ["//visibility:public"])
 
 # Build for the host (no flag) or cross-compile with e.g.
 #   bazel build //:app --platforms=@rules_kotlin//kotlin/native/platforms:linux_x64
+#
+# Manual checks, which no Bazel test runs:
+#   ./repro_check.sh       the klibs, executables and frameworks do not depend on the checkout path
+#   ./e2e_linux_docker.sh  the linux_x64 //:hello runs in a container without a JRE (needs Docker)
 
 kt_native_library(
     name = "greeter",
