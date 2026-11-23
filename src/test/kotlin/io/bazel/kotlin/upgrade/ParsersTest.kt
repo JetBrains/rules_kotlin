@@ -237,6 +237,136 @@ class ParsersTest {
   }
 
   @Test
+  fun `given versions when ordered then dev builds precede betas, candidates and releases`() {
+    val ordered =
+      listOf(
+        "2.4.21",
+        "2.5.20-dev-999",
+        "2.5.20-dev-4986",
+        "2.5.20-dev-5696",
+        "2.5.20-Beta1",
+        "2.5.20-Beta2",
+        "2.5.20-RC",
+        "2.5.20-RC2",
+        "2.5.20",
+        "2.5.21",
+        "2.10.0",
+      )
+    val scrambled = listOf(6, 2, 9, 0, 4, 10, 1, 7, 3, 8, 5).map(ordered::get)
+
+    for (versions in listOf(ordered.reversed(), scrambled)) {
+      assertThat(versions.sortedWith(Rewrites.VERSION_ORDER))
+        .containsExactlyElementsIn(ordered)
+        .inOrder()
+    }
+    assertThat(Rewrites.VERSION_ORDER.compare("2.5.20-dev-5696", "2.5.20-dev-5696")).isEqualTo(0)
+    assertThat(KotlinRelease.hasNativeBtapi(KotlinRelease.FIRST_NATIVE_BTAPI)).isTrue()
+    assertThat(KotlinRelease.hasNativeBtapi("2.5.20-Beta1")).isTrue()
+    assertThat(KotlinRelease.hasNativeBtapi("2.5.20-dev-4985")).isFalse()
+    assertThat(KotlinRelease.hasNativeBtapi("2.4.21")).isFalse()
+  }
+
+  @Test
+  fun `given version names when checked then releases, pre-releases and dev builds pass`() {
+    for (version in listOf("2.4.21", "2.5.20-Beta1", "2.5.20-RC2", "2.5.20-dev-5696")) {
+      assertThat(Rewrites.isRelease(version)).isTrue()
+    }
+    for (version in listOf("latest", "2.5", "v2.4.21", "2.5.20-dev-", "2.5.20-dev-5696-x")) {
+      assertThat(Rewrites.isRelease(version)).isFalse()
+    }
+    assertThat(KotlinRelease.isDev("2.5.20-dev-5696")).isTrue()
+    assertThat(KotlinRelease.isDev("2.5.20-Beta1")).isFalse()
+  }
+
+  @Test
+  fun `given a dev build when its distribution is located then it comes from Maven`() {
+    assertThat(HttpReleaseSource.nativeUrl("2.5.20-dev-5696", "macos-aarch64")).isEqualTo(
+      "https://redirector.kotlinlang.org/maven/dev/org/jetbrains/kotlin/kotlin-native-prebuilt/" +
+        "2.5.20-dev-5696/kotlin-native-prebuilt-2.5.20-dev-5696-macos-aarch64.tar.gz",
+    )
+    assertThat(HttpReleaseSource.nativeUrl("2.4.21", "linux-x86_64")).isEqualTo(
+      "https://github.com/JetBrains/kotlin/releases/download/v2.4.21/" +
+        "kotlin-native-prebuilt-linux-x86_64-2.4.21.tar.gz",
+    )
+  }
+
+  @Test
+  fun `given native_compiler bzl when its Kotlin Native pins are rewritten then they read back`() {
+    val bzl =
+      listOf(
+        "KOTLIN_NATIVE_VERSION = \"2.4.21\"",
+        "",
+        "KOTLIN_NATIVE_PREBUILT = {",
+        "    \"2.4.21\": {",
+        "        \"linux-x86_64\": \"$hash\",",
+        "    },",
+        "}",
+        "",
+        "KOTLIN_NATIVE_BTAPI = {}",
+        "",
+        "KOTLIN_NATIVE_LLVM = {",
+        "    \"2.4.21\": {",
+        "        \"linux-x86_64\": \"llvm-21-x\",",
+        "    },",
+        "}",
+        "",
+        "KOTLIN_NATIVE_ARCHIVES = {",
+        "    \"llvm-21-x\": (_DEPS_BASE + \"/resources/llvm/21-x/llvm-21-x.tar.gz\", " +
+          "\"$hash\"),",
+        "}",
+        "",
+      ).joinToString("\n")
+    val prebuilt = Rewrites.nativePrebuilt(bzl)
+    val llvm = Rewrites.nativeLlvm(bzl)
+    val archives = Rewrites.nativeArchives(bzl)
+    assertThat(Rewrites.nativeVersion(bzl)).isEqualTo("2.4.21")
+    assertThat(Rewrites.nativeBtapi(bzl)).isEmpty()
+
+    val btapi =
+      mapOf("2.5.20-dev-5696" to KotlinRelease.NATIVE_BTAPI_ARTIFACTS.associateWith(::sha))
+    val rewritten = Rewrites.rewriteNative(bzl, "2.5.20-dev-5696", prebuilt, llvm, btapi, archives)
+
+    assertThat(Rewrites.nativeVersion(rewritten)).isEqualTo("2.5.20-dev-5696")
+    assertThat(Rewrites.nativeBtapi(rewritten)).isEqualTo(btapi)
+    assertThat(rewritten).contains(
+      "KOTLIN_NATIVE_BTAPI = {\n    \"2.5.20-dev-5696\": {\n" +
+        "        \"kotlin-build-tools-api\": \"${sha("kotlin-build-tools-api")}\",\n",
+    )
+    assertThat(Rewrites.nativePrebuilt(rewritten)).isEqualTo(prebuilt)
+    // Without a Build Tools API, the table is buildifier's one-line empty dict again.
+    assertThat(Rewrites.rewriteNative(rewritten, "2.4.21", prebuilt, llvm, emptyMap(), archives))
+      .isEqualTo(bzl)
+    assertThrows(UpgradeException::class.java) {
+      Rewrites.nativeVersion(bzl.replace("KOTLIN_NATIVE_VERSION", "NATIVE_VERSION"))
+    }
+  }
+
+  @Test
+  fun `given release assets when the Kotlin Native release is resolved then its API comes along`() {
+    val old =
+      KotlinRelease.nativeFromAssets(
+        "1.2.3",
+        listOf("macos-aarch64"),
+        fakeAssets("1.2.3"),
+        ::fakeDownload,
+      )
+    assertThat(old.prebuiltSha256)
+      .containsExactly("macos-aarch64", sha("kotlin-native-prebuilt-macos-aarch64-1.2.3.tar.gz"))
+    assertThat(old.btapiSha256).isNull()
+
+    val new =
+      KotlinRelease.nativeFromAssets(
+        "9.1.20",
+        listOf("linux-x86_64", "macos-aarch64"),
+        fakeAssets("9.1.20"),
+        ::fakeDownload,
+      )
+    assertThat(new.prebuiltSha256.keys).containsExactly("linux-x86_64", "macos-aarch64")
+    assertThat(new.btapiSha256)
+      .containsExactlyEntriesIn(KotlinRelease.NATIVE_BTAPI_ARTIFACTS.associateWith(::sha))
+  }
+
+  @Test
   fun `given a tar header with a malformed size when read then it fails`() {
     val tar = tar("konan.properties" to "a = b\n")
     "zzzzzzzzzzz\u0000".toByteArray().copyInto(tar, 124)
@@ -288,7 +418,8 @@ class ParsersTest {
       }
 
     private fun maven(version: String): String =
-      (KotlinRelease.BTAPI_IMPL_ARTIFACTS.values + KotlinRelease.BUILD_TOOLS_API)
+      (KotlinRelease.BTAPI_IMPL_ARTIFACTS.values + KotlinRelease.NATIVE_BTAPI_ARTIFACTS)
+        .distinct()
         .joinToString("") { "${KotlinRelease.mavenPath(it, version)} ${sha(it)}\n" }
 
     /** A gzip-less tar of [files], with a GNU long-name entry for names over 100 bytes. */

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Upgrades the Kotlin release rules_kotlin pins, or checks that an older release still works.
+# Upgrades the Kotlin release rules_kotlin pins, or Kotlin/Native alone, or checks an older release.
 #
 #   scripts/upgrade_kotlin.sh upgrade <new> [--keep <old>]...
+#   scripts/upgrade_kotlin.sh upgrade-native <new> [--keep <old>]...
 #   scripts/upgrade_kotlin.sh check-compat <old>
 #
 # See docs/upgrading_kotlin.md.
@@ -15,7 +16,7 @@ TOOL=//src/main/kotlin/io/bazel/kotlin/upgrade:upgrade_kotlin
 LOCKED_MODULES=(. examples/jetpack_compose examples/kmp examples/kmp_app examples/native)
 
 usage() {
-  sed -n '2,7s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
+  sed -n '2,8s/^# \{0,1\}//p' "${BASH_SOURCE[0]}" >&2
   exit 2
 }
 
@@ -28,20 +29,38 @@ run_tool() {
   (cd "$ROOT" && bazel run --noshow_progress --ui_event_filters=-info "$TOOL" -- "$@")
 }
 
-upgrade() {
+# Sets TOOL_ARGS to the tool flag $1 with the release $2, and a --keep per `--keep <old>` after it.
+tool_args() {
+  local flag="$1"
+  shift
   [[ $# -ge 1 && "$1" != --* ]] || usage
-  local args=(--version "$1")
+  TOOL_ARGS=("$flag" "$1")
   shift
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --keep)
         [[ $# -ge 2 ]] || usage
-        args+=(--keep "$2")
+        TOOL_ARGS+=(--keep "$2")
         shift 2
         ;;
       *) usage ;;
     esac
   done
+}
+
+# Refreshes the local MODULE.bazel.lock of each module given that has one.
+refresh_lockfiles() {
+  local module
+  for module in "$@"; do
+    if [[ -f "$module/MODULE.bazel.lock" ]]; then
+      (cd "$module" && bazel mod deps --lockfile_mode=update >/dev/null)
+    fi
+  done
+}
+
+upgrade() {
+  tool_args --version "$@"
+  local args=("${TOOL_ARGS[@]}")
 
   cd "$ROOT"
   step "1/5 the pins of the release (upgrade_kotlin ${args[*]})"
@@ -69,13 +88,22 @@ upgrade() {
   step "4/5 docs/kotlin.md"
   bazel run //docs:write_docs
   step "5/5 the lockfiles"
-  for module in "${locked[@]}"; do
-    if [[ -f "$module/MODULE.bazel.lock" ]]; then
-      (cd "$module" && bazel mod deps --lockfile_mode=update >/dev/null)
-    fi
-  done
+  refresh_lockfiles "${locked[@]}"
   step "done: review git diff, then run the checks of docs/upgrading_kotlin.md"
   step "note: possible required changes by hand: README.md, CHANGELOG.md, docs/*"
+}
+
+upgrade_native() {
+  tool_args --native-version "$@"
+  local args=("${TOOL_ARGS[@]}")
+
+  cd "$ROOT"
+  step "1/2 the Kotlin/Native pins (upgrade_kotlin ${args[*]})"
+  run_tool "${args[@]}"
+  step "2/2 the lockfiles"
+  refresh_lockfiles "${LOCKED_MODULES[@]}"
+  step "done: review git diff, then run the checks of docs/upgrading_kotlin.md"
+  step "note: possible required changes by hand: README.md, CHANGELOG.md, docs/kmp.md"
 }
 
 check_compat() {
@@ -129,6 +157,7 @@ command="$1"
 shift
 case "$command" in
   upgrade) upgrade "$@" ;;
+  upgrade-native) upgrade_native "$@" ;;
   check-compat) check_compat "$@" ;;
   *) usage ;;
 esac

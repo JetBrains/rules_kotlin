@@ -1,4 +1,4 @@
-"""Repository rules + tables for the Kotlin/Native prebuilt distribution and its link dependencies.
+"""Repository rules + tables for the Kotlin/Native prebuilt distribution, its link dependencies and its Build Tools API.
 
 Parallels `kotlin_compiler_repository` (compiler.bzl): download_and_extract a
 host-specific `kotlin-native-prebuilt-<os>-<arch>-<version>` archive and expose the parts
@@ -7,7 +7,8 @@ as DirectoryInfo trees.
 
 The distribution alone is sufficient for `-produce library` (host and cross-target); no
 LLVM/sysroot download is required for klib compilation (that is a binary-linking concern,
-see `kotlin_native_deps_repository` below).
+see `kotlin_native_deps_repository` below). Klib compilation through the Kotlin Build Tools API
+loads the implementation jars of `kotlin_native_btapi_repository` on top of it.
 
 The tables and the pure helpers at the end of the file (bundle composition, tag collection,
 konan.properties parsing and cross-check) are unit-tested by
@@ -18,11 +19,12 @@ load("@bazel_tools//tools/build_defs/repo:utils.bzl", "get_auth")
 
 # buildifier: disable=bzl-visibility
 load("//kotlin/internal/native:targets.bzl", "EXEC_HOSTS", "KONAN_TARGETS")
-load(":versions.bzl", "versions")
 
-# Kotlin/Native version. Kept in lockstep with the Kotlin compiler release train
-# (klibs are coupled to the compiler version that produced them).
-KOTLIN_NATIVE_VERSION = versions.KOTLIN_CURRENT_COMPILER_RELEASE.version
+# Kotlin/Native version. It is pinned apart from the Kotlin compiler of the JVM toolchain
+# (versions.KOTLIN_CURRENT_COMPILER_RELEASE), so it can move to a dev build of the next release on
+# its own: klibs are coupled to the Kotlin/Native compiler that produced them, not to the JVM one.
+# scripts/upgrade_kotlin.sh upgrade-native rewrites it, with the tables below.
+KOTLIN_NATIVE_VERSION = "2.5.20-dev-5696"
 
 # The prebuilt distribution archive of each exec host of EXEC_HOSTS, named after the release.
 KOTLIN_NATIVE_PREBUILT_ARCHIVE = {
@@ -33,16 +35,51 @@ KOTLIN_NATIVE_PREBUILT_ARCHIVE = {
 # The sha256 of the prebuilt distribution of each exec host of EXEC_HOSTS, per pinned Kotlin/Native
 # release: KOTLIN_NATIVE_VERSION, and the older releases a root module may still select with
 # kotlin_native.version(...) without giving checksums. The `.sha256` files published next to each
-# archive on the GitHub release page hold them. A release that is not here downloads unverified
-# unless its tag gives the checksums.
+# archive hold them: on the GitHub release page for a release, in the Kotlin dev Maven repository
+# for a dev build. A release that is not here downloads unverified unless its tag gives the
+# checksums.
 KOTLIN_NATIVE_PREBUILT = {
     "2.4.21": {
         "linux-x86_64": "4935d8c8da90a2d2a8ff51da7d2c264c0d6026e1d35a8f169e218d9209965678",
         "macos-aarch64": "bf4edb526d91e17d0862102f69250525d788e79011f86c2c64362749adf260ae",
     },
+    "2.5.20-dev-5696": {
+        "linux-x86_64": "a298f1ade6138044b547047424ef0cff2983cfbc006d97a493090c610e148d32",
+        "macos-aarch64": "7fef64437214694d9a1454fb1da76302151fa7487b3d102e5cc258c3b78bbacd",
+    },
 }
 
 _URL_TEMPLATE = "https://github.com/JetBrains/kotlin/releases/download/v{version}/{archive}.tar.gz"
+
+# Dev builds (e.g. 2.5.20-dev-5696) are no GitHub releases: the Kotlin dev Maven repository
+# publishes their distributions, with the exec host as the classifier, and their jars.
+_MAVEN_DEV = "https://redirector.kotlinlang.org/maven/dev"
+_MAVEN_CENTRAL = "https://repo1.maven.org/maven2"
+_DEV_URL_TEMPLATE = "{repository}/org/jetbrains/kotlin/kotlin-native-prebuilt/{version}/kotlin-native-prebuilt-{version}-{host}.tar.gz"
+_JAR_URL_TEMPLATE = "{repository}/org/jetbrains/kotlin/{artifact}/{version}/{artifact}-{version}.jar"
+
+# The Maven artifacts of the Kotlin/Native Build Tools API of each pinned Kotlin/Native release, by
+# artifact id: kotlin-build-tools-api, the API the launcher is compiled against, and the
+# implementation a klib compilation loads with the compiler jar of the distribution
+# (KOTLIN_NATIVE_BTAPI_RUNTIME). The `.sha256` files published next to each jar hold the checksums.
+# A release that is not here compiles klibs with the konanc command line, unless its tag gives the
+# checksums of the implementation. Releases older than 2.5.20-dev-4986 have no Kotlin/Native Build
+# Tools API at all.
+KOTLIN_NATIVE_BTAPI = {
+    "2.5.20-dev-5696": {
+        "kotlin-build-tools-api": "d5f237685c4e076d931308e6bda65fd1458876c06d8d3973895400096eaaefc5",
+        "kotlin-build-tools-cri-impl": "5fc10c82daf0d72be5121da6388453835fe93d3e92b2ddd189539924c3ad6616",
+        "kotlin-build-tools-impl": "d766343a23aac92d7af9c72d1768fdecd0b7e99be6f57fe18800c7e18bb68f8c",
+        "kotlin-daemon-client": "cc1849dff7d55605e8b3228ed3148b8d15c04761504d61c2ba1b78fea1a84e6f",
+    },
+}
+
+# The Build Tools API artifact the launcher is compiled against.
+KOTLIN_NATIVE_BTAPI_API = "kotlin-build-tools-api"
+
+# The Build Tools API implementation artifacts a klib compilation loads, besides the compiler jar of
+# the distribution.
+KOTLIN_NATIVE_BTAPI_RUNTIME = ["kotlin-build-tools-cri-impl", "kotlin-build-tools-impl", "kotlin-daemon-client"]
 
 # The generated BUILD files load these by canonical label, which resolves in any repository.
 _DIRECTORY_BZL = str(Label("@bazel_skylib//rules/directory:directory.bzl"))
@@ -165,6 +202,10 @@ KOTLIN_NATIVE_ARCHIVES = {
 # (their `.sha256` files are published next to them).
 KOTLIN_NATIVE_LLVM = {
     "2.4.21": {
+        "linux-x86_64": "llvm-21-x86_64-linux-essentials-116",
+        "macos-aarch64": "llvm-21-aarch64-macos-essentials-97",
+    },
+    "2.5.20-dev-5696": {
         "linux-x86_64": "llvm-21-x86_64-linux-essentials-116",
         "macos-aarch64": "llvm-21-aarch64-macos-essentials-97",
     },
@@ -341,10 +382,107 @@ kotlin_native_deps_repository = repository_rule(
     },
 )
 
+# --- Kotlin/Native Build Tools API runtime of klib compilation ---
+#
+# With the build setting //kotlin/settings:experimental_native_build_tools_api on, the launcher
+# compiles klibs with a NativeKlibCompilationOperation of the Kotlin Build Tools API: it loads
+# these jars with the compiler jar of the distribution. A release without them compiles klibs with
+# the konanc command line.
+
+_BTAPI_BUILD = """\
+package(default_visibility = ["//visibility:public"])
+
+{comment}
+filegroup(
+    name = "runtime",
+    srcs = {srcs},
+)
+"""
+
+def kotlin_native_btapi_build_file(version, artifacts):
+    """The BUILD file of a Kotlin/Native Build Tools API runtime repository.
+
+    Args:
+      version: the Kotlin/Native release of the runtime.
+      artifacts: the Maven artifact ids of the jars of the repository, each downloaded as
+        <artifact id>.jar; empty for a release without a runtime.
+
+    Returns:
+      The content of the BUILD file, whose filegroup `runtime` holds the jars.
+    """
+    if artifacts:
+        comment = ("# The Kotlin/Native Build Tools API implementation of Kotlin/Native %s, which klib\n" +
+                   "# compilations load with the compiler jar of the distribution.") % version
+    else:
+        comment = ("# Kotlin/Native %s has no Build Tools API implementation with known checksums: its klibs\n" +
+                   "# compile with the konanc command line.") % version
+    return _BTAPI_BUILD.format(comment = comment, srcs = repr([":%s.jar" % artifact for artifact in sorted(artifacts)]))
+
+def kotlin_native_btapi_runtime(btapi):
+    """The runtime jars of the Build Tools API artifacts of a release, as kotlin_native_btapi_repository takes them.
+
+    Args:
+      btapi: the artifacts of the release kotlin_native_btapi returns, or None.
+
+    Returns:
+      struct(urls, sha256): the URLs and the sha256 of each runtime artifact
+      (KOTLIN_NATIVE_BTAPI_RUNTIME) by artifact id; empty for None.
+    """
+    runtime = KOTLIN_NATIVE_BTAPI_RUNTIME if btapi else []
+    return struct(
+        urls = {artifact: btapi[artifact].urls for artifact in runtime},
+        sha256 = {artifact: btapi[artifact].sha256 for artifact in runtime},
+    )
+
+def _kotlin_native_btapi_impl(repository_ctx):
+    attr = repository_ctx.attr
+    for artifact, urls in sorted(attr.urls.items()):
+        repository_ctx.download(
+            url = urls,
+            output = artifact + ".jar",
+            sha256 = attr.sha256.get(artifact, ""),
+            auth = get_auth(repository_ctx, urls),
+        )
+    repository_ctx.file(
+        "BUILD.bazel",
+        kotlin_native_btapi_build_file(attr.version, attr.urls.keys()),
+        executable = False,
+    )
+
+    # Bazel <8.3.0 lacks repository_ctx.repo_metadata
+    if not hasattr(repository_ctx, "repo_metadata"):
+        return None
+    return repository_ctx.repo_metadata(
+        reproducible = all([attr.sha256.get(artifact, "") for artifact in attr.urls]),
+    )
+
+kotlin_native_btapi_repository = repository_rule(
+    implementation = _kotlin_native_btapi_impl,
+    doc = "The Kotlin/Native Build Tools API runtime of a release: its jars and a `runtime` " +
+          "filegroup of them, empty for a release without one.",
+    attrs = {
+        "sha256": attr.string_dict(doc = "the sha256 of each jar by Maven artifact id"),
+        "urls": attr.string_list_dict(
+            doc = "the download URLs of each jar by Maven artifact id; empty for a release without a runtime",
+        ),
+        "version": attr.string(
+            doc = "the Kotlin/Native release of the runtime",
+            mandatory = True,
+        ),
+    },
+)
+
 # --- pure helpers: distribution coordinates, bundle composition, tags, konan.properties ---
+
+def _is_dev(version):
+    """Whether a Kotlin/Native version is a dev build, which only the Kotlin dev Maven repository publishes."""
+    return "-dev-" in version
 
 def kotlin_native_distribution(host_key, version, sha256):
     """The coordinates of the prebuilt distribution of a Kotlin/Native release for an exec host.
+
+    A release downloads from its GitHub release page, a dev build (e.g. 2.5.20-dev-5696) from the
+    Kotlin dev Maven repository. Both archives have the same top-level directory.
 
     Args:
       host_key: an exec host of EXEC_HOSTS, e.g. "linux-x86_64".
@@ -355,11 +493,63 @@ def kotlin_native_distribution(host_key, version, sha256):
       struct(urls, sha256, strip_prefix), the attributes of kotlin_native_compiler_repository.
     """
     archive = KOTLIN_NATIVE_PREBUILT_ARCHIVE[host_key].format(version = version)
+    if _is_dev(version):
+        url = _DEV_URL_TEMPLATE.format(repository = _MAVEN_DEV, version = version, host = host_key)
+    else:
+        url = _URL_TEMPLATE.format(version = version, archive = archive)
     return struct(
-        urls = [_URL_TEMPLATE.format(version = version, archive = archive)],
+        urls = [url],
         sha256 = sha256,
         strip_prefix = archive,
     )
+
+def kotlin_native_btapi(version, sha256):
+    """The Build Tools API artifacts of a Kotlin/Native release, or None for a release without them.
+
+    Args:
+      version: the Kotlin/Native release, e.g. "2.5.20-dev-5696".
+      sha256: the checksums of the runtime artifacts (KOTLIN_NATIVE_BTAPI_RUNTIME) by artifact id,
+        e.g. the btapi_sha256 of the version tag; they override the ones KOTLIN_NATIVE_BTAPI pins.
+
+    Returns:
+      A dict of the API artifact (KOTLIN_NATIVE_BTAPI_API) and of each runtime artifact to
+      struct(urls, sha256), from the Kotlin dev Maven repository for a dev build and Maven Central
+      otherwise. None if neither KOTLIN_NATIVE_BTAPI nor `sha256` has the checksum of every runtime
+      artifact. The API jar of a release KOTLIN_NATIVE_BTAPI does not pin has no checksum ("").
+    """
+    checksums = dict(KOTLIN_NATIVE_BTAPI.get(version, {}))
+    checksums.update(sha256)
+    if not all([artifact in checksums for artifact in KOTLIN_NATIVE_BTAPI_RUNTIME]):
+        return None
+    repository = _MAVEN_DEV if _is_dev(version) else _MAVEN_CENTRAL
+    return {
+        artifact: struct(
+            urls = [_JAR_URL_TEMPLATE.format(repository = repository, artifact = artifact, version = version)],
+            sha256 = checksums.get(artifact, ""),
+        )
+        for artifact in [KOTLIN_NATIVE_BTAPI_API] + KOTLIN_NATIVE_BTAPI_RUNTIME
+    }
+
+def kotlin_native_btapi_problems(sha256):
+    """The problems of the btapi_sha256 of a kotlin_native.version tag.
+
+    Args:
+      sha256: the checksums of the tag, by Maven artifact id.
+
+    Returns:
+      A description per problem: an artifact that is not one of KOTLIN_NATIVE_BTAPI_RUNTIME, or the
+      runtime artifacts a tag naming only some of them lacks. Empty for a tag that gives the
+      checksum of every runtime artifact, or of none.
+    """
+    problems = [
+        "%s is not a Build Tools API runtime artifact (%s)" % (artifact, ", ".join(KOTLIN_NATIVE_BTAPI_RUNTIME))
+        for artifact in sorted(sha256.keys())
+        if artifact not in KOTLIN_NATIVE_BTAPI_RUNTIME
+    ]
+    missing = [artifact for artifact in KOTLIN_NATIVE_BTAPI_RUNTIME if artifact not in sha256]
+    if missing and len(missing) < len(KOTLIN_NATIVE_BTAPI_RUNTIME):
+        problems.append("the checksum of %s is missing: give the one of every runtime artifact, or none" % ", ".join(missing))
+    return problems
 
 def kotlin_native_prebuilt_sha256(version):
     """The pinned sha256 of the prebuilt distribution of a Kotlin/Native release per exec host.
@@ -428,14 +618,17 @@ def collect_kotlin_native_config(modules):
     the Kotlin/Native release or the link bundles of a build. Without tags, the extension
     provides KOTLIN_NATIVE_VERSION and stages the link bundles of every konan target. A release
     of KOTLIN_NATIVE_PREBUILT gets its pinned checksums, which the sha256 of the tag overrides;
-    any other release downloads unverified where the tag gives none.
+    any other release downloads unverified where the tag gives none. A release of
+    KOTLIN_NATIVE_BTAPI gets its Build Tools API, as does one whose tag gives the checksums of
+    every runtime artifact in btapi_sha256.
 
     Args:
       modules: the modules of the module extension context.
 
     Returns:
-      struct(version, sha256, targets): the Kotlin/Native release, a dict of exec host to the
-      sha256 of its distribution ("" if unknown), and the sorted konan targets to stage.
+      struct(version, sha256, btapi, targets): the Kotlin/Native release, a dict of exec host to
+      the sha256 of its distribution ("" if unknown), its Build Tools API artifacts as
+      kotlin_native_btapi returns them (None without them), and the sorted konan targets to stage.
     """
     version_tag = None
     targets_tag = None
@@ -455,13 +648,18 @@ def collect_kotlin_native_config(modules):
 
     version = KOTLIN_NATIVE_VERSION
     sha256 = {}
+    btapi_sha256 = {}
     if version_tag != None:
         for host in version_tag.sha256:
             if host not in EXEC_HOSTS:
                 fail("kotlin_native.version: unsupported exec host %s in sha256 (supported: %s)" %
                      (host, ", ".join(EXEC_HOSTS.keys())))
+        problems = kotlin_native_btapi_problems(version_tag.btapi_sha256)
+        if problems:
+            fail("kotlin_native.version: btapi_sha256 of %s: %s" % (version_tag.version, "; ".join(problems)))
         version = version_tag.version
         sha256 = version_tag.sha256
+        btapi_sha256 = version_tag.btapi_sha256
     pinned = kotlin_native_prebuilt_sha256(version)
     sha256 = {host: sha256.get(host, pinned[host]) for host in EXEC_HOSTS}
 
@@ -473,7 +671,12 @@ def collect_kotlin_native_config(modules):
                      (target, ", ".join(KONAN_TARGETS.keys())))
         targets = sorted({target: None for target in targets_tag.targets}.keys())
 
-    return struct(version = version, sha256 = sha256, targets = targets)
+    return struct(
+        version = version,
+        sha256 = sha256,
+        btapi = kotlin_native_btapi(version, btapi_sha256),
+        targets = targets,
+    )
 
 def parse_konan_properties(text):
     """Parses the `konan/konan.properties` of a distribution as java.util.Properties does.

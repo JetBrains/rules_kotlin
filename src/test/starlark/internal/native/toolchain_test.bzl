@@ -6,12 +6,14 @@ See common.bzl for the fake toolchains, and binary_test.bzl for the link action.
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load(
     ":common.bzl",
+    "BTAPI_RUNTIME",
     "DEPS",
     "DEP_NAMES",
     "FAKE_HOST",
     "HOME",
     "not_on_windows",
     "with_header_klibs",
+    "with_native_btapi",
 )
 
 def _toolchain_info_test_impl(ctx):
@@ -52,6 +54,17 @@ def _toolchain_info_test_impl(ctx):
     # Header klibs are off by default.
     asserts.false(env, info.header_klibs)
 
+    # The Build Tools API is on by default: klib compilations load the runtime of the release.
+    asserts.equals(env, BTAPI_RUNTIME, [f.path for f in info.btapi_classpath.to_list()])
+
+    return analysistest.end(env)
+
+def _btapi_off_toolchain_info_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    info = analysistest.target_under_test(env)[platform_common.ToolchainInfo]
+    asserts.equals(env, [], info.btapi_classpath.to_list())
+
     return analysistest.end(env)
 
 def _header_klibs_toolchain_info_test_impl(ctx):
@@ -86,6 +99,13 @@ header_klibs_toolchain_info_test = analysistest.make(
     config_settings = with_header_klibs({}),
 )
 
+# With the Build Tools API on (the default) but a release without a runtime, or with it off.
+btapi_without_runtime_toolchain_info_test = analysistest.make(_btapi_off_toolchain_info_test_impl)
+btapi_off_toolchain_info_test = analysistest.make(
+    _btapi_off_toolchain_info_test_impl,
+    config_settings = with_native_btapi({}, False),
+)
+
 def native_toolchain_test_suite(name):
     """Declares the analysis tests of the toolchain.
 
@@ -112,9 +132,24 @@ def native_toolchain_test_suite(name):
         target_compatible_with = not_on_windows(),
     )
 
+    # The toolchain reads the build setting experimental_native_build_tools_api, and carries no
+    # runtime for a release without one, whatever the setting says.
+    btapi_off_toolchain_info_test(
+        name = "btapi_off_toolchain_info_test",
+        target_under_test = ":fake_linux_arm64_toolchain_impl",
+        target_compatible_with = not_on_windows(),
+    )
+    btapi_without_runtime_toolchain_info_test(
+        name = "btapi_without_runtime_toolchain_info_test",
+        target_under_test = ":fake_linux_arm64_without_btapi_toolchain_impl",
+        target_compatible_with = not_on_windows(),
+    )
+
     native.test_suite(
         name = name,
         tests = [
+            ":btapi_off_toolchain_info_test",
+            ":btapi_without_runtime_toolchain_info_test",
             ":header_klibs_toolchain_info_test",
             ":toolchain_info_test",
             ":unstaged_toolchain_info_test",

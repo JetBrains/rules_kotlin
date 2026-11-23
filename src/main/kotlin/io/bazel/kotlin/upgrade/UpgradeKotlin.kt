@@ -9,20 +9,25 @@ import kotlin.system.exitProcess
  *
  * ```
  * upgrade_kotlin --version <new> [--keep <old>]... [--dry-run]
+ * upgrade_kotlin --native-version <new> [--keep <old>]... [--dry-run]
  * upgrade_kotlin --emit-overrides <release>
  * ```
  *
  * `--version` rewrites every pin of the release train from the published release metadata. The
  * per-release Kotlin/Native tables then hold exactly the new release and the `--keep` ones (by
- * default the current release). It then prints the Maven lock files that pin `org.jetbrains.kotlin`
- * artifacts of the examples, as `<module directory> <repository>` lines, also when the pins were
- * already up to date. `--dry-run` lists the files it would change and writes nothing.
- * `--emit-overrides` prints the root MODULE.bazel snippet that selects a release, checksums
- * included. scripts/upgrade_kotlin.sh runs the generators that follow an upgrade.
+ * default the current release), unless rules_kotlin pins a newer Kotlin/Native, which stays. It
+ * then prints the Maven lock files that pin `org.jetbrains.kotlin` artifacts of the examples, as
+ * `<module directory> <repository>` lines, also when the pins were already up to date.
+ * `--native-version` rewrites the Kotlin/Native pins alone, to a release or a dev build, and keeps
+ * the `--keep` ones (by default the current release of the JVM compiler); it prints nothing.
+ * `--dry-run` lists the files it would change and writes nothing. `--emit-overrides` prints the
+ * root MODULE.bazel snippet that selects a release, checksums included. scripts/upgrade_kotlin.sh
+ * runs the generators that follow an upgrade.
  */
 object UpgradeKotlin {
   private const val USAGE =
     "usage: upgrade_kotlin --version <new> [--keep <old>]... [--dry-run]\n" +
+      "       upgrade_kotlin --native-version <new> [--keep <old>]... [--dry-run]\n" +
       "       upgrade_kotlin --emit-overrides <release>"
 
   data class Options(
@@ -30,6 +35,7 @@ object UpgradeKotlin {
     val keep: List<String> = emptyList(),
     val dryRun: Boolean = false,
     val emitOverrides: String? = null,
+    val nativeVersion: String? = null,
   ) {
     companion object {
       fun parse(args: List<String>): Options {
@@ -46,11 +52,15 @@ object UpgradeKotlin {
               "--keep" -> options.copy(keep = options.keep + value(arg))
               "--dry-run" -> options.copy(dryRun = true)
               "--emit-overrides" -> options.copy(emitOverrides = value(arg))
+              "--native-version" -> options.copy(nativeVersion = value(arg))
               else -> throw UpgradeException("unknown argument $arg\n$USAGE")
             }
         }
-        if ((options.version == null) == (options.emitOverrides == null)) {
-          throw UpgradeException("give either --version or --emit-overrides\n$USAGE")
+        val modes = listOfNotNull(options.version, options.emitOverrides, options.nativeVersion)
+        if (modes.size != 1) {
+          throw UpgradeException(
+            "give one of --version, --native-version and --emit-overrides\n$USAGE",
+          )
         }
         if (options.emitOverrides != null && (options.keep.isNotEmpty() || options.dryRun)) {
           throw UpgradeException("--emit-overrides takes no --keep or --dry-run\n$USAGE")
@@ -67,17 +77,28 @@ object UpgradeKotlin {
     log: (String) -> Unit,
   ): String {
     options.emitOverrides?.let { return upgrade.overrides(it) }
-    val version = options.version!!
-    val changes = upgrade.plan(version, options.keep)
+    val native = options.nativeVersion
+    val changes =
+      if (native != null) {
+        upgrade.planNative(native, options.keep)
+      } else {
+        upgrade.plan(options.version!!, options.keep)
+      }
     if (changes.isEmpty()) {
-      log("the pins of Kotlin $version are up to date")
+      log(
+        if (native != null) {
+          "the pins of Kotlin/Native $native are up to date"
+        } else {
+          "the pins of Kotlin ${options.version} are up to date"
+        },
+      )
     } else if (options.dryRun) {
       changes.keys.sorted().forEach { log("would change $it") }
     } else {
       upgrade.write(changes)
       changes.keys.sorted().forEach { log("changed $it") }
     }
-    if (options.dryRun) return ""
+    if (options.dryRun || native != null) return ""
     return upgrade.repins().joinToString("") { "$it\n" }
   }
 
@@ -89,7 +110,7 @@ object UpgradeKotlin {
       val workspace =
         System.getenv("BUILD_WORKSPACE_DIRECTORY")?.let(Paths::get)
           ?: throw UpgradeException("run it with `bazel run`: BUILD_WORKSPACE_DIRECTORY is unset")
-      val upgrade = Upgrade(workspace, HttpReleaseSource(cacheDirectory(), log))
+      val upgrade = Upgrade(workspace, HttpReleaseSource(cacheDirectory(), log), log)
       print(run(options, upgrade, log))
     } catch (e: UpgradeException) {
       log("error: ${e.message}")

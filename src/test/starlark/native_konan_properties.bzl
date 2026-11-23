@@ -62,4 +62,56 @@ llvm.macos_arm64.dev=llvm-21-aarch64-macos-dev-97
 llvm.macos_arm64.user=llvm-21-aarch64-macos-essentials-97
 """,
     },
+    "2.5.20-dev-5696": {
+        "linux-x86_64": """\
+dependenciesUrl = https://download.jetbrains.com/kotlin/native
+toolchainDependency.linux_x64 = x86_64-unknown-linux-gnu-gcc-8.3.0-glibc-2.19-kernel-4.9-2
+toolchainDependency.linux_arm64 = aarch64-unknown-linux-gnu-gcc-8.3.0-glibc-2.25-kernel-4.9-2
+llvmHome.macos_arm64 = $llvm.macos_arm64.dev
+libffiDir.macos_arm64 = libffi-3.3-1-macos-arm64
+dependencies.macos_arm64 = \\
+    lldb-4-macos
+llvmHome.linux_x64 = $llvm.linux_x64.user
+libffiDir.linux_x64 = libffi-3.2.1-2-linux-x86-64
+dependencies.linux_x64 = \\
+    $toolchainDependency.linux_x64 \\
+    lldb-4-linux
+dependencies.macos_arm64-linux_x64 = \\
+    $toolchainDependency.linux_x64
+emulatorDependency.linux_x64-linux_arm64 = qemu-aarch64-static-5.1.0-linux-2
+dependencies.linux_x64-linux_arm64 = \\
+    $toolchainDependency.linux_arm64
+dependencies.macos_arm64-linux_arm64 = \\
+    $toolchainDependency.linux_arm64
+llvm.linux_x64.dev=llvm-21-x86_64-linux-dev-116
+llvm.linux_x64.user=llvm-21-x86_64-linux-essentials-116
+llvm.macos_arm64.dev=llvm-21-aarch64-macos-dev-97
+llvm.macos_arm64.user=llvm-21-aarch64-macos-essentials-97
+""",
+        "macos-aarch64": """\
+dependenciesUrl = https://download.jetbrains.com/kotlin/native
+toolchainDependency.linux_x64 = x86_64-unknown-linux-gnu-gcc-8.3.0-glibc-2.19-kernel-4.9-2
+toolchainDependency.linux_arm64 = aarch64-unknown-linux-gnu-gcc-8.3.0-glibc-2.25-kernel-4.9-2
+llvmHome.macos_arm64 = $llvm.macos_arm64.user
+libffiDir.macos_arm64 = libffi-3.3-1-macos-arm64
+dependencies.macos_arm64 = \\
+    lldb-4-macos
+llvmHome.linux_x64 = $llvm.linux_x64.dev
+libffiDir.linux_x64 = libffi-3.2.1-2-linux-x86-64
+dependencies.linux_x64 = \\
+    $toolchainDependency.linux_x64 \\
+    lldb-4-linux
+dependencies.macos_arm64-linux_x64 = \\
+    $toolchainDependency.linux_x64
+emulatorDependency.linux_x64-linux_arm64 = qemu-aarch64-static-5.1.0-linux-2
+dependencies.linux_x64-linux_arm64 = \\
+    $toolchainDependency.linux_arm64
+dependencies.macos_arm64-linux_arm64 = \\
+    $toolchainDependency.linux_arm64
+llvm.linux_x64.dev=llvm-21-x86_64-linux-dev-116
+llvm.linux_x64.user=llvm-21-x86_64-linux-essentials-116
+llvm.macos_arm64.dev=llvm-21-aarch64-macos-dev-97
+llvm.macos_arm64.user=llvm-21-aarch64-macos-essentials-97
+""",
+    },
 }

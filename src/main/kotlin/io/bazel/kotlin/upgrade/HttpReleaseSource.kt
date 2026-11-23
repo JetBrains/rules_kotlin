@@ -20,9 +20,10 @@ import java.time.Duration
 import java.util.zip.GZIPInputStream
 
 /**
- * Reads release metadata from GitHub and the konan dependencies server. The `konan.properties` of
- * a distribution is read by streaming its whole archive, which must match the published checksum;
- * it is cached by that checksum.
+ * Reads release metadata from GitHub, the Kotlin dev Maven repository (for the Kotlin/Native dev
+ * builds) and the konan dependencies server. The `konan.properties` of a distribution is read by
+ * streaming its whole archive, which must match the published checksum; it is cached by that
+ * checksum.
  */
 class HttpReleaseSource(
   cache: Path,
@@ -40,11 +41,48 @@ class HttpReleaseSource(
     version: String,
     hosts: Collection<String>,
   ): KotlinRelease {
-    val api = "https://api.github.com/repos/JetBrains/kotlin/releases/tags/v$version"
-    val assets = parseAssets(api, text(api, github = true))
+    val assets = githubAssets(version)
     return KotlinRelease.fromAssets(version, hosts, assets.mapValues { it.value.digest }) {
       text(assets.getValue(it).url)
     }
+  }
+
+  /**
+   * A release: from its GitHub release, as [release]. A dev build: from the `.sha256` files the
+   * Kotlin dev Maven repository publishes next to each archive and jar.
+   */
+  override fun nativeRelease(
+    version: String,
+    hosts: Collection<String>,
+  ): NativeRelease {
+    if (!KotlinRelease.isDev(version)) {
+      val assets = githubAssets(version)
+      return KotlinRelease.nativeFromAssets(version, hosts, assets.mapValues { it.value.digest }) {
+        text(assets.getValue(it).url)
+      }
+    }
+
+    fun sidecar(path: String): String {
+      val url = "${KotlinRelease.MAVEN_DEV}/$path.sha256"
+      return try {
+        Checksums.parseSidecar(text(url), path.substringAfterLast('/'))
+      } catch (e: IllegalArgumentException) {
+        throw UpgradeException("$url: ${e.message}")
+      }
+    }
+    return NativeRelease(
+      version = version,
+      prebuiltSha256 =
+        hosts.sorted().associateWith { sidecar(KotlinRelease.devNativePath(version, it)) },
+      btapiSha256 =
+        if (KotlinRelease.hasNativeBtapi(version)) {
+          KotlinRelease.NATIVE_BTAPI_ARTIFACTS.associateWith {
+            sidecar(KotlinRelease.mavenPath(it, version))
+          }
+        } else {
+          null
+        },
+    )
   }
 
   override fun konanProperties(
@@ -53,8 +91,8 @@ class HttpReleaseSource(
     sha256: String,
   ): String {
     cache.read(sha256)?.let { return it }
-    val asset = KotlinRelease.nativeAsset(version, host)
-    val url = "https://github.com/JetBrains/kotlin/releases/download/v$version/$asset"
+    val url = nativeUrl(version, host)
+    val asset = url.substringAfterLast('/')
     log("downloading $url to read its konan/konan.properties")
     val digest = MessageDigest.getInstance("SHA-256")
     val properties =
@@ -87,6 +125,11 @@ class HttpReleaseSource(
     } catch (e: IllegalArgumentException) {
       throw UpgradeException("$url: ${e.message}")
     }
+  }
+
+  private fun githubAssets(version: String): Map<String, Asset> {
+    val api = "https://api.github.com/repos/JetBrains/kotlin/releases/tags/v$version"
+    return parseAssets(api, text(api, github = true))
   }
 
   private fun text(
@@ -154,6 +197,18 @@ class HttpReleaseSource(
     const val DEPENDENCIES_URL = "https://download.jetbrains.com/kotlin/native"
 
     private val JSON = Json { ignoreUnknownKeys = true }
+
+    /** The URL of the distribution of [host]: in the Kotlin dev Maven repository for a dev build. */
+    fun nativeUrl(
+      version: String,
+      host: String,
+    ): String =
+      if (KotlinRelease.isDev(version)) {
+        "${KotlinRelease.MAVEN_DEV}/${KotlinRelease.devNativePath(version, host)}"
+      } else {
+        "https://github.com/JetBrains/kotlin/releases/download/v$version/" +
+          KotlinRelease.nativeAsset(version, host)
+      }
 
     /** The assets, by name, of the GitHub release API response [text] of [api]. */
     fun parseAssets(

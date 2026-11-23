@@ -13,6 +13,7 @@ load("//kotlin/internal/kmp:fragment.bzl", "kt_kmp_fragment")
 load(
     ":common.bzl",
     "AIRPLANE_MODE",
+    "BTAPI_RUNTIME",
     "DEPS",
     "HEADER_KLIBS_ATTRS",
     "HOME",
@@ -22,12 +23,14 @@ load(
     "fake_klib",
     "for_target",
     "launcher_arguments",
+    "launcher_values",
     "libraries",
     "not_on_windows",
     "prefixed",
     "single_action",
     "tool_arguments",
     "with_header_klibs",
+    "with_native_btapi",
 )
 
 # The prefix of the module names derived from the labels of the package.
@@ -56,14 +59,18 @@ def _klib_compile_test_impl(ctx):
         asserts.equals(env, [klib], action.outputs.to_list())
     asserts.equals(env, [klib], target_under_test[DefaultInfo].files.to_list())
 
+    # With the Build Tools API on, the jars of its implementation are inputs too.
+    btapi_classpath = BTAPI_RUNTIME if ctx.attr.btapi else []
     inputs = [f.path for f in action.inputs.to_list()]
     for expected in [
         HOME + "/konan/lib/kotlin-native-compiler-embeddable.jar",
         HOME + "/klib/common/stdlib/default/manifest",
         HOME + "/klib/platform/%s/posix/default/manifest" % target,
         PACKAGE + "/testdata/greeter.kt",
-    ]:
+    ] + btapi_classpath:
         asserts.true(env, expected in inputs, "%s should be an input" % expected)
+    for jar in BTAPI_RUNTIME:
+        asserts.equals(env, ctx.attr.btapi, jar in inputs, jar)
     for path in inputs:
         for excluded in [
             HOME + "/klib/platform/" + ctx.attr.other_target + "/",
@@ -73,7 +80,9 @@ def _klib_compile_test_impl(ctx):
         ]:
             asserts.false(env, path.startswith(excluded), "%s should not be an input" % path)
 
-    # The launcher prepares the scratch dirs next to the klib; a klib needs no link dependencies.
+    # The launcher prepares the scratch dirs next to the klib; a klib needs no link dependencies. It
+    # gets the output and the sources of the klib, and the Build Tools API implementation to compile
+    # it with when the build setting is on.
     argv = action.argv
     asserts.equals(env, "konan_launcher", argv[0].rpartition("/")[2])
     asserts.equals(
@@ -87,12 +96,19 @@ def _klib_compile_test_impl(ctx):
             klib.path + ".konan_data",
             "--auto-cache-dir",
             klib.path + ".konan_cache",
-        ],
+            "--klib-output",
+            klib.path,
+            "--source",
+            PACKAGE + "/testdata/greeter.kt",
+        ] + [arg for jar in btapi_classpath for arg in ["--btapi-classpath", jar]],
         launcher_arguments(argv),
     )
 
+    # The launcher adds -produce library, -o and the sources to the konanc flags, or gives them to
+    # the Build Tools API apart from them.
     tool = tool_arguments(argv)
-    asserts.equals(env, "library", argument_after(tool, "-produce"))
+    for arg in ["-produce", "-o", PACKAGE + "/testdata/greeter.kt"]:
+        asserts.false(env, arg in tool, "%s should not be in %s" % (arg, tool))
     asserts.equals(env, target, argument_after(tool, "-target"))
     asserts.equals(env, _NAMES + target_under_test.label.name, argument_after(tool, "-module-name"))
     for flag in [
@@ -103,13 +119,11 @@ def _klib_compile_test_impl(ctx):
         "-Xdebug-prefix-map=__EXECROOT__=.",
     ]:
         asserts.true(env, flag in tool, "%s should be in %s" % (flag, tool))
-    asserts.equals(env, klib.path, argument_after(tool, "-o"))
-    asserts.equals(env, PACKAGE + "/testdata/greeter.kt", tool[-1])
 
-    # The header klib is an option of the rule, before the output and the sources.
+    # The header klib is an option of the rule, the last one without opts.
     asserts.equals(env, [header.path] if header else [], prefixed(tool, "-Xheader-klib-path="))
     if header:
-        asserts.true(env, tool.index("-Xheader-klib-path=" + header.path) < tool.index("-o"))
+        asserts.equals(env, "-Xheader-klib-path=" + header.path, tool[-1])
     asserts.false(env, "-l" in tool, "a klib without deps compiles against no klibs: %s" % tool)
     asserts.false(env, "-Xmulti-platform" in tool, "a library without kmp_fragments compiles no fragments: %s" % tool)
 
@@ -248,9 +262,9 @@ def _plugins_test_impl(ctx):
     options = [tool[i + 1] for i in range(len(tool)) if tool[i] == "-P"]
     asserts.equals(env, ["plugin:test.cli:enabled=true"], options)
 
-    # The user options follow the options of the rule.
+    # The user options follow the options of the rule, last.
     asserts.true(env, tool.index("-opt-in=kotlin.ExperimentalStdlibApi") > tool.index(AIRPLANE_MODE))
-    asserts.true(env, tool.index("-opt-in=kotlin.ExperimentalStdlibApi") < tool.index("-o"))
+    asserts.equals(env, "-opt-in=kotlin.ExperimentalStdlibApi", tool[-1])
 
     return analysistest.end(env)
 
@@ -303,7 +317,8 @@ def _fragments_test_impl(ctx):
     )
 
     # Every source of the fragments compiles, those of the leaf last, and is an input.
-    asserts.equals(env, [info.klib.path, common, actual, greeter], tool[tool.index("-o") + 1:])
+    asserts.equals(env, [info.klib.path], launcher_values(action.argv, "--klib-output"))
+    asserts.equals(env, [common, actual, greeter], launcher_values(action.argv, "--source"))
     inputs = [f.path for f in action.inputs.to_list()]
     for src in [common, actual, greeter]:
         asserts.true(env, src in inputs, "%s should be an input" % src)
@@ -330,6 +345,7 @@ def _empty_leaf_test_impl(ctx):
     fragments = ["jvm-linux_arm64-linux_x64", "linux_arm64-linux_x64", "linux_arm64"]
 
     # Without srcs the leaf is empty: it is still a fragment refining the others, with no sources.
+    # Without deps, plugins and opts, the fragment flags are the last ones.
     start = tool.index("-Xmulti-platform")
     asserts.equals(
         env,
@@ -341,13 +357,13 @@ def _empty_leaf_test_impl(ctx):
             "-Xfragment-sources=%s:%s" % (fragments[1], actual),
             "-Xfragment-refines=%s:%s" % (fragments[1], fragments[0]),
             "-Xfragment-refines=%s:%s" % (fragments[2], fragments[1]),
-            "-o",
         ],
-        tool[start:start + 8],
+        tool[start:],
     )
 
     # The klib compiles the sources of the fragments only.
-    asserts.equals(env, [info.klib.path, common, actual], tool[tool.index("-o") + 1:])
+    asserts.equals(env, [info.klib.path], launcher_values(action.argv, "--klib-output"))
+    asserts.equals(env, [common, actual], launcher_values(action.argv, "--source"))
 
     return analysistest.end(env)
 
@@ -371,6 +387,8 @@ def _refine_mismatch_test_impl(ctx):
 
 _KLIB_COMPILE_ATTRS = {
     "apple_sdk_platform": attr.string(),
+    # Whether the launcher compiles the klib with the Build Tools API implementation of the toolchain.
+    "btapi": attr.bool(default = True),
     # Whether the library writes a header klib.
     "header_klib": attr.bool(),
     "konan_target": attr.string(),
@@ -391,6 +409,11 @@ klib_compile_header_klibs_test = analysistest.make(
     _klib_compile_test_impl,
     attrs = _KLIB_COMPILE_ATTRS,
     config_settings = with_header_klibs(for_target("linux_arm64")),
+)
+klib_compile_btapi_off_test = analysistest.make(
+    _klib_compile_test_impl,
+    attrs = _KLIB_COMPILE_ATTRS,
+    config_settings = with_native_btapi(for_target("linux_arm64"), False),
 )
 provider_test = analysistest.make(
     _provider_test_impl,
@@ -651,6 +674,16 @@ def native_library_test_suite(name):
         target_compatible_with = not_on_windows(),
     )
 
+    # With the Build Tools API off, the launcher compiles the klib with konanc, from the same flags.
+    klib_compile_btapi_off_test(
+        name = "klib_compile_btapi_off_test",
+        target_under_test = ":greeter_linux_arm64",
+        btapi = False,
+        konan_target = "linux_arm64",
+        other_target = "macos_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+
     # klibs compile for a target its bundle does not stage.
     klib_compile_macos_arm64_test(
         name = "unstaged_klib_compile_inputs_test",
@@ -746,6 +779,7 @@ def native_library_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
+            ":klib_compile_btapi_off_test",
             ":klib_compile_header_incompatible_test",
             ":klib_compile_header_test",
             ":klib_compile_inputs_test",

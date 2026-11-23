@@ -8,8 +8,14 @@ its link dependencies and `target_compatible_with`.
 
 Every toolchain also carries the KonanLauncher binary its actions run (see klib.bzl), the konan
 target of its exec host, whose binaries a test can run there, and, for an Apple target, the
-environment and execution requirements of an action using Xcode. It reads the build setting
-//kotlin/settings:experimental_native_header_klibs, so every Kotlin/Native rule sees one value.
+environment and execution requirements of an action using Xcode. It reads the build settings
+//kotlin/settings:experimental_native_header_klibs and experimental_native_build_tools_api, so
+every Kotlin/Native rule sees one value of each.
+
+With experimental_native_build_tools_api on, the toolchain carries the Kotlin/Native Build Tools
+API implementation of its release as `btapi_classpath`, which the launcher loads with the compiler
+jar of the distribution to compile klibs; it is empty with the setting off, or for a release without
+one, whose klibs compile with the konanc command line.
 """
 
 load("@bazel_skylib//lib:dicts.bzl", "dicts")
@@ -101,8 +107,13 @@ def _kt_native_toolchain_impl(ctx):
         execution_requirements["requires-darwin"] = ""
         execution_requirements.update(xcode_config.execution_info())
 
+    btapi_classpath = depset()
+    if ctx.attr._experimental_native_build_tools_api[BuildSettingInfo].value:
+        btapi_classpath = depset(ctx.files.btapi_runtime)
+
     return [platform_common.ToolchainInfo(
         action_env = action_env,
+        btapi_classpath = btapi_classpath,
         compile_inputs = depset(transitive = [
             konan.transitive_files,
             stdlib.transitive_files,
@@ -125,6 +136,14 @@ _kt_native_toolchain = rule(
     doc = "A Kotlin/Native toolchain. Use define_kt_native_toolchain, not this directly.",
     implementation = _kt_native_toolchain_impl,
     attrs = dicts.add({
+        # Any files: an empty runtime, of a release without one, would fail a .jar filter.
+        "btapi_runtime": attr.label(
+            doc = "the Kotlin/Native Build Tools API implementation jars of the release of the " +
+                  "distribution, which klib compilations load with its compiler jar; empty for a " +
+                  "release without them",
+            mandatory = True,
+            allow_files = True,
+        ),
         "konan": attr.label(
             doc = "konan/ of the distribution: the compiler and konan.properties",
             mandatory = True,
@@ -166,6 +185,11 @@ _kt_native_toolchain = rule(
             mandatory = True,
             providers = [DirectoryInfo],
         ),
+        "_experimental_native_build_tools_api": attr.label(
+            doc = "whether klib compilations run a NativeKlibCompilationOperation of the Build Tools API instead of the konanc command line",
+            default = Label("//kotlin/settings:experimental_native_build_tools_api"),
+            providers = [BuildSettingInfo],
+        ),
         "_experimental_native_header_klibs": attr.label(
             doc = "whether a kt_native_library also writes a header klib, which its dependents compile against",
             default = Label("//kotlin/settings:experimental_native_header_klibs"),
@@ -185,13 +209,14 @@ def define_kt_native_toolchain(
         stdlib,
         platform_libs,
         konan_deps,
+        btapi_runtime,
         exec_compatible_with,
         target_compatible_with,
         visibility = ["//visibility:public"]):
     """Defines a native toolchain impl + its registration (one per (exec, target)).
 
     The impl is tagged manual: the toolchain refers to it without analyzing it, so wildcard
-    builds such as //... do not fetch the distribution and link bundle repositories.
+    builds such as //... do not fetch the distribution, link bundle and Build Tools API repositories.
 
     Args:
       name: the name of the toolchain; the impl is <name>_impl.
@@ -202,6 +227,8 @@ def define_kt_native_toolchain(
       stdlib: the DirectoryInfo of klib/common/stdlib under konan_home.
       platform_libs: the DirectoryInfo of klib/platform/<konan_target> under konan_home.
       konan_deps: the kt_native_deps_view of konan_target.
+      btapi_runtime: the Kotlin/Native Build Tools API implementation jars of the release of
+        konan_home; an empty target for a release without them.
       exec_compatible_with: the constraints of the exec host.
       target_compatible_with: the constraints of konan_target.
       visibility: the visibility of the toolchain and its impl.
@@ -216,6 +243,7 @@ def define_kt_native_toolchain(
         stdlib = stdlib,
         platform_libs = platform_libs,
         konan_deps = konan_deps,
+        btapi_runtime = btapi_runtime,
         tags = ["manual"],
         visibility = visibility,
     )
@@ -234,7 +262,8 @@ def define_kt_native_toolchains():
 
     Each is named <host repo suffix>_<target>, e.g. macos_aarch64_ios_simulator_arm64, and uses
     the distribution and link bundle repositories the kotlin_native module extension
-    (src/main/starlark/core/repositories/native.bzl) creates for its host.
+    (src/main/starlark/core/repositories/native.bzl) creates for its host, and the Build Tools API
+    runtime repository it creates for the release.
     """
     for host in EXEC_HOSTS.values():
         dist = "@com_github_jetbrains_kotlin_native_%s//" % host.repo_suffix
@@ -249,6 +278,7 @@ def define_kt_native_toolchains():
                 stdlib = dist + ":stdlib",
                 platform_libs = dist + ":platform_" + target,
                 konan_deps = deps + ":" + target,
+                btapi_runtime = "@com_github_jetbrains_kotlin_native_btapi//:runtime",
                 exec_compatible_with = host.constraints,
                 target_compatible_with = KONAN_TARGETS[target].constraints,
             )

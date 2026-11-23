@@ -17,9 +17,14 @@ integration with Android and iOS apps. The attributes of each rule are in the
   unaffected.
 - **Konan targets**: `linux_x64` and `linux_arm64` on both hosts; `macos_arm64`, `ios_arm64` and
   `ios_simulator_arm64` on macOS only.
-- **Xcode**: the Apple targets need a macOS host with Xcode, whose SDK konanc finds with `xcrun`.
-- **Compiler**: Kotlin/Native 2.4.21, the release of the Kotlin compiler rules_kotlin pins, as klibs
-  are coupled to the compiler that produced them.
+- **Xcode**: the Apple targets need a macOS host with Xcode, whose SDK konanc finds with `xcrun`:
+  Xcode 15.4 or newer for Kotlin/Native 2.5.20-dev-5696 (`minimalXcodeVersion` of its
+  `konan.properties`).
+- **Compiler**: Kotlin/Native 2.5.20-dev-5696, a dev build of the next Kotlin release, which compiles
+  klibs through the Kotlin Build Tools API (see
+  [The Kotlin/Native Build Tools API](#the-kotlinnative-build-tools-api)). It is pinned apart from the
+  Kotlin compiler of the JVM toolchain, 2.4.21, as klibs are coupled to the Kotlin/Native compiler
+  that produced them; `kotlin_native.version(version = "2.4.21")` stays on the release.
 - **Bazel**: the rules build with Bazel 7 and newer (`examples/native` runs with 7.x, 8.x and 9.3.1).
   `examples/kmp` and `examples/kmp_app` need Bazel 8.4.2 or newer, as they get the Android SDK (and
   `examples/kmp_app` the Android NDK) from `hermetic_android_toolchains`; `examples/kmp_app` also
@@ -28,23 +33,28 @@ integration with Android and iOS apps. The attributes of each rule are in the
   the Android NDK, whose C++ toolchain it resolves for the Android platform.
   `hermetic_android_toolchains` downloads both once `.bazelrc` accepts their licenses: see
   [The Android app](#the-android-app).
-- **Network**: no action needs it. The Kotlin/Native distribution and its link dependencies, like the
-  Android SDK and NDK, are Bazel repositories, fetched before any action runs, and the examples build
-  with `--sandbox_default_allow_network=false`.
+- **Network**: no action needs it. The Kotlin/Native distribution, its link dependencies and its Build
+  Tools API, like the Android SDK and NDK, are Bazel repositories, fetched before any action runs, and
+  the examples build with `--sandbox_default_allow_network=false`.
 
 ## The `kotlin_native` module extension
 
 rules_kotlin registers a Kotlin/Native toolchain per exec host and konan target. Their repositories
-come from the `kotlin_native` module extension, two per exec host:
+come from the `kotlin_native` module extension, two per exec host and one for the release:
 
 - `com_github_jetbrains_kotlin_native_<host>`: the prebuilt distribution,
-  `kotlin-native-prebuilt-<host>-<version>` from the GitHub releases of JetBrains/kotlin. It compiles
-  klibs for every konan target of the host, with the standard library and the platform libraries of
-  the target, e.g. `platform.posix` or `platform.UIKit`.
+  `kotlin-native-prebuilt-<host>-<version>` from the GitHub releases of JetBrains/kotlin, or from the
+  Kotlin dev Maven repository (`redirector.kotlinlang.org/maven/dev`) for a dev build such as
+  2.5.20-dev-5696. It compiles klibs for every konan target of the host, with the standard library
+  and the platform libraries of the target, e.g. `platform.posix` or `platform.UIKit`.
 - `com_github_jetbrains_kotlin_native_deps_<host>`: the link dependencies of the targets of
   `kotlin_native.targets(...)`, from `download.jetbrains.com`: the LLVM and libffi of the host, lldb
   for the host's own target, the GCC cross-toolchain of a Linux target and, on a Linux host, the qemu
   emulator of `linux_arm64`. The iOS targets add none, as Xcode provides their toolchain and SDK.
+- `com_github_jetbrains_kotlin_native_btapi`: the jars of the Kotlin/Native Build Tools API
+  implementation of the release, from Maven Central, or from the Kotlin dev Maven repository for a dev
+  build; empty for a release without one (see
+  [The Kotlin/Native Build Tools API](#the-kotlinnative-build-tools-api)).
 
 A build fetches them when it builds a Kotlin/Native target, for its exec host only: JVM-only builds
 download nothing.
@@ -59,7 +69,7 @@ kotlin_native.targets(targets = ["ios_arm64", "ios_simulator_arm64"])
 | Tag       | Attributes                                                                          | Effect                                                                                                                                                                                                                                                                       |
 |-----------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `targets` | `targets`: konan targets.                                                           | The targets to stage link dependencies for; all of them without the tag. klibs compile for every target regardless, but `kt_native_binary`, `kt_native_test` and `kt_native_framework` link only for these: another target fails with `add '<t>' to kotlin_native.targets(...) in the root MODULE.bazel`. |
-| `version` | `version`, and `sha256`: the checksum of the archive per exec host, `linux-x86_64` and `macos-aarch64`. | Another Kotlin/Native release than 2.4.21. An archive without checksum downloads unverified. The link dependencies are staged with the LLVM of the release: rules_kotlin pins the LLVM of 2.4.21 (LLVM 21), and checks the bundle against the `konan.properties` of the release when it is fetched. A release without a pinned LLVM, or one that needs other dependencies, fails with the differences, naming the archives to add to `KOTLIN_NATIVE_LLVM` and `KOTLIN_NATIVE_ARCHIVES` of `src/main/starlark/core/repositories/native_compiler.bzl`; with `kotlin_native.targets(targets = [])` its klibs still compile. |
+| `version` | `version`, and `sha256`: the checksum of the archive per exec host, `linux-x86_64` and `macos-aarch64`; `btapi_sha256`: the checksums of the Build Tools API implementation (see [The Kotlin/Native Build Tools API](#the-kotlinnative-build-tools-api)). | Another Kotlin/Native release than 2.5.20-dev-5696: a release, from GitHub, or a dev build, from the Kotlin dev Maven repository. An archive without checksum downloads unverified. The link dependencies are staged with the LLVM of the release: rules_kotlin pins the LLVM of the releases it pins (LLVM 21 for 2.5.20-dev-5696 and 2.4.21), and checks the bundle against the `konan.properties` of the release when it is fetched. A release without a pinned LLVM, or one that needs other dependencies, fails with the differences, naming the archives to add to `KOTLIN_NATIVE_LLVM` and `KOTLIN_NATIVE_ARCHIVES` of `src/main/starlark/core/repositories/native_compiler.bzl`; with `kotlin_native.targets(targets = [])` its klibs still compile. |
 
 List the targets the build links for: the link dependencies are large archives. The iOS targets of
 `examples/kmp_app` add nothing to the LLVM and libffi of a macOS host, while `examples/native`, which
@@ -67,6 +77,74 @@ links for every target, lists all five.
 
 <!-- BEGIN generated by scripts/upgrade_kotlin.sh: older releases -->
 <!-- END generated by scripts/upgrade_kotlin.sh: older releases -->
+
+<!-- BEGIN generated by scripts/upgrade_kotlin.sh: older Kotlin/Native releases -->
+### Staying on Kotlin/Native 2.4.21
+
+rules_kotlin defaults to Kotlin/Native 2.5.20-dev-5696. A root module that stays on Kotlin/Native
+2.4.21 selects it in its `MODULE.bazel`; rules_kotlin pins the distributions and the LLVM of
+2.4.21, so the tag needs no checksums.
+
+```starlark
+kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
+kotlin_native.version(version = "2.4.21")
+```
+
+It has no Kotlin/Native Build Tools API: its klibs compile with the konanc command
+line, whatever `experimental_native_build_tools_api` says.
+<!-- END generated by scripts/upgrade_kotlin.sh: older Kotlin/Native releases -->
+
+## The Kotlin/Native Build Tools API
+
+A Kotlin/Native klib compilation, that of a `kt_native_library`, of the native libraries of a
+`kt_multiplatform_library` and of the private klib of `kt_native_binary`, `kt_native_test` and
+`kt_native_framework`, runs a `NativeKlibCompilationOperation` of the
+[Kotlin Build Tools API](https://youtrack.jetbrains.com/issue/KT-78202) in-process in its action,
+instead of the konanc command line. It gets the same flags and writes the same klib and header klib,
+its diagnostics name the sources relative to the execroot, and the action keeps the mnemonic
+`KotlinNativeKlibCompile` and its exit codes. A link, which produces a program or a framework, runs
+the konanc command line: the Build Tools API has no link operation.
+
+The build setting `experimental_native_build_tools_api`, on by default, chooses the entry point of
+klib compilations without changing the release:
+
+```shell
+bazel build //... --@rules_kotlin//kotlin/settings:experimental_native_build_tools_api=false
+```
+
+The action loads `kotlin-build-tools-impl`, `kotlin-build-tools-cri-impl` and `kotlin-daemon-client`
+of the release, which are inputs of the action, with the compiler jar of the distribution; the
+launcher of the action bundles the API. rules_kotlin pins those jars per release, in
+`KOTLIN_NATIVE_BTAPI` of `src/main/starlark/core/repositories/native_compiler.bzl`. A release without
+them compiles klibs with the konanc command line, whatever the build setting says: a release older
+than 2.5.20-dev-4986, such as 2.4.21, has no Kotlin/Native Build Tools API, and the tag of a release
+rules_kotlin does not pin gives their checksums with `btapi_sha256`, all three or none, from the
+`.sha256` file next to each jar in Maven:
+
+```starlark
+kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
+kotlin_native.version(
+    btapi_sha256 = {
+        "kotlin-build-tools-cri-impl": "<sha256>",
+        "kotlin-build-tools-impl": "<sha256>",
+        "kotlin-daemon-client": "<sha256>",
+    },
+    sha256 = {
+        "linux-x86_64": "<sha256>",
+        "macos-aarch64": "<sha256>",
+    },
+    version = "<version>",
+)
+```
+
+- The operation is experimental upstream. It runs in-process only, without the Kotlin daemon,
+  incremental compilation or a persistent worker, and the compiler gets its flags as command-line
+  arguments.
+- A compiler plugin of a Kotlin/Native compilation runs in the Kotlin/Native compiler of the release,
+  whatever the JVM toolchain: its `kt_compiler_plugin` needs the plugin artifact of that release,
+  e.g. of its dev build, on both entry points.
+- KSP of a native target (see [KSP for a multiplatform library](#ksp-for-a-multiplatform-library))
+  is a separate action: `examples/kmp` runs it with Kotlin/Native 2.5.20-dev-5696.
 
 ## Konan targets and platforms
 
@@ -816,6 +894,10 @@ the `releaseFramework` task.
 
 - Linux x86_64 and macOS arm64 exec hosts only: Windows is not supported. The konan targets are the
   five above.
+- Kotlin/Native defaults to a dev build of the next Kotlin release, 2.5.20-dev-5696, whose klibs
+  compile through the experimental Kotlin/Native Build Tools API: see
+  [The Kotlin/Native Build Tools API](#the-kotlinnative-build-tools-api).
+  `kotlin_native.version(version = "2.4.21")` selects the release.
 - No cinterop rule yet: the code cannot bind a C or Objective-C library of its own. The platform
   libraries of the distribution are available, and the cinterop klibs of a Maven library are imported
   with it.

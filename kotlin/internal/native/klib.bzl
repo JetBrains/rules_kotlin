@@ -7,7 +7,11 @@ own sources into a private klib (see link.bzl).
 KonanLauncher (src/main/kotlin/io/bazel/kotlin/native/KonanLauncher.kt) creates the action-local
 scratch directories, stages the link dependencies, replaces EXECROOT_PLACEHOLDER with the absolute
 working directory of the action and runs the tool in-process, with the in-sandbox distribution as
-konan.home. The actions are hermetic and reproducible:
+konan.home. A klib compilation gives the launcher its output and sources apart from the konanc
+flags, and, with the toolchain's Kotlin/Native Build Tools API implementation (btapi_classpath,
+empty with the build setting experimental_native_build_tools_api off or for a release without
+one), the jars the launcher compiles the klib with through the Build Tools API instead of konanc.
+The actions are hermetic and reproducible:
 
 - their inputs are only the parts of the distribution their konan target needs (the toolchain's
   compile_inputs), plus the link dependencies of the target when they link;
@@ -106,14 +110,16 @@ def collect_compile_klib_deps(konan_target, deps):
     _check_klib_deps(konan_target, deps)
     return depset(transitive = [dep[KtKlibInfo].transitive_compile_klibs for dep in deps])
 
-def _konanc_args(ctx, tc, *, produce, output, module_name = None, stage_link_deps = False):
+def _konanc_args(ctx, tc, *, output, produce = None, klib_srcs = None, module_name = None, stage_link_deps = False):
     """The arguments every konanc action starts with: the launcher's own, then the common konanc ones.
 
     Args:
       ctx: the context of a rule using the Kotlin/Native toolchain type.
       tc: the Kotlin/Native toolchain.
-      produce: the konanc output kind: library, program or framework.
       output: the File konanc produces, a directory for a framework.
+      produce: the konanc output kind of a link: program or framework; None for a klib compilation.
+      klib_srcs: the source Files of a klib compilation, which the launcher gets with its output and
+        the toolchain's Build Tools API implementation; None for a link.
       module_name: the module name, or None for none.
       stage_link_deps: whether the launcher stages the link dependencies of the konan target.
 
@@ -134,10 +140,18 @@ def _konanc_args(ctx, tc, *, produce, output, module_name = None, stage_link_dep
     args.add_all("--auto-cache-dir", outputs, format_each = _AUTO_CACHE_DIR, expand_directories = False)
     if stage_link_deps:
         args.add_all([d.path for d in tc.konan_deps.dirs], before_each = "--staged-deps")
+
+    # A klib compilation: the launcher adds -produce library, -o and the sources to the konanc flags,
+    # or gives them to the Build Tools API apart from them.
+    if klib_srcs != None:
+        args.add("--klib-output", output)
+        args.add_all(klib_srcs, before_each = "--source")
+        args.add_all(tc.btapi_classpath, before_each = "--btapi-classpath")
     args.add("--")
 
     # konanc's arguments.
-    args.add("-produce", produce)
+    if produce:
+        args.add("-produce", produce)
     args.add("-target", tc.konan_target)
     if module_name:
         args.add("-module-name", module_name)
@@ -181,6 +195,9 @@ def kt_native_compile(
         header = None):
     """Registers the action compiling `srcs` into a klib with konanc, for the konan target of the toolchain.
 
+    The launcher compiles it with the Kotlin/Native Build Tools API implementation of the toolchain
+    (btapi_classpath) if it has one, and with konanc otherwise; both get the same flags.
+
     Args:
       ctx: the context of a rule using the Kotlin/Native toolchain type.
       output: the klib File konanc produces.
@@ -207,9 +224,10 @@ def kt_native_compile(
     ]
     plugin_jars = depset(transitive = [plugin.embeddable_classpath for plugin in compile_plugins])
 
-    args = _konanc_args(ctx, tc, produce = "library", output = output, module_name = module_name)
     if fragments:
         srcs = fragments.srcs
+    args = _konanc_args(ctx, tc, output = output, klib_srcs = srcs, module_name = module_name)
+    if fragments:
         fragments.add_args(args)
     args.add_all(plugin_jars, format_each = "-Xplugin=%s")
     for plugin in compile_plugins:
@@ -220,14 +238,12 @@ def kt_native_compile(
     if header:
         args.add(header, format = "-Xheader-klib-path=%s")
     args.add_all(opts)
-    args.add("-o", output)
-    args.add_all(srcs)
 
     _run_konanc(
         ctx,
         tc,
         args = args,
-        inputs = depset(srcs, transitive = [klib_deps, plugin_jars, tc.compile_inputs]),
+        inputs = depset(srcs, transitive = [klib_deps, plugin_jars, tc.compile_inputs, tc.btapi_classpath]),
         outputs = [output, header] if header else [output],
         mnemonic = "KotlinNativeKlibCompile",
         progress_message = progress_message,

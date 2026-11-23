@@ -75,6 +75,17 @@ bool_flag(
     visibility = ["//visibility:public"],
 )
 
+# --@rules_kotlin//kotlin/settings:experimental_native_build_tools_api=False
+# Kotlin/Native klib compilations run a NativeKlibCompilationOperation of the Kotlin Build Tools API
+# in-process, instead of the konanc command line. A Kotlin/Native release without a Build Tools API
+# runtime (older than 2.5.20-dev-4986, or unpinned without kotlin_native.version(btapi_sha256 = ...))
+# always compiles klibs with the command line, and so does every link, cinterop and klib action.
+bool_flag(
+    name = "experimental_native_build_tools_api",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
 # The Kotlin platform a target is built for, the Bazel form of the Gradle attribute
 # org.jetbrains.kotlin.platform.type: jvm (the JVM and Android rules) or native. The Kotlin/Native
 # rules set it to native for themselves and their deps with a rule transition, so it needs no setting

@@ -18,6 +18,9 @@ load(
 load(
     "//src/main/starlark/core/repositories:native_compiler.bzl",
     "KOTLIN_NATIVE_ARCHIVES",
+    "KOTLIN_NATIVE_BTAPI",
+    "KOTLIN_NATIVE_BTAPI_API",
+    "KOTLIN_NATIVE_BTAPI_RUNTIME",
     "KOTLIN_NATIVE_DEPS",
     "KOTLIN_NATIVE_LLVM",
     "KOTLIN_NATIVE_PREBUILT",
@@ -26,6 +29,10 @@ load(
     "check_bundle_against_properties",
     "collect_kotlin_native_config",
     "konan_link_dependencies",
+    "kotlin_native_btapi",
+    "kotlin_native_btapi_build_file",
+    "kotlin_native_btapi_problems",
+    "kotlin_native_btapi_runtime",
     "kotlin_native_bundle",
     "kotlin_native_compiler_build_file",
     "kotlin_native_deps_build_file",
@@ -34,7 +41,6 @@ load(
     "kotlin_native_prebuilt_sha256",
     "parse_konan_properties",
 )
-load("//src/main/starlark/core/repositories:versions.bzl", "versions")
 load(":native_konan_properties.bzl", "KONAN_PROPERTIES")
 
 # The apple_support platform (@build_bazel_apple_support//platforms) of each Apple konan target.
@@ -151,6 +157,16 @@ _QEMU_AARCH64 = "qemu-aarch64-static-5.1.0-linux-2"
 _UNPINNED_RELEASE = "9.9.0"
 _LLVM_MACOS_UNPINNED = "llvm-22-aarch64-macos-essentials-1"
 
+# A fake dev build rules_kotlin pins nothing for.
+_UNPINNED_DEV_BUILD = "9.9.20-dev-1"
+
+# The Build Tools API runtime checksums of a version tag, by artifact id.
+_BTAPI_TAG = {
+    "kotlin-build-tools-cri-impl": "cri",
+    "kotlin-build-tools-impl": "impl",
+    "kotlin-daemon-client": "daemon",
+}
+
 # The older release rules_kotlin keeps pinned besides the default one, for root modules that stay
 # on it with kotlin_native.version(...).
 _KEPT_RELEASE = "2.4.21"
@@ -172,17 +188,25 @@ def _native_module(name, is_root, version = None, targets = None):
         tags = struct(version = version or [], targets = targets or []),
     )
 
+def _version_tag(version, sha256 = None, btapi_sha256 = None):
+    """A kotlin_native.version tag, with the defaults of its attributes."""
+    return struct(version = version, sha256 = sha256 or {}, btapi_sha256 = btapi_sha256 or {})
+
 def _tables_belong_to_the_default_release_test(ctx):
     """The pinned tables and the konan.properties excerpts cover the default release.
 
-    A Kotlin release bump changes the distributions: update KOTLIN_NATIVE_PREBUILT,
-    KOTLIN_NATIVE_ARCHIVES, KOTLIN_NATIVE_LLVM, KOTLIN_NATIVE_DEPS and the excerpts together with it.
+    A Kotlin/Native release bump changes the distributions: update KOTLIN_NATIVE_PREBUILT,
+    KOTLIN_NATIVE_ARCHIVES, KOTLIN_NATIVE_LLVM, KOTLIN_NATIVE_DEPS and the excerpts together with
+    it, as scripts/upgrade_kotlin.sh upgrade-native does. The JVM compiler release moves apart.
     """
     env = unittest.begin(ctx)
 
-    asserts.equals(env, versions.KOTLIN_CURRENT_COMPILER_RELEASE.version, KOTLIN_NATIVE_VERSION)
+    asserts.true(env, KOTLIN_NATIVE_VERSION in _KONAN_PROPERTIES, "add the konan.properties excerpts of the new release")
     asserts.true(env, KOTLIN_NATIVE_VERSION in KOTLIN_NATIVE_PREBUILT, "pin the distributions of the new release")
     asserts.true(env, KOTLIN_NATIVE_VERSION in KOTLIN_NATIVE_LLVM, "pin the LLVM of the new release")
+
+    # The launcher is compiled against the Build Tools API of the default release, which needs one.
+    asserts.true(env, KOTLIN_NATIVE_VERSION in KOTLIN_NATIVE_BTAPI, "pin the Build Tools API of the new release")
     asserts.equals(env, sorted(KOTLIN_NATIVE_LLVM.keys()), sorted(KOTLIN_NATIVE_PREBUILT.keys()))
     asserts.equals(env, sorted(KOTLIN_NATIVE_LLVM.keys()), sorted(_KONAN_PROPERTIES.keys()))
     asserts.false(env, _UNPINNED_RELEASE in KOTLIN_NATIVE_PREBUILT)
@@ -266,6 +290,187 @@ def _archives_are_pinned_test(ctx):
             asserts.equals(env, "", sha256.lstrip("0123456789abcdef"), "%s: %s" % (version, key))
     for key, archive in KOTLIN_NATIVE_PREBUILT_ARCHIVE.items():
         asserts.equals(env, "kotlin-native-prebuilt-%s-{version}" % key, archive, key)
+    for version, jars in KOTLIN_NATIVE_BTAPI.items():
+        asserts.equals(env, sorted([KOTLIN_NATIVE_BTAPI_API] + KOTLIN_NATIVE_BTAPI_RUNTIME), sorted(jars.keys()), version)
+        for artifact, sha256 in jars.items():
+            asserts.equals(env, 64, len(sha256), "%s: %s" % (version, artifact))
+            asserts.equals(env, "", sha256.lstrip("0123456789abcdef"), "%s: %s" % (version, artifact))
+
+    return unittest.end(env)
+
+def _distribution_follows_the_version_kind_test(ctx):
+    """A release downloads from GitHub, a dev build from the Kotlin dev Maven repository; both strip the same directory."""
+    env = unittest.begin(ctx)
+
+    for key in EXEC_HOSTS:
+        release = kotlin_native_distribution(key, "2.4.21", "abc")
+        asserts.equals(
+            env,
+            ["https://github.com/JetBrains/kotlin/releases/download/v2.4.21/kotlin-native-prebuilt-%s-2.4.21.tar.gz" % key],
+            release.urls,
+        )
+        asserts.equals(env, "kotlin-native-prebuilt-%s-2.4.21" % key, release.strip_prefix)
+        asserts.equals(env, "abc", release.sha256)
+
+        dev = kotlin_native_distribution(key, "2.5.20-dev-5696", "")
+        asserts.equals(
+            env,
+            [
+                "https://redirector.kotlinlang.org/maven/dev/org/jetbrains/kotlin/kotlin-native-prebuilt/" +
+                "2.5.20-dev-5696/kotlin-native-prebuilt-2.5.20-dev-5696-%s.tar.gz" % key,
+            ],
+            dev.urls,
+        )
+        asserts.equals(env, "kotlin-native-prebuilt-%s-2.5.20-dev-5696" % key, dev.strip_prefix)
+        asserts.equals(env, "", dev.sha256)
+
+    # Betas and release candidates are GitHub releases.
+    beta = kotlin_native_distribution("macos-aarch64", "2.5.20-Beta1", "")
+    asserts.equals(
+        env,
+        ["https://github.com/JetBrains/kotlin/releases/download/v2.5.20-Beta1/kotlin-native-prebuilt-macos-aarch64-2.5.20-Beta1.tar.gz"],
+        beta.urls,
+    )
+
+    return unittest.end(env)
+
+def _btapi_follows_the_release_test(ctx):
+    """A pinned release gets its pinned Build Tools API jars, an unpinned one none unless the tag gives them."""
+    env = unittest.begin(ctx)
+
+    for version, pinned in KOTLIN_NATIVE_BTAPI.items():
+        btapi = kotlin_native_btapi(version, {})
+        asserts.equals(env, sorted(pinned.keys()), sorted(btapi.keys()), version)
+        for artifact, jar in btapi.items():
+            asserts.equals(env, pinned[artifact], jar.sha256, "%s: %s" % (version, artifact))
+            asserts.equals(env, 1, len(jar.urls), "%s: %s" % (version, artifact))
+            asserts.true(env, jar.urls[0].endswith("/%s/%s/%s-%s.jar" % (artifact, version, artifact, version)), jar.urls[0])
+
+        # The checksums of a tag win over the pinned runtime ones; the API jar keeps its pinned one.
+        overridden = kotlin_native_btapi(version, _BTAPI_TAG)
+        asserts.equals(env, pinned[KOTLIN_NATIVE_BTAPI_API], overridden[KOTLIN_NATIVE_BTAPI_API].sha256, version)
+        for artifact, sha256 in _BTAPI_TAG.items():
+            asserts.equals(env, sha256, overridden[artifact].sha256, "%s: %s" % (version, artifact))
+
+    # Without a row and without checksums, a release compiles klibs with the konanc command line.
+    for version in [_KEPT_RELEASE, _UNPINNED_RELEASE, _UNPINNED_DEV_BUILD]:
+        asserts.false(env, version in KOTLIN_NATIVE_BTAPI, version)
+        asserts.equals(env, None, kotlin_native_btapi(version, {}), version)
+
+    # The checksums of a tag give a release without a row its runtime, from Maven Central for a
+    # release and from the Kotlin dev Maven repository for a dev build.
+    release = kotlin_native_btapi(_UNPINNED_RELEASE, _BTAPI_TAG)
+    asserts.equals(env, sorted([KOTLIN_NATIVE_BTAPI_API] + KOTLIN_NATIVE_BTAPI_RUNTIME), sorted(release.keys()))
+    asserts.equals(
+        env,
+        struct(
+            urls = ["https://repo1.maven.org/maven2/org/jetbrains/kotlin/kotlin-build-tools-impl/9.9.0/kotlin-build-tools-impl-9.9.0.jar"],
+            sha256 = "impl",
+        ),
+        release["kotlin-build-tools-impl"],
+    )
+    asserts.equals(env, "", release[KOTLIN_NATIVE_BTAPI_API].sha256)
+    dev = kotlin_native_btapi(_UNPINNED_DEV_BUILD, _BTAPI_TAG)
+    asserts.equals(
+        env,
+        struct(
+            urls = [
+                "https://redirector.kotlinlang.org/maven/dev/org/jetbrains/kotlin/kotlin-build-tools-cri-impl/" +
+                "9.9.20-dev-1/kotlin-build-tools-cri-impl-9.9.20-dev-1.jar",
+            ],
+            sha256 = "cri",
+        ),
+        dev["kotlin-build-tools-cri-impl"],
+    )
+    asserts.equals(
+        env,
+        [
+            "https://redirector.kotlinlang.org/maven/dev/org/jetbrains/kotlin/kotlin-build-tools-api/" +
+            "9.9.20-dev-1/kotlin-build-tools-api-9.9.20-dev-1.jar",
+        ],
+        dev[KOTLIN_NATIVE_BTAPI_API].urls,
+    )
+
+    # The runtime needs every one of its artifacts.
+    asserts.equals(env, None, kotlin_native_btapi(_UNPINNED_RELEASE, {"kotlin-build-tools-impl": "impl"}))
+
+    return unittest.end(env)
+
+def _btapi_tag_problems_test(ctx):
+    """The btapi_sha256 of a tag names every runtime artifact or none, and nothing else."""
+    env = unittest.begin(ctx)
+
+    asserts.equals(env, [], kotlin_native_btapi_problems({}))
+    asserts.equals(env, [], kotlin_native_btapi_problems(_BTAPI_TAG))
+
+    # The API jar is pinned with the launcher, not per release.
+    with_api = dict(_BTAPI_TAG)
+    with_api[KOTLIN_NATIVE_BTAPI_API] = "api"
+    asserts.equals(
+        env,
+        [
+            "kotlin-build-tools-api is not a Build Tools API runtime artifact " +
+            "(kotlin-build-tools-cri-impl, kotlin-build-tools-impl, kotlin-daemon-client)",
+        ],
+        kotlin_native_btapi_problems(with_api),
+    )
+    asserts.equals(
+        env,
+        [
+            "the checksum of kotlin-build-tools-cri-impl, kotlin-daemon-client is missing: " +
+            "give the one of every runtime artifact, or none",
+        ],
+        kotlin_native_btapi_problems({"kotlin-build-tools-impl": "impl"}),
+    )
+    asserts.equals(
+        env,
+        [
+            "kotlin-stdlib is not a Build Tools API runtime artifact " +
+            "(kotlin-build-tools-cri-impl, kotlin-build-tools-impl, kotlin-daemon-client)",
+            "the checksum of kotlin-build-tools-impl is missing: give the one of every runtime artifact, or none",
+        ],
+        kotlin_native_btapi_problems({
+            "kotlin-build-tools-cri-impl": "cri",
+            "kotlin-daemon-client": "daemon",
+            "kotlin-stdlib": "stdlib",
+        }),
+    )
+
+    return unittest.end(env)
+
+def _btapi_runtime_holds_the_implementation_test(ctx):
+    """The runtime repository gets the implementation jars of a release, not its API jar, and none of a release without them."""
+    env = unittest.begin(ctx)
+
+    btapi = kotlin_native_btapi(_UNPINNED_DEV_BUILD, _BTAPI_TAG)
+    runtime = kotlin_native_btapi_runtime(btapi)
+    asserts.equals(env, sorted(KOTLIN_NATIVE_BTAPI_RUNTIME), sorted(runtime.urls.keys()))
+    asserts.equals(env, _BTAPI_TAG, runtime.sha256)
+    for artifact in KOTLIN_NATIVE_BTAPI_RUNTIME:
+        asserts.equals(env, btapi[artifact].urls, runtime.urls[artifact], artifact)
+
+    without = kotlin_native_btapi_runtime(None)
+    asserts.equals(env, {}, without.urls)
+    asserts.equals(env, {}, without.sha256)
+
+    return unittest.end(env)
+
+def _btapi_build_file_declares_the_runtime_test(ctx):
+    """The runtime repository BUILD file has a `runtime` filegroup of its jars, empty for a release without them."""
+    env = unittest.begin(ctx)
+
+    build_file = kotlin_native_btapi_build_file("2.5.20-dev-5696", ["kotlin-daemon-client", "kotlin-build-tools-impl"])
+    for expected in [
+        'package(default_visibility = ["//visibility:public"])',
+        'name = "runtime"',
+        'srcs = [":kotlin-build-tools-impl.jar", ":kotlin-daemon-client.jar"]',
+        "Kotlin/Native 2.5.20-dev-5696",
+    ]:
+        asserts.true(env, expected in build_file, "%s in %s" % (expected, build_file))
+
+    empty = kotlin_native_btapi_build_file("2.4.21", [])
+    for expected in ['name = "runtime"', "srcs = []", "konanc command line", "Kotlin/Native 2.4.21"]:
+        asserts.true(env, expected in empty, "%s in %s" % (expected, empty))
 
     return unittest.end(env)
 
@@ -545,7 +750,25 @@ def _config_defaults_test(ctx):
     config = collect_kotlin_native_config([_native_module("root", True), _native_module("dependency", False)])
     asserts.equals(env, KOTLIN_NATIVE_VERSION, config.version)
     asserts.equals(env, KOTLIN_NATIVE_PREBUILT[KOTLIN_NATIVE_VERSION], config.sha256)
+    asserts.equals(env, kotlin_native_btapi(KOTLIN_NATIVE_VERSION, {}), config.btapi)
     asserts.equals(env, sorted(KONAN_TARGETS.keys()), config.targets)
+
+    return unittest.end(env)
+
+def _config_reads_the_btapi_checksums_test(ctx):
+    """The btapi_sha256 of the root tag gives its release a Build Tools API runtime; without it, an unpinned release has none."""
+    env = unittest.begin(ctx)
+
+    config = collect_kotlin_native_config([
+        _native_module("root", True, version = [_version_tag(_UNPINNED_DEV_BUILD, btapi_sha256 = _BTAPI_TAG)]),
+    ])
+    asserts.equals(env, kotlin_native_btapi(_UNPINNED_DEV_BUILD, _BTAPI_TAG), config.btapi)
+    for artifact, sha256 in _BTAPI_TAG.items():
+        asserts.equals(env, sha256, config.btapi[artifact].sha256, artifact)
+
+    for version in [_KEPT_RELEASE, _UNPINNED_RELEASE]:
+        config = collect_kotlin_native_config([_native_module("root", True, version = [_version_tag(version)])])
+        asserts.equals(env, None, config.btapi, version)
 
     return unittest.end(env)
 
@@ -557,7 +780,7 @@ def _config_reads_the_root_tags_test(ctx):
         _native_module(
             "root",
             True,
-            version = [struct(version = _UNPINNED_RELEASE, sha256 = {"macos-aarch64": "abc"})],
+            version = [_version_tag(_UNPINNED_RELEASE, sha256 = {"macos-aarch64": "abc"})],
             targets = [struct(targets = ["macos_arm64", "linux_x64", "linux_x64"])],
         ),
         _native_module("dependency", False),
@@ -582,13 +805,13 @@ def _config_keeps_the_pinned_checksums_test(ctx):
     env = unittest.begin(ctx)
 
     config = collect_kotlin_native_config([
-        _native_module("root", True, version = [struct(version = KOTLIN_NATIVE_VERSION, sha256 = {})]),
+        _native_module("root", True, version = [_version_tag(KOTLIN_NATIVE_VERSION)]),
     ])
     asserts.equals(env, KOTLIN_NATIVE_PREBUILT[KOTLIN_NATIVE_VERSION], config.sha256)
 
     # A checksum of the tag wins over the pinned one of its host only.
     config = collect_kotlin_native_config([
-        _native_module("root", True, version = [struct(version = KOTLIN_NATIVE_VERSION, sha256 = {"macos-aarch64": "abc"})]),
+        _native_module("root", True, version = [_version_tag(KOTLIN_NATIVE_VERSION, sha256 = {"macos-aarch64": "abc"})]),
     ])
     asserts.equals(
         env,
@@ -603,7 +826,7 @@ def _config_pins_the_kept_release_test(ctx):
     env = unittest.begin(ctx)
 
     config = collect_kotlin_native_config([
-        _native_module("root", True, version = [struct(version = _KEPT_RELEASE, sha256 = {})]),
+        _native_module("root", True, version = [_version_tag(_KEPT_RELEASE)]),
     ])
     asserts.equals(env, _KEPT_RELEASE, config.version)
     asserts.equals(env, KOTLIN_NATIVE_PREBUILT[_KEPT_RELEASE], config.sha256)
@@ -619,7 +842,7 @@ def _config_pins_the_kept_release_test(ctx):
         )
 
     config = collect_kotlin_native_config([
-        _native_module("root", True, version = [struct(version = _KEPT_RELEASE, sha256 = {"linux-x86_64": "abc"})]),
+        _native_module("root", True, version = [_version_tag(_KEPT_RELEASE, sha256 = {"linux-x86_64": "abc"})]),
     ])
     asserts.equals(
         env,
@@ -634,7 +857,7 @@ def _config_leaves_an_unpinned_release_unverified_test(ctx):
     env = unittest.begin(ctx)
 
     config = collect_kotlin_native_config([
-        _native_module("root", True, version = [struct(version = _UNPINNED_RELEASE, sha256 = {})]),
+        _native_module("root", True, version = [_version_tag(_UNPINNED_RELEASE)]),
     ])
     asserts.equals(env, _UNPINNED_RELEASE, config.version)
     asserts.equals(env, {key: "" for key in EXEC_HOSTS}, config.sha256)
@@ -710,6 +933,11 @@ kept_release_stays_pinned_test = unittest.make(_kept_release_stays_pinned_test)
 deps_cover_every_exec_host_target_test = unittest.make(_deps_cover_every_exec_host_target_test)
 llvm_follows_the_release_test = unittest.make(_llvm_follows_the_release_test)
 archives_are_pinned_test = unittest.make(_archives_are_pinned_test)
+distribution_follows_the_version_kind_test = unittest.make(_distribution_follows_the_version_kind_test)
+btapi_follows_the_release_test = unittest.make(_btapi_follows_the_release_test)
+btapi_tag_problems_test = unittest.make(_btapi_tag_problems_test)
+btapi_runtime_holds_the_implementation_test = unittest.make(_btapi_runtime_holds_the_implementation_test)
+btapi_build_file_declares_the_runtime_test = unittest.make(_btapi_build_file_declares_the_runtime_test)
 parser_follows_java_properties_test = unittest.make(_parser_follows_java_properties_test)
 parser_reads_konan_properties_test = unittest.make(_parser_reads_konan_properties_test)
 link_dependencies_resolve_references_test = unittest.make(_link_dependencies_resolve_references_test)
@@ -723,6 +951,7 @@ bundle_stages_the_requested_targets_test = unittest.make(_bundle_stages_the_requ
 bundle_stages_the_llvm_of_the_release_test = unittest.make(_bundle_stages_the_llvm_of_the_release_test)
 bundle_stages_every_target_by_default_test = unittest.make(_bundle_stages_every_target_by_default_test)
 config_defaults_test = unittest.make(_config_defaults_test)
+config_reads_the_btapi_checksums_test = unittest.make(_config_reads_the_btapi_checksums_test)
 config_reads_the_root_tags_test = unittest.make(_config_reads_the_root_tags_test)
 config_keeps_the_pinned_checksums_test = unittest.make(_config_keeps_the_pinned_checksums_test)
 config_pins_the_kept_release_test = unittest.make(_config_pins_the_kept_release_test)
@@ -745,6 +974,11 @@ def native_repositories_test_suite(name):
         deps_cover_every_exec_host_target_test,
         llvm_follows_the_release_test,
         archives_are_pinned_test,
+        distribution_follows_the_version_kind_test,
+        btapi_follows_the_release_test,
+        btapi_tag_problems_test,
+        btapi_runtime_holds_the_implementation_test,
+        btapi_build_file_declares_the_runtime_test,
         parser_follows_java_properties_test,
         parser_reads_konan_properties_test,
         link_dependencies_resolve_references_test,
@@ -758,6 +992,7 @@ def native_repositories_test_suite(name):
         bundle_stages_the_llvm_of_the_release_test,
         bundle_stages_every_target_by_default_test,
         config_defaults_test,
+        config_reads_the_btapi_checksums_test,
         config_reads_the_root_tags_test,
         config_keeps_the_pinned_checksums_test,
         config_pins_the_kept_release_test,

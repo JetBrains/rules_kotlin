@@ -17,6 +17,7 @@ package io.bazel.kotlin.native
 
 import com.google.common.truth.Truth.assertThat
 import com.google.devtools.build.runfiles.Runfiles
+import org.jetbrains.kotlin.buildtools.api.CompilationResult
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -32,7 +33,8 @@ import java.nio.file.Paths
 
 /**
  * Runs [KonanLauncher] in a fake execroot with a fake compiler jar (fake/MainKt.java), which
- * writes a report of what it gets and sees to report.txt.
+ * writes a report of what it gets and sees to report.txt, and a [KlibCompiler] that records the
+ * klib compilations it gets in place of the Build Tools API.
  */
 @RunWith(JUnit4::class)
 class KonanLauncherTest {
@@ -45,6 +47,27 @@ class KonanLauncherTest {
     val exitCode: Int,
     val stderr: String,
   )
+
+  /** Records the compilations it gets and whether they see the scratch directories. */
+  private inner class RecordingKlibCompiler(
+    val exitCode: Int = KonanLauncher.EXIT_OK,
+  ) : KlibCompiler {
+    val compilations = mutableListOf<Pair<KlibCompilation, List<Path>>>()
+    var scratchDirectories = false
+
+    override fun compile(
+      compilation: KlibCompilation,
+      runtimeClasspath: List<Path>,
+      err: PrintStream,
+    ): Int {
+      compilations += compilation to runtimeClasspath
+      scratchDirectories =
+        Files.isDirectory(execroot.resolve(DATA_DIR)) &&
+        Files.isDirectory(execroot.resolve(AUTO_CACHE_DIR))
+      err.println("compiled with the Build Tools API")
+      return exitCode
+    }
+  }
 
   @Before
   fun setUp() {
@@ -75,6 +98,158 @@ class KonanLauncherTest {
         "arg=-o",
         "arg=${execroot.resolve("report.txt")}",
       ).inOrder()
+  }
+
+  @Test
+  fun compilesAKlibWithKonancWithoutABuildToolsApi() {
+    val result =
+      compileKlib(
+        "-Xfragment-sources=common:src/common.kt",
+        "-Xdebug-prefix-map=__EXECROOT__=.",
+        sources = listOf("src/common.kt", "src/hello.kt"),
+        klibCompiler = { _, _, _ -> throw AssertionError("not a Build Tools API compilation") },
+      )
+
+    // -produce library first, then the flags, the output and the sources, with the same absolute
+    // paths as with the Build Tools API: konanc matches the sources against -Xfragment-sources.
+    assertThat(result.exitCode).isEqualTo(KonanLauncher.EXIT_OK)
+    assertThat(report().filter { it.startsWith("arg=") })
+      .containsExactly(
+        "arg=-produce",
+        "arg=library",
+        "arg=-Xkonan-data-dir=${execroot.resolve(DATA_DIR)}",
+        "arg=-Xauto-cache-dir=${execroot.resolve(AUTO_CACHE_DIR)}",
+        "arg=-Xfragment-sources=common:${execroot.resolve("src/common.kt")}",
+        "arg=-Xdebug-prefix-map=$execroot=.",
+        "arg=-o",
+        "arg=${execroot.resolve("report.txt")}",
+        "arg=${execroot.resolve("src/common.kt")}",
+        "arg=${execroot.resolve("src/hello.kt")}",
+      ).inOrder()
+    assertThat(report()).contains("tool=konanc")
+  }
+
+  @Test
+  fun compilesAKlibWithTheBuildToolsApiGivenItsImplementation() {
+    val compiler = RecordingKlibCompiler()
+
+    val result =
+      compileKlib(
+        "-Xfragment-sources=common:src/common.kt",
+        "-Xfragment-sources=no-path",
+        "-Xdebug-prefix-map=__EXECROOT__=.",
+        sources = listOf("src/common.kt", "src/hello.kt"),
+        btapiClasspath =
+          listOf("btapi/kotlin-build-tools-impl.jar", "btapi/kotlin-daemon-client.jar"),
+        klibCompiler = compiler,
+      )
+
+    assertThat(result.exitCode).isEqualTo(KonanLauncher.EXIT_OK)
+    assertThat(result.stderr).contains("compiled with the Build Tools API")
+    val (compilation, runtimeClasspath) = compiler.compilations.single()
+    assertThat(compilation.workingDir).isEqualTo(execroot)
+    assertThat(compilation.konanHome).isEqualTo(execroot.resolve("dist"))
+    assertThat(compilation.compilerJar)
+      .isEqualTo(execroot.resolve("dist").resolve(KonanLauncher.COMPILER_JAR))
+    assertThat(compilation.sources)
+      .containsExactly(execroot.resolve("src/common.kt"), execroot.resolve("src/hello.kt"))
+      .inOrder()
+    assertThat(compilation.output).isEqualTo(execroot.resolve("report.txt"))
+    // The flags without -produce, -o and the sources, with the placeholder replaced and the paths of
+    // the fragment sources as absolute as the sources.
+    assertThat(compilation.flags)
+      .containsExactly(
+        "-Xkonan-data-dir=${execroot.resolve(DATA_DIR)}",
+        "-Xauto-cache-dir=${execroot.resolve(AUTO_CACHE_DIR)}",
+        "-Xfragment-sources=common:${execroot.resolve("src/common.kt")}",
+        "-Xfragment-sources=no-path",
+        "-Xdebug-prefix-map=$execroot=.",
+      ).inOrder()
+    assertThat(runtimeClasspath)
+      .containsExactly(
+        execroot.resolve("btapi/kotlin-build-tools-impl.jar"),
+        execroot.resolve("btapi/kotlin-daemon-client.jar"),
+      ).inOrder()
+
+    // The compilation sees the scratch directories, which are deleted after it; konanc does not run.
+    assertThat(compiler.scratchDirectories).isTrue()
+    assertThat(Files.exists(execroot.resolve(DATA_DIR))).isFalse()
+    assertThat(Files.exists(execroot.resolve("report.txt"))).isFalse()
+  }
+
+  @Test
+  fun exitsWithTheExitCodeOfTheBuildToolsApiCompilation() {
+    val result =
+      compileKlib(
+        btapiClasspath = listOf("btapi/kotlin-build-tools-impl.jar"),
+        klibCompiler = RecordingKlibCompiler(KonanLauncher.EXIT_COMPILATION_ERROR),
+      )
+
+    assertThat(result.exitCode).isEqualTo(KonanLauncher.EXIT_COMPILATION_ERROR)
+    assertThat(Files.exists(execroot.resolve(DATA_DIR))).isFalse()
+  }
+
+  @Test
+  fun loadsTheImplementationWithTheCompilerJarOfTheDistribution() {
+    val compiler = RecordingKlibCompiler()
+    compileKlib(btapiClasspath = listOf("btapi/impl.jar", "btapi/cri.jar"), klibCompiler = compiler)
+    val (compilation, runtimeClasspath) = compiler.compilations.single()
+
+    assertThat(BtapiKlibCompiler.classpath(compilation, runtimeClasspath))
+      .containsExactly(
+        execroot.resolve("btapi/impl.jar"),
+        execroot.resolve("btapi/cri.jar"),
+        execroot.resolve("dist").resolve(KonanLauncher.COMPILER_JAR),
+      ).inOrder()
+  }
+
+  @Test
+  fun mapsTheResultsOfTheBuildToolsApiToExitCodes() {
+    assertThat(BtapiKlibCompiler.exitCode(CompilationResult.COMPILATION_SUCCESS))
+      .isEqualTo(KonanLauncher.EXIT_OK)
+    assertThat(BtapiKlibCompiler.exitCode(CompilationResult.COMPILATION_ERROR))
+      .isEqualTo(KonanLauncher.EXIT_COMPILATION_ERROR)
+    assertThat(BtapiKlibCompiler.exitCode(CompilationResult.COMPILATION_OOM_ERROR))
+      .isEqualTo(KonanLauncher.EXIT_INTERNAL_ERROR)
+    assertThat(BtapiKlibCompiler.exitCode(CompilationResult.COMPILER_INTERNAL_ERROR))
+      .isEqualTo(KonanLauncher.EXIT_INTERNAL_ERROR)
+  }
+
+  @Test
+  fun reportsTheDiagnosticsOfTheToolRelativeToTheWorkingDirectory() {
+    val processErr = System.err
+
+    val result = launch("-Xfake-diagnostic=e: file://__EXECROOT__/src/bad.kt:3:5 unresolved")
+
+    assertThat(result.exitCode).isEqualTo(KonanLauncher.EXIT_OK)
+    assertThat(result.stderr).contains("e: src/bad.kt:3:5 unresolved\n")
+    assertThat(result.stderr).doesNotContain(execroot.toString())
+    // The launcher restores the error stream of the process.
+    assertThat(System.err).isSameInstanceAs(processErr)
+  }
+
+  @Test
+  fun reportsTheMessagesOfTheBuildToolsApiAsKonancDoes() {
+    val out = ByteArrayOutputStream()
+    val logger = BtapiKlibCompiler.logger(PrintStream(out, true, "UTF-8"), execroot)
+
+    logger.error("file://$execroot/src/bad.kt:3:5 Unresolved reference 'x'.", null)
+    logger.warn("$execroot/src/bad.kt:1:1 unused", null)
+    logger.info("progress")
+    logger.lifecycle("progress")
+
+    assertThat(out.toString("UTF-8"))
+      .isEqualTo("e: src/bad.kt:3:5 Unresolved reference 'x'.\nw: src/bad.kt:1:1 unused\n")
+  }
+
+  @Test
+  fun reportsPathsRelativeToTheWorkingDirectory() {
+    assertThat(KonanLauncher.relativeTo("e: file://$execroot/src/bad.kt:3:5 unresolved", execroot))
+      .isEqualTo("e: src/bad.kt:3:5 unresolved")
+    assertThat(KonanLauncher.relativeTo("w: $execroot/src/bad.kt:1:1 unused", execroot))
+      .isEqualTo("w: src/bad.kt:1:1 unused")
+    assertThat(KonanLauncher.relativeTo("e: file:///elsewhere/bad.kt:3:5 error", execroot))
+      .isEqualTo("e: file:///elsewhere/bad.kt:3:5 error")
   }
 
   @Test
@@ -183,6 +358,15 @@ class KonanLauncherTest {
       listOf("--tool", "konanc", "--data-dir", DATA_DIR, "--") to
         "missing --konan-home, --auto-cache-dir",
       valid + "--tool" + "--" to "--tool needs a value",
+      listOf("--tool", "konanc") + valid + listOf("--source", "src/hello.kt", "--") to
+        "--source needs --klib-output",
+      listOf("--tool", "konanc") + valid + listOf("--btapi-classpath", "impl.jar", "--") to
+        "--btapi-classpath needs --klib-output",
+      listOf("--tool", "klib") + valid + listOf("--klib-output", "out/hello.klib", "--") to
+        "--klib-output needs --tool konanc",
+      listOf("--tool", "konanc") + valid +
+        listOf("--klib-output", "a.klib", "--klib-output", "b.klib", "--") to
+        "--klib-output is given twice",
     ).forEach { (args, message) ->
       val result = launchWith(args)
 
@@ -294,9 +478,39 @@ class KonanLauncherTest {
         listOf("-o", "${KonanLauncher.EXECROOT_PLACEHOLDER}/report.txt"),
     )
 
-  private fun launchWith(args: List<String>): Result {
+  /**
+   * Compiles [sources] into a klib, report.txt, with the tool arguments of a konanc action and
+   * [toolArgs], through [klibCompiler] with a [btapiClasspath]. The output is absolute, so the fake
+   * compiler writes it into the execroot.
+   */
+  private fun compileKlib(
+    vararg toolArgs: String,
+    sources: List<String> = listOf("src/hello.kt"),
+    btapiClasspath: List<String> = emptyList(),
+    klibCompiler: KlibCompiler,
+  ): Result =
+    launchWith(
+      listOf("--tool", "konanc", "--konan-home", "dist") +
+        listOf("--data-dir", DATA_DIR, "--auto-cache-dir", AUTO_CACHE_DIR) +
+        listOf("--klib-output", execroot.resolve("report.txt").toString()) +
+        sources.flatMap { listOf("--source", it) } +
+        btapiClasspath.flatMap { listOf("--btapi-classpath", it) } +
+        "--" +
+        listOf(
+          "-Xkonan-data-dir=${KonanLauncher.EXECROOT_PLACEHOLDER}/$DATA_DIR",
+          "-Xauto-cache-dir=${KonanLauncher.EXECROOT_PLACEHOLDER}/$AUTO_CACHE_DIR",
+        ) +
+        toolArgs,
+      klibCompiler,
+    )
+
+  private fun launchWith(
+    args: List<String>,
+    klibCompiler: KlibCompiler = KlibCompiler { _, _, _ -> throw AssertionError("no klib") },
+  ): Result {
     val stderr = ByteArrayOutputStream()
-    val exitCode = KonanLauncher.run(args, execroot, PrintStream(stderr, true, "UTF-8"))
+    val exitCode =
+      KonanLauncher.run(args, execroot, PrintStream(stderr, true, "UTF-8"), klibCompiler)
     return Result(exitCode, stderr.toString("UTF-8"))
   }
 

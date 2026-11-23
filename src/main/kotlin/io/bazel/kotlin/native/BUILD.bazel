@@ -1,10 +1,24 @@
+load("//kotlin:jvm.bzl", "kt_jvm_import")
 load("//kotlin/compiler:compiler.bzl", _KOTLIN_STDLIBS = "KOTLIN_STDLIBS")
 load("//src/main/kotlin:bootstrap.bzl", "kt_bootstrap_binary", "kt_bootstrap_library")
 
+# The Kotlin/Native Build Tools API the launcher compiles klibs with (BtapiKlibCompiler.kt): the one
+# of the Kotlin/Native release rules_kotlin pins. Unlike //kotlin/compiler:build-tools-api it is not
+# neverlink: the launcher bundles it, so a release of rules_kotlin needs no repository for it.
+kt_jvm_import(
+    name = "kotlin_native_build_tools_api",
+    jars = ["@kotlin_native_build_tools_api//file"],
+    visibility = ["//src:__subpackages__"],
+)
+
 kt_bootstrap_library(
     name = "konan_launcher_lib",
-    srcs = ["KonanLauncher.kt"],
+    srcs = [
+        "BtapiKlibCompiler.kt",
+        "KonanLauncher.kt",
+    ],
     visibility = ["//src:__subpackages__"],
+    deps = [":kotlin_native_build_tools_api"],
 )
 
 # The binary every Kotlin/Native action runs (see kotlin/internal/native/klib.bzl): it runs a tool

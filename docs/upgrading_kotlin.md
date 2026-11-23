@@ -1,8 +1,10 @@
 # Upgrading the Kotlin release
 
-rules_kotlin pins one Kotlin release for the JVM compiler, the Build Tools API and Kotlin/Native.
-[`scripts/upgrade_kotlin.sh`](../scripts/upgrade_kotlin.sh) moves every pin to a new release from
-the published release metadata, and checks that an older release still works.
+rules_kotlin pins a Kotlin release for the JVM compiler and the Build Tools API, and a Kotlin/Native
+release, which may be a dev build of the next Kotlin release (2.5.20-dev-5696 today).
+[`scripts/upgrade_kotlin.sh`](../scripts/upgrade_kotlin.sh) moves the pins of a release train, or
+the Kotlin/Native ones alone, from the published release metadata, and checks that an older release
+still works.
 
 ## Upgrading
 
@@ -13,6 +15,13 @@ scripts/upgrade_kotlin.sh upgrade <new> --keep <old>
 `--keep` names an older release that stays pinned for Kotlin/Native and documented in
 [kmp.md](kmp.md); it can be given more than once. Without it the current release is kept. The
 per-release Kotlin/Native tables then hold exactly the new release and the kept ones.
+
+Kotlin/Native moves with the release train, unless rules_kotlin pins a newer Kotlin/Native, such as
+a dev build of the next release: its pins then stay as they are, and the tool says so. Releases order
+by version, and within a version a dev build before a Beta, a Beta before a release candidate and a
+release candidate before the release, so `upgrade 2.5.20-Beta1` moves Kotlin/Native from
+2.5.20-dev-5696 while `upgrade 2.4.22` leaves it. The new release must then have a Kotlin/Native
+Build Tools API (see [Upgrading Kotlin/Native alone](#upgrading-kotlinnative-alone)).
 
 The script runs, in order:
 
@@ -46,19 +55,20 @@ it would change.
 | Source                                                                                         | Used for                                                     |
 |------------------------------------------------------------------------------------------------|--------------------------------------------------------------|
 | The GitHub release `v<version>`: asset digests and `.sha256` files                             | `kotlin-compiler-<version>.zip`, `kotlin-native-prebuilt-<host>-<version>.tar.gz` of each exec host |
-| `maven-<version>-sha256.txt` of the GitHub release                                             | The Build Tools API and its implementation jars              |
+| `maven-<version>-sha256.txt` of the GitHub release                                             | The Build Tools API and its implementation jars, and the Kotlin/Native Build Tools API jars of 2.5.20 and newer releases |
+| The Kotlin dev Maven repository, `redirector.kotlinlang.org/maven/dev`: the `.sha256` file next to each artifact | A dev build, which has no GitHub release: `kotlin-native-prebuilt-<version>-<host>.tar.gz` of each exec host and the Kotlin/Native Build Tools API jars |
 | `konan/konan.properties` of each prebuilt distribution                                         | The LLVM of each exec host, checked against `KOTLIN_NATIVE_DEPS` |
 | The `.sha256` files of `download.jetbrains.com/kotlin/native/resources/llvm/`                  | The LLVM archives                                            |
 
-| File                                                       | Rewritten                                                                                     |
-|------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
-| `src/main/starlark/core/repositories/versions.bzl`         | `_KOTLIN_CURRENT_RELEASE` and the checksums of the compiler, the Build Tools API and its implementation |
-| `src/main/starlark/core/repositories/native_compiler.bzl`  | The `KOTLIN_NATIVE_PREBUILT` and `KOTLIN_NATIVE_LLVM` rows, and the LLVM archives of `KOTLIN_NATIVE_ARCHIVES` |
-| `src/test/starlark/native_konan_properties.bzl`            | The `konan.properties` excerpts of each kept release, for the tests                          |
-| `kotlin/internal/toolchains.bzl`                           | On a new minor release, the `api_version`/`language_version` value and default                |
-| `src/test/starlark/internal/jvm/kotlinc_options_test.bzl`  | The expected default `api_version`/`language_version`                                         |
-| `examples/*/MODULE.bazel`                                  | Every `org.jetbrains.kotlin` Maven artifact, such as the Compose compiler plugin and kotlin-metadata-jvm, whatever its version; the tool fails if no example pins one |
-| `docs/kmp.md`                                              | The generated "Staying on Kotlin ..." sections of the kept releases                           |
+| File                                                       | `upgrade` rewrites                                                                            | `upgrade-native` rewrites |
+|------------------------------------------------------------|-----------------------------------------------------------------------------------------------|---------------------------|
+| `src/main/starlark/core/repositories/versions.bzl`         | `_KOTLIN_CURRENT_RELEASE` and the checksums of the compiler, the Build Tools API and its implementation | Nothing |
+| `src/main/starlark/core/repositories/native_compiler.bzl`  | Unless Kotlin/Native is newer than the release: `KOTLIN_NATIVE_VERSION`, the `KOTLIN_NATIVE_PREBUILT`, `KOTLIN_NATIVE_LLVM` and `KOTLIN_NATIVE_BTAPI` rows, and the LLVM archives of `KOTLIN_NATIVE_ARCHIVES` | The same |
+| `src/test/starlark/native_konan_properties.bzl`            | Unless Kotlin/Native is newer than the release: the `konan.properties` excerpts of each kept release, for the tests | The same |
+| `kotlin/internal/toolchains.bzl`                           | On a new minor release, the `api_version`/`language_version` value and default                | Nothing |
+| `src/test/starlark/internal/jvm/kotlinc_options_test.bzl`  | The expected default `api_version`/`language_version`                                         | Nothing |
+| `examples/*/MODULE.bazel`                                  | Every `org.jetbrains.kotlin` Maven artifact, such as the Compose compiler plugin and kotlin-metadata-jvm, whatever its version; the tool fails if no example pins one | Nothing |
+| `docs/kmp.md`                                              | The generated "Staying on Kotlin ..." sections of the kept releases; when Kotlin/Native moves too, the "Staying on Kotlin/Native ..." ones go | The generated "Staying on Kotlin/Native ..." sections of the kept releases |
 
 The tool never rewrites, and leaves to a separate manual change:
 
@@ -68,13 +78,15 @@ The tool never rewrites, and leaves to a separate manual change:
 - The `capabilities_*.bzl` files and the `api_version`/`language_version` values of older minor
   releases: it never deletes them.
 - `CHANGELOG.md`, and the release mentioned in the README, in [kmp_dependencies.md](kmp_dependencies.md)
-  and in the requirements and the `version` tag of [kmp.md](kmp.md).
+  and in the requirements, the `version` tag and the Kotlin/Native Build Tools API section of
+  [kmp.md](kmp.md).
 
 The tool downloads each prebuilt Kotlin/Native distribution, about 300 MB, to read its
 `konan.properties`. It caches the file by the sha256 of the distribution in
 `$RULES_KOTLIN_UPGRADE_CACHE`, or `rules_kotlin/upgrade_kotlin` in `$XDG_CACHE_HOME` or
 `~/.cache`. A cache that cannot be written only costs the download next time; an unreadable
-entry fails the run with its path. Set `GITHUB_TOKEN` if the GitHub API rate limit is hit.
+entry fails the run with its path. Set `GITHUB_TOKEN` if the GitHub API rate limit is hit; a dev
+build reads no GitHub API.
 
 ### After the upgrade
 
@@ -107,6 +119,32 @@ minor version of the `kotlinc_version` in use, `KOTLINC_VERSION` of
 one; so do the tools rules_kotlin builds from source (the CLI toolchain). The overrides of a kept
 release need no toolchain of their own.
 
+## Upgrading Kotlin/Native alone
+
+```shell
+scripts/upgrade_kotlin.sh upgrade-native <new> --keep <old>
+```
+
+`<new>` is a Kotlin/Native release or dev build, e.g. `2.5.20-dev-5696`, which becomes the default of
+the `kotlin_native` module extension. It must have a Kotlin/Native Build Tools API, which the launcher
+of the Kotlin/Native actions is compiled against: the tool rejects a release older than
+2.5.20-dev-4986 before it downloads anything. `--keep` names an older release that stays pinned and
+documented in the "Staying on Kotlin/Native ..." sections of [kmp.md](kmp.md); it can be given more
+than once. A kept release may be older than 2.5.20-dev-4986: its klibs compile with the konanc
+command line. Without `--keep` the release of the JVM compiler is kept. The JVM compiler, its Build
+Tools API and the Maven pins of the examples stay as they are.
+
+The script runs the upgrade tool,
+`bazel run //src/main/kotlin/io/bazel/kotlin/upgrade:upgrade_kotlin -- --native-version <new> [--keep <old>]...`,
+which rewrites the Kotlin/Native pins only (see [What the tool rewrites](#what-the-tool-rewrites)),
+then refreshes the local lockfiles, as step 5 of `upgrade` does. Running it again for the same
+release changes nothing. Run the checks of [After the upgrade](#after-the-upgrade), and the
+Kotlin/Native examples with the Build Tools API off too:
+
+```shell
+bazel test //... --@rules_kotlin//kotlin/settings:experimental_native_build_tools_api=false
+```
+
 ## Checking an older release
 
 ```shell
@@ -126,4 +164,6 @@ bazel run //src/main/kotlin/io/bazel/kotlin/upgrade:upgrade_kotlin -- --emit-ove
 ```
 
 It holds the published checksums of the release, and fails if they differ from the ones this
-checkout pins for it.
+checkout pins for it. It selects the release for Kotlin/Native too: a release older than
+2.5.20-dev-4986, such as 2.4.21, has no Kotlin/Native Build Tools API, so its check also covers the
+klib compilations of the konanc command line.

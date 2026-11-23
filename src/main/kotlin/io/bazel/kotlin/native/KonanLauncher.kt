@@ -15,7 +15,9 @@
  */
 package io.bazel.kotlin.native
 
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.OutputStream
 import java.io.PrintStream
 import java.lang.reflect.InvocationTargetException
 import java.net.URLClassLoader
@@ -36,7 +38,9 @@ import kotlin.system.exitProcess
  *
  * ```
  * --tool konanc|cinterop|klib --konan-home <dir> --data-dir <dir> --auto-cache-dir <dir>
- *   [--staged-deps <dir>]... -- <tool arguments>
+ *   [--staged-deps <dir>]...
+ *   [--klib-output <file> [--source <file>]... [--btapi-classpath <jar>]...]
+ *   -- <tool arguments>
  * ```
  *
  * It recreates the action-local konan data and auto-cache directories and links every staged
@@ -46,7 +50,15 @@ import kotlin.system.exitProcess
  * tool in-process: `MainKt.daemonMain` of the compiler jar of the distribution, the entry point
  * the Kotlin Gradle plugin uses too, in a class loader isolated from the launcher, with
  * `konan.home` set to the distribution in the sandbox. It deletes the scratch directories when the
- * tool is done.
+ * tool is done. What the tool prints to `System.err`, such as its diagnostics, goes to the error
+ * stream with the paths under the working directory relative to it, as in the sandbox they would
+ * name the sandbox.
+ *
+ * A klib compilation gives its output (`--klib-output`, with `--tool konanc` only) and its sources
+ * apart from the konanc flags, and both entry points get the absolute paths of a [KlibCompilation].
+ * With the jars of a Kotlin/Native Build Tools API implementation (`--btapi-classpath`), it runs a
+ * `NativeKlibCompilationOperation` of the Build Tools API in-process ([BtapiKlibCompiler]);
+ * otherwise `daemonMain` compiles it with `-produce library`, the flags, `-o` and the sources.
  *
  * It exits with [EXIT_OK] when the tool succeeds, [EXIT_COMPILATION_ERROR] when the tool reports
  * errors in its input, and [EXIT_INTERNAL_ERROR] for a usage error or a failure of the tool.
@@ -61,9 +73,11 @@ object KonanLauncher {
 
   const val COMPILER_JAR = "konan/lib/kotlin-native-compiler-embeddable.jar"
 
-  private val TOOLS = listOf("cinterop", "klib", "konanc")
+  private const val KONANC = "konanc"
+  private val TOOLS = listOf("cinterop", "klib", KONANC)
   private const val MAIN_CLASS = "org.jetbrains.kotlin.cli.utilities.MainKt"
   private const val ENTRY_POINT = "daemonMain"
+  private const val FRAGMENT_SOURCES = "-Xfragment-sources="
 
   // The exceptions the tools throw for errors in their input, which they have reported already.
   private val COMPILATION_ERRORS =
@@ -74,7 +88,8 @@ object KonanLauncher {
 
   private const val USAGE =
     "usage: konan_launcher --tool konanc|cinterop|klib --konan-home <dir> --data-dir <dir> " +
-      "--auto-cache-dir <dir> [--staged-deps <dir>]... -- <tool arguments>"
+      "--auto-cache-dir <dir> [--staged-deps <dir>]... " +
+      "[--klib-output <file> [--source <file>]... [--btapi-classpath <jar>]...] -- <tool arguments>"
 
   @JvmStatic
   fun main(args: Array<String>) {
@@ -95,12 +110,15 @@ object KonanLauncher {
    * Runs the tool of [args] as the action in [workingDir] would, and returns the exit code.
    *
    * Relative paths in the launcher arguments are relative to [workingDir]; the tool arguments go
-   * to the tool as they are, but for [EXECROOT_PLACEHOLDER].
+   * to the tool as they are, but for [EXECROOT_PLACEHOLDER] and, in a klib compilation, the paths
+   * of `-Xfragment-sources`, which become absolute like the sources. [klibCompiler] compiles a klib
+   * with a Build Tools API implementation.
    */
   fun run(
     args: List<String>,
     workingDir: Path,
     err: PrintStream,
+    klibCompiler: KlibCompiler = BtapiKlibCompiler,
   ): Int {
     val root = workingDir.toAbsolutePath().normalize()
     val invocation =
@@ -125,7 +143,32 @@ object KonanLauncher {
         stage(root, scratch[0], invocation.stagedDeps)
       }
       val toolArgs = invocation.toolArgs.map { it.replace(EXECROOT_PLACEHOLDER, root.toString()) }
-      return runTool(invocation.tool, toolArgs, konanHome, compilerJar, err)
+      val output = invocation.klibOutput
+      if (output == null) {
+        return withRelativeErr(root, err) {
+          runTool(invocation.tool, toolArgs, konanHome, compilerJar, err)
+        }
+      }
+      val compilation =
+        KlibCompilation(
+          workingDir = root,
+          konanHome = konanHome,
+          compilerJar = compilerJar,
+          sources = invocation.sources.map { root.resolve(it).normalize() },
+          output = root.resolve(output).normalize(),
+          flags = absoluteFragmentSources(toolArgs, root),
+        )
+      if (invocation.btapiClasspath.isEmpty()) {
+        val konancArgs =
+          listOf("-produce", "library") + compilation.flags +
+            listOf("-o", compilation.output.toString()) + compilation.sources.map { it.toString() }
+        return withRelativeErr(root, err) {
+          runTool(KONANC, konancArgs, konanHome, compilerJar, err)
+        }
+      }
+      System.setProperty("konan.home", konanHome.toString())
+      val runtimeClasspath = invocation.btapiClasspath.map { root.resolve(it).normalize() }
+      return withRelativeErr(root, err) { klibCompiler.compile(compilation, runtimeClasspath, err) }
     } catch (e: IllegalArgumentException) {
       err.println("konan_launcher: ${e.message}")
       return EXIT_INTERNAL_ERROR
@@ -134,6 +177,90 @@ object KonanLauncher {
       return EXIT_INTERNAL_ERROR
     } finally {
       scratch.forEach(::deleteRecursively)
+    }
+  }
+
+  /**
+   * The [flags] with the path of every `-Xfragment-sources=<fragment>:<path>` resolved against
+   * [root], as the sources of a [KlibCompilation] are.
+   *
+   * The compiler assigns a source to the K2 fragment whose -Xfragment-sources names the same path.
+   * The rules pass the sources of the fragments of a multiplatform compilation relative to the
+   * working directory, and the Build Tools API passes the sources to the compiler as absolute paths.
+   * Relative paths do not work on the command line either: konanc 2.5.20 dev builds then compile no
+   * source of the fragments, without a diagnostic. Other flags are unchanged.
+   */
+  fun absoluteFragmentSources(
+    flags: List<String>,
+    root: Path,
+  ): List<String> =
+    flags.map { flag ->
+      val fragmentSource = flag.removePrefix(FRAGMENT_SOURCES)
+      val separator = fragmentSource.indexOf(':')
+      if (fragmentSource.length == flag.length || separator < 0) {
+        flag
+      } else {
+        val path = root.resolve(fragmentSource.substring(separator + 1)).normalize()
+        "$FRAGMENT_SOURCES${fragmentSource.substring(0, separator)}:$path"
+      }
+    }
+
+  /** [message] with the paths under [root], also as `file://` URIs, relative to it. */
+  fun relativeTo(
+    message: String,
+    root: Path,
+  ): String = message.replace("file://$root/", "").replace("$root/", "")
+
+  /** Runs [tool] with `System.err` writing to [err], with the paths under [root] relative to it. */
+  private fun <T> withRelativeErr(
+    root: Path,
+    err: PrintStream,
+    tool: () -> T,
+  ): T {
+    val original = System.err
+    val lines = RelativeLines(err, root)
+    System.setErr(PrintStream(lines, true, "UTF-8"))
+    try {
+      return tool()
+    } finally {
+      System.err.flush()
+      lines.finish()
+      System.setErr(original)
+    }
+  }
+
+  /** Writes to [out] line by line, with the paths under [root] relative to it (see [relativeTo]). */
+  private class RelativeLines(
+    private val out: PrintStream,
+    private val root: Path,
+  ) : OutputStream() {
+    private val line = ByteArrayOutputStream()
+
+    @Synchronized
+    override fun write(b: Int) {
+      line.write(b)
+      if (b == '\n'.code) {
+        emit()
+      }
+    }
+
+    @Synchronized
+    override fun flush() {
+      out.flush()
+    }
+
+    /** Writes the last line, also without a line break. */
+    @Synchronized
+    fun finish() {
+      emit()
+      out.flush()
+    }
+
+    private fun emit() {
+      if (line.size() > 0) {
+        out.print(relativeTo(String(line.toByteArray(), UTF_8), root))
+        line.reset()
+      }
     }
   }
 
@@ -256,16 +383,22 @@ object KonanLauncher {
     val dataDir: String,
     val autoCacheDir: String,
     val stagedDeps: List<String>,
+    val klibOutput: String?,
+    val sources: List<String>,
+    val btapiClasspath: List<String>,
     val toolArgs: List<String>,
   ) {
     companion object {
-      private val SINGLE_VALUED = listOf("--tool", "--konan-home", "--data-dir", "--auto-cache-dir")
+      private val REQUIRED = listOf("--tool", "--konan-home", "--data-dir", "--auto-cache-dir")
+      private val SINGLE_VALUED = REQUIRED + "--klib-output"
 
       fun parse(args: List<String>): Invocation {
         val separator = args.indexOf("--")
         require(separator >= 0) { "missing -- before the tool arguments" }
         val values = mutableMapOf<String, String>()
         val stagedDeps = mutableListOf<String>()
+        val sources = mutableListOf<String>()
+        val btapiClasspath = mutableListOf<String>()
         var index = 0
         while (index < separator) {
           val flag = args[index]
@@ -273,24 +406,63 @@ object KonanLauncher {
           val value = args[index + 1]
           when (flag) {
             "--staged-deps" -> stagedDeps += value
+            "--source" -> sources += value
+            "--btapi-classpath" -> btapiClasspath += value
             in SINGLE_VALUED -> require(values.put(flag, value) == null) { "$flag is given twice" }
             else -> throw IllegalArgumentException("unknown flag $flag")
           }
           index += 2
         }
-        val missing = SINGLE_VALUED.filter { it !in values }
+        val missing = REQUIRED.filter { it !in values }
         require(missing.isEmpty()) { "missing ${missing.joinToString()}" }
         val tool = values.getValue("--tool")
         require(tool in TOOLS) { "unknown tool $tool, expected one of ${TOOLS.joinToString()}" }
+        val klibOutput = values["--klib-output"]
+        require(klibOutput == null || tool == KONANC) { "--klib-output needs --tool $KONANC" }
+        require(klibOutput != null || sources.isEmpty()) { "--source needs --klib-output" }
+        require(klibOutput != null || btapiClasspath.isEmpty()) {
+          "--btapi-classpath needs --klib-output"
+        }
         return Invocation(
           tool = tool,
           konanHome = values.getValue("--konan-home"),
           dataDir = values.getValue("--data-dir"),
           autoCacheDir = values.getValue("--auto-cache-dir"),
           stagedDeps = stagedDeps,
+          klibOutput = klibOutput,
+          sources = sources,
+          btapiClasspath = btapiClasspath,
           toolArgs = args.subList(separator + 1, args.size),
         )
       }
     }
   }
+}
+
+/** One klib compilation; every path is absolute, from the working directory of the launcher. */
+class KlibCompilation(
+  /** The working directory of the action, which the paths the compiler reports are relative to. */
+  val workingDir: Path,
+  /** The Kotlin/Native distribution. */
+  val konanHome: Path,
+  /** The compiler jar of the distribution, [KonanLauncher.COMPILER_JAR] under [konanHome]. */
+  val compilerJar: Path,
+  val sources: List<Path>,
+  /** The klib the compilation writes. */
+  val output: Path,
+  /** The konanc flags, without `-produce`, `-o` and the sources. */
+  val flags: List<String>,
+)
+
+/** Compiles a klib with the Kotlin/Native Build Tools API implementation of a runtime class path. */
+fun interface KlibCompiler {
+  /**
+   * Compiles [compilation] with the implementation jars of [runtimeClasspath], reporting to [err],
+   * and returns the exit code of the launcher.
+   */
+  fun compile(
+    compilation: KlibCompilation,
+    runtimeClasspath: List<Path>,
+    err: PrintStream,
+  ): Int
 }

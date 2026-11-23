@@ -19,11 +19,125 @@ class UpgradeTest {
   private val upgrade = Upgrade(checkout.root, source)
   private val current = Rewrites.currentRelease(checkout.read(Upgrade.VERSIONS))
   private val pinned = Rewrites.nativePrebuilt(checkout.read(Upgrade.NATIVE)).keys
+  private val nativeDefault = Rewrites.nativeVersion(checkout.read(Upgrade.NATIVE))
 
   @Test
   fun `given this checkout when upgraded to its own releases then nothing changes`() {
-    // The doc is a fixture without the sections of the older releases of this checkout.
-    assertThat(upgrade.plan(current, (pinned - current).toList()).keys - Upgrade.KMP_DOC).isEmpty()
+    // The doc is a fixture without the sections of the older releases of this checkout. Dev
+    // builds are Kotlin/Native releases only.
+    val jvmKept = (pinned - current).filterNot(KotlinRelease::isDev)
+    assertThat(upgrade.plan(current, jvmKept).keys - Upgrade.KMP_DOC).isEmpty()
+    assertThat(
+      upgrade.planNative(nativeDefault, (pinned - nativeDefault).toList()).keys - Upgrade.KMP_DOC,
+    ).isEmpty()
+  }
+
+  @Test
+  fun `given a dev build when Kotlin Native alone is upgraded then only its files change`() {
+    val release = source.fakeNativeRelease(DEV, base = current)
+
+    assertThat(UpgradeKotlin.run(UpgradeKotlin.Options(nativeVersion = DEV), upgrade) {})
+      .isEmpty()
+
+    val native = checkout.read(Upgrade.NATIVE)
+    assertThat(Rewrites.nativeVersion(native)).isEqualTo(DEV)
+    // The current JVM release is kept by default, the previous Kotlin/Native default is not.
+    assertThat(Rewrites.nativePrebuilt(native).keys).containsExactly(current, DEV)
+    assertThat(Rewrites.nativePrebuilt(native)[DEV]).isEqualTo(release.prebuiltSha256)
+    assertThat(Rewrites.nativeLlvm(native).keys).containsExactly(current, DEV)
+    assertThat(Rewrites.nativeBtapi(native)).containsExactly(DEV, release.btapiSha256)
+    assertThat(checkout.read(Upgrade.KONAN_TESTDATA)).contains("    \"$DEV\": {\n")
+    val doc = checkout.read(Upgrade.KMP_DOC)
+    assertThat(doc).contains("### Staying on Kotlin/Native $current\n")
+    assertThat(doc).contains("kotlin_native.version(version = \"$current\")\n")
+    assertThat(doc).contains("its klibs compile with the konanc command\nline")
+    assertThat(doc).doesNotContain("### Staying on Kotlin $current\n")
+    assertThat(checkout.unchanged())
+      .containsExactlyElementsIn(
+        TestCheckout.FILES - setOf(Upgrade.NATIVE, Upgrade.KONAN_TESTDATA, Upgrade.KMP_DOC),
+      )
+
+    assertThat(upgrade.planNative(DEV)).isEmpty()
+  }
+
+  @Test
+  fun `given kept releases when Kotlin Native alone is upgraded then they stay, newest first`() {
+    source.fakeNativeRelease(DEV, base = current)
+
+    upgrade.write(upgrade.planNative(DEV, listOf(current, nativeDefault)))
+
+    val native = checkout.read(Upgrade.NATIVE)
+    assertThat(Rewrites.nativePrebuilt(native).keys).containsExactly(current, nativeDefault, DEV)
+    assertThat(Rewrites.nativeBtapi(native).keys).containsExactly(nativeDefault, DEV)
+    val doc = checkout.read(Upgrade.KMP_DOC)
+    val newer = doc.indexOf("### Staying on Kotlin/Native $nativeDefault\n")
+    assertThat(newer).isAtLeast(0)
+    assertThat(newer).isLessThan(doc.indexOf("### Staying on Kotlin/Native $current\n"))
+    assertThat(doc).contains("as those of $DEV do.")
+    assertThat(upgrade.planNative(DEV, listOf(current, nativeDefault))).isEmpty()
+  }
+
+  @Test
+  fun `given a default without a native Build Tools API when upgraded then nothing is read`() {
+    val before = checkout.snapshot()
+
+    for (version in listOf(current, "2.5.10", "2.5.20-dev-4985")) {
+      assertThat(
+        assertThrows(UpgradeException::class.java) {
+          UpgradeKotlin.run(UpgradeKotlin.Options(nativeVersion = version), upgrade) {}
+        },
+      ).hasMessageThat().contains("Kotlin/Native $version has no Build Tools API")
+    }
+
+    assertThat(source.requests).isEmpty()
+    assertThat(checkout.snapshot()).isEqualTo(before)
+  }
+
+  @Test
+  fun `given a newer Kotlin Native when the release train is upgraded then Kotlin Native stays`() {
+    source.fakeNativeRelease(DEV, base = current)
+    upgrade.write(upgrade.planNative(DEV))
+    val native = checkout.read(Upgrade.NATIVE)
+    val testdata = checkout.read(Upgrade.KONAN_TESTDATA)
+    source.fakeRelease("9.1.10", base = current)
+    val log = mutableListOf<String>()
+
+    val changes = Upgrade(checkout.root, source, log = { log += it }).plan("9.1.10")
+
+    assertThat(changes.keys).containsNoneOf(Upgrade.NATIVE, Upgrade.KONAN_TESTDATA)
+    assertThat(changes.keys).containsAtLeast(Upgrade.VERSIONS, Upgrade.KMP_DOC)
+    assertThat(log).containsExactly(
+      "Kotlin/Native stays on $DEV, which is newer than 9.1.10: " +
+        "scripts/upgrade_kotlin.sh upgrade-native moves it",
+    )
+    upgrade.write(changes)
+    assertThat(checkout.read(Upgrade.NATIVE)).isEqualTo(native)
+    assertThat(checkout.read(Upgrade.KONAN_TESTDATA)).isEqualTo(testdata)
+    val doc = checkout.read(Upgrade.KMP_DOC)
+    assertThat(doc).contains("### Staying on Kotlin/Native $current\n")
+    assertThat(doc).contains("### Staying on Kotlin $current\n")
+    assertThat(doc)
+      .contains("rules_kotlin pins the Kotlin/Native distributions and\nthe LLVM of $current.")
+  }
+
+  @Test
+  fun `given a Beta of the Kotlin Native release when the train is upgraded then it moves`() {
+    source.fakeNativeRelease(DEV, base = current)
+    upgrade.write(upgrade.planNative(DEV))
+    // A Beta is newer than the dev builds of its release.
+    source.fakeRelease("9.1.20-Beta1", base = current)
+
+    upgrade.write(upgrade.plan("9.1.20-Beta1"))
+
+    val native = checkout.read(Upgrade.NATIVE)
+    assertThat(Rewrites.nativeVersion(native)).isEqualTo("9.1.20-Beta1")
+    assertThat(Rewrites.nativePrebuilt(native).keys).containsExactly(current, "9.1.20-Beta1")
+    assertThat(Rewrites.nativeBtapi(native).keys).containsExactly("9.1.20-Beta1")
+    // Kotlin/Native follows the release train again: the sections of the train cover the kept ones.
+    val doc = checkout.read(Upgrade.KMP_DOC)
+    assertThat(doc).doesNotContain("### Staying on Kotlin/Native")
+    assertThat(doc).contains("### Staying on Kotlin $current\n")
+    assertThat(upgrade.plan("9.1.20-Beta1", listOf(current))).isEmpty()
   }
 
   @Test
@@ -49,9 +163,12 @@ class UpgradeTest {
     assertThat(Rewrites.currentPins(versions))
       .isEqualTo(release.copy(nativePrebuiltSha256 = emptyMap()))
     val native = checkout.read(Upgrade.NATIVE)
+    assertThat(Rewrites.nativeVersion(native)).isEqualTo("9.1.0")
     assertThat(Rewrites.nativePrebuilt(native).keys).containsExactly(current, "9.1.0")
     assertThat(Rewrites.nativePrebuilt(native)["9.1.0"]).isEqualTo(release.nativePrebuiltSha256)
     assertThat(Rewrites.nativeLlvm(native).keys).containsExactly(current, "9.1.0")
+    assertThat(Rewrites.nativeBtapi(native))
+      .containsExactly("9.1.0", source.nativeReleases.getValue("9.1.0").btapiSha256)
     assertThat(checkout.read(Upgrade.KONAN_TESTDATA)).contains("    \"9.1.0\": {\n")
 
     val toolchains = checkout.read(Upgrade.TOOLCHAINS)
@@ -233,14 +350,31 @@ class UpgradeTest {
   @Test
   fun `given a kept release published with another checksum when upgraded then it fails`() {
     source.fakeRelease("9.5.0", base = current)
-    val release = source.releases.getValue(current)
-    val host = release.nativePrebuiltSha256.keys.first()
-    source.releases[current] =
-      release.copy(nativePrebuiltSha256 = release.nativePrebuiltSha256 + (host to "0".repeat(64)))
+    val release = source.nativeReleases.getValue(current)
+    val host = release.prebuiltSha256.keys.first()
+    source.nativeReleases[current] =
+      release.copy(prebuiltSha256 = release.prebuiltSha256 + (host to "0".repeat(64)))
 
     assertThat(assertThrows(UpgradeException::class.java) { upgrade.plan("9.5.0") })
       .hasMessageThat()
       .contains("KOTLIN_NATIVE_PREBUILT pins")
+    assertThat(assertThrows(UpgradeException::class.java) { upgrade.planNative("9.5.0") })
+      .hasMessageThat()
+      .contains("KOTLIN_NATIVE_PREBUILT pins")
+  }
+
+  @Test
+  fun `given a pinned Build Tools API published differently when upgraded then it fails`() {
+    source.fakeNativeRelease(DEV, base = current)
+    val release = source.nativeReleases.getValue(nativeDefault)
+    source.nativeReleases[nativeDefault] =
+      release.copy(btapiSha256 = release.btapiSha256!!.mapValues { "0".repeat(64) })
+
+    assertThat(
+      assertThrows(UpgradeException::class.java) {
+        upgrade.planNative(DEV, listOf(current, nativeDefault))
+      },
+    ).hasMessageThat().contains("KOTLIN_NATIVE_BTAPI pins")
   }
 
   @Test
@@ -318,6 +452,13 @@ class UpgradeTest {
     ).isTrue()
     assertThat(UpgradeKotlin.Options.parse(listOf("--emit-overrides", "2.4.21")).emitOverrides)
       .isEqualTo("2.4.21")
+    assertThat(
+      UpgradeKotlin.Options.parse(
+        listOf("--native-version", DEV, "--keep", "2.4.21", "--dry-run"),
+      ),
+    ).isEqualTo(
+      UpgradeKotlin.Options(nativeVersion = DEV, keep = listOf("2.4.21"), dryRun = true),
+    )
     for (
     args in listOf(
       emptyList(),
@@ -327,6 +468,9 @@ class UpgradeTest {
       listOf("--emit-overrides", "2.4.21", "--keep", "2.4.20"),
       listOf("--emit-toolchain", "2.4.21"),
       listOf("--version", "9.1.0", "--ksp-version", "2.3.14"),
+      listOf("--native-version"),
+      listOf("--native-version", DEV, "--version", "9.1.0"),
+      listOf("--native-version", DEV, "--emit-overrides", "2.4.21"),
     )
     ) {
       assertThrows(
@@ -335,6 +479,27 @@ class UpgradeTest {
       ) { UpgradeKotlin.Options.parse(args) }
     }
     assertThrows(UpgradeException::class.java) { upgrade.plan("latest") }
+    assertThrows(UpgradeException::class.java) { upgrade.planNative("2.5.20-dev-") }
+  }
+
+  @Test
+  fun `given a dry run when Kotlin Native alone is upgraded then nothing is written`() {
+    source.fakeNativeRelease(DEV, base = current)
+    val before = checkout.snapshot()
+    val log = mutableListOf<String>()
+
+    UpgradeKotlin.run(
+      UpgradeKotlin.Options(nativeVersion = DEV, dryRun = true),
+      upgrade,
+    ) { log += it }
+
+    assertThat(log)
+      .containsExactly(
+        "would change ${Upgrade.KMP_DOC}",
+        "would change ${Upgrade.NATIVE}",
+        "would change ${Upgrade.KONAN_TESTDATA}",
+      ).inOrder()
+    assertThat(checkout.snapshot()).isEqualTo(before)
   }
 
   @Test
@@ -424,6 +589,11 @@ class UpgradeTest {
     assertThat(checkout.snapshot()).isEqualTo(before)
     assertThat(checkout.temporaries()).isEmpty()
   }
+
+  private companion object {
+    /** A fake Kotlin/Native dev build, newer than the pins of the checkout. */
+    const val DEV = "9.1.20-dev-100"
+  }
 }
 
 /** A temporary copy of the files of this checkout the tool reads and writes. */
@@ -499,24 +669,41 @@ class TestCheckout {
 /** Release metadata in memory: the releases a checkout pins, and fake ones. */
 class FakeSource : ReleaseSource {
   val releases = mutableMapOf<String, KotlinRelease>()
+  val nativeReleases = mutableMapOf<String, NativeRelease>()
   val konan = mutableMapOf<String, Map<String, String>>()
   val dependencies = mutableMapOf<String, String>()
+
+  /** The releases whose metadata was read, in order. */
+  val requests = mutableListOf<String>()
 
   override fun release(
     version: String,
     hosts: Collection<String>,
-  ): KotlinRelease =
-    releases[version]
+  ): KotlinRelease {
+    requests += version
+    return releases[version]
       ?: throw UpgradeException(
         "release v$version has no asset ${KotlinRelease.compilerAsset(version)}",
       )
+  }
+
+  override fun nativeRelease(
+    version: String,
+    hosts: Collection<String>,
+  ): NativeRelease {
+    requests += version
+    return nativeReleases[version]
+      ?: throw UpgradeException(
+        "release v$version has no asset ${KotlinRelease.nativeAsset(version, hosts.first())}",
+      )
+  }
 
   override fun konanProperties(
     version: String,
     host: String,
     sha256: String,
   ): String {
-    check(releases.getValue(version).nativePrebuiltSha256[host] == sha256)
+    check(nativeReleases.getValue(version).prebuiltSha256[host] == sha256)
     return konan.getValue(version).getValue(host)
   }
 
@@ -525,7 +712,7 @@ class FakeSource : ReleaseSource {
 
   /**
    * Adds a release with fake checksums whose distributions are the ones of [base], with other user
-   * LLVMs if [newLlvm], edited by [edit] (exec host, text).
+   * LLVMs if [newLlvm], edited by [edit] (exec host, text); its Kotlin/Native release comes with it.
    */
   fun fakeRelease(
     version: String,
@@ -533,6 +720,34 @@ class FakeSource : ReleaseSource {
     newLlvm: Boolean = false,
     edit: (String, String) -> String = { _, text -> text },
   ): KotlinRelease {
+    val native = fakeNativeRelease(version, base, newLlvm, edit)
+    val release =
+      KotlinRelease(
+        version = version,
+        compilerSha256 = fake("$version/compiler"),
+        buildToolsApiSha256 = fake("$version/build_tools_api"),
+        btapiImplSha256 =
+          KotlinRelease.BTAPI_IMPL_ARTIFACTS.keys.associateWith {
+            fake(
+              "$version/$it",
+            )
+          },
+        nativePrebuiltSha256 = native.prebuiltSha256,
+      )
+    releases[version] = release
+    return release
+  }
+
+  /**
+   * Adds a Kotlin/Native release, such as a dev build, with fake checksums whose distributions are
+   * the ones of [base], as [fakeRelease] does; it has a Build Tools API from 2.5.20-dev-4986 on.
+   */
+  fun fakeNativeRelease(
+    version: String,
+    base: String,
+    newLlvm: Boolean = false,
+    edit: (String, String) -> String = { _, text -> text },
+  ): NativeRelease {
     val baseKonan = konan.getValue(base)
     val renames =
       if (!newLlvm) {
@@ -552,19 +767,17 @@ class FakeSource : ReleaseSource {
         edit(host, renames.entries.fold(text) { acc, (from, to) -> acc.replace(from, to) })
       }
     val release =
-      KotlinRelease(
+      NativeRelease(
         version = version,
-        compilerSha256 = fake("$version/compiler"),
-        buildToolsApiSha256 = fake("$version/build_tools_api"),
-        btapiImplSha256 =
-          KotlinRelease.BTAPI_IMPL_ARTIFACTS.keys.associateWith {
-            fake(
-              "$version/$it",
-            )
+        prebuiltSha256 = baseKonan.keys.associateWith { fake("$version/$it") },
+        btapiSha256 =
+          if (KotlinRelease.hasNativeBtapi(version)) {
+            KotlinRelease.NATIVE_BTAPI_ARTIFACTS.associateWith { fake("$version/$it") }
+          } else {
+            null
           },
-        nativePrebuiltSha256 = baseKonan.keys.associateWith { fake("$version/$it") },
       )
-    releases[version] = release
+    nativeReleases[version] = release
     return release
   }
 
@@ -573,14 +786,23 @@ class FakeSource : ReleaseSource {
 
     private fun fake(name: String) = Checksums.sha256(name.toByteArray())
 
-    /** The metadata of the releases [checkout] pins, as the checkout records it. */
+    /**
+     * The metadata of the releases [checkout] pins, as the checkout records it: the JVM releases
+     * of the current release, the documented ones and the pinned Kotlin/Native releases that are
+     * no dev builds, and the Kotlin/Native releases of the native tables, which move apart.
+     */
     fun of(checkout: TestCheckout): FakeSource {
       val source = FakeSource()
       val versions = checkout.read(Upgrade.VERSIONS)
       val native = checkout.read(Upgrade.NATIVE)
       val current = Rewrites.currentRelease(versions)
       val documented = documentedReleases(checkout.read(Upgrade.KMP_DOC))
-      for ((release, sha256) in Rewrites.nativePrebuilt(native)) {
+      val prebuilt = Rewrites.nativePrebuilt(native)
+      val btapi = Rewrites.nativeBtapi(native)
+      val jvmReleases =
+        (listOf(current) + documented.keys + prebuilt.keys.filterNot(KotlinRelease::isDev))
+          .distinct()
+      for (release in jvmReleases) {
         val jvm =
           when (release) {
             current -> {
@@ -599,7 +821,10 @@ class FakeSource : ReleaseSource {
                 )
             }
           }
-        source.releases[release] = jvm.copy(nativePrebuiltSha256 = sha256)
+        source.releases[release] = jvm.copy(nativePrebuiltSha256 = prebuilt[release].orEmpty())
+      }
+      for ((release, sha256) in prebuilt) {
+        source.nativeReleases[release] = NativeRelease(release, sha256, btapi[release])
       }
       source.konan += konanTestdata(checkout.read(Upgrade.KONAN_TESTDATA))
       for (archive in Rewrites.nativeArchives(native).values) {

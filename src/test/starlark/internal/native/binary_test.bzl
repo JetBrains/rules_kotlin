@@ -10,6 +10,7 @@ load("//kotlin:native.bzl", "kt_native_binary", "kt_native_library", "kt_native_
 load(
     ":common.bzl",
     "AIRPLANE_MODE",
+    "BTAPI_RUNTIME",
     "DEPS",
     "DEP_NAMES",
     "HEADER_KLIBS_ATTRS",
@@ -20,6 +21,7 @@ load(
     "compile_klib_of",
     "for_target",
     "launcher_arguments",
+    "launcher_values",
     "libraries",
     "not_on_windows",
     "prefixed",
@@ -45,13 +47,18 @@ def _link_test_impl(ctx):
     asserts.equals(env, [main_klib], compile.outputs.to_list())
     asserts.equals(env, PACKAGE + "/_kt_native/hello_linux_arm64.klib", main_klib.short_path)
     asserts.false(env, "--staged-deps" in launcher_arguments(compile.argv), str(compile.argv))
+
+    # It is a klib compilation as any other: the launcher gets its output and sources, and compiles
+    # it with the Build Tools API implementation of the toolchain.
+    asserts.equals(env, [main_klib.path], launcher_values(compile.argv, "--klib-output"))
+    asserts.equals(env, [PACKAGE + "/testdata/main.kt"], launcher_values(compile.argv, "--source"))
+    asserts.equals(env, BTAPI_RUNTIME, launcher_values(compile.argv, "--btapi-classpath"))
     compile_tool = tool_arguments(compile.argv)
-    asserts.equals(env, "library", argument_after(compile_tool, "-produce"))
+    asserts.false(env, "-produce" in compile_tool, str(compile_tool))
+    asserts.false(env, "-o" in compile_tool, str(compile_tool))
     asserts.equals(env, "src_test_starlark_internal_native-hello_linux_arm64", argument_after(compile_tool, "-module-name"))
     asserts.equals(env, [compile_klib_of("link_greeter_linux_arm64.klib", header_klibs)], _basenames(libraries(compile_tool)))
     asserts.equals(env, [], prefixed(compile_tool, "-Xheader-klib-path="))
-    asserts.equals(env, main_klib.path, argument_after(compile_tool, "-o"))
-    asserts.equals(env, PACKAGE + "/testdata/main.kt", compile_tool[-1])
 
     link = single_action(env, "KotlinNativeLink")
     binary = link.outputs.to_list()[0]
@@ -74,7 +81,8 @@ def _link_test_impl(ctx):
     asserts.true(env, HOME + "/klib/platform/linux_arm64/posix/default/manifest" in inputs)
     asserts.false(env, HOME + "/klib/platform/macos_arm64/posix/default/manifest" in inputs)
 
-    # The launcher stages the dependency directories of the target into the konan data dir.
+    # The launcher stages the dependency directories of the target into the konan data dir. A link
+    # runs konanc, whatever the Build Tools API setting: the API has no link operation.
     argv = link.argv
     asserts.equals(env, "konan_launcher", argv[0].rpartition("/")[2])
     staged = []
@@ -94,6 +102,9 @@ def _link_test_impl(ctx):
         ] + staged,
         launcher_arguments(argv),
     )
+
+    for jar in BTAPI_RUNTIME:
+        asserts.false(env, jar in inputs, "%s should not be an input of the link" % jar)
 
     tool = tool_arguments(argv)
     asserts.equals(env, "program", argument_after(tool, "-produce"))

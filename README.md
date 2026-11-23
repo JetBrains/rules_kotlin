@@ -496,6 +496,13 @@ kt_multiplatform_library(
 `//shared` is then the JVM library for a JVM consumer, the Android library for an Android one and the
 klib of the konan target for the Kotlin/Native rules, e.g. the `kt_native_framework` an iOS app links.
 
+Kotlin/Native is pinned apart from the Kotlin compiler of the JVM toolchain, to a dev build of the next
+Kotlin release (`kotlin_native.version(...)` selects another release, e.g. `2.4.21`, which stays
+pinned). Its klibs compile through the Kotlin Build Tools API by default; the build setting
+`--@rules_kotlin//kotlin/settings:experimental_native_build_tools_api=false` compiles them with the
+konanc command line, as a release without a Kotlin/Native Build Tools API always does. See
+[docs/kmp.md](docs/kmp.md#the-kotlinnative-build-tools-api).
+
 * [docs/kmp.md](docs/kmp.md): the guide: setup, platforms, rules, from Gradle to Bazel, the Android
   and iOS apps, limitations.
 * [docs/kmp_dependencies.md](docs/kmp_dependencies.md): the Maven dependencies of multiplatform code,

@@ -3,7 +3,9 @@
 Fake toolchains over the trees of testdata/ stand in for the distribution and link bundle
 repositories of a linux_arm64 host building for linux_arm64 and ios_simulator_arm64, whose bundle
 stages them, and macos_arm64, whose bundle does not. A test transitions to the platform of a konan
-target and adds the fake toolchain of that target (see for_target).
+target and adds the fake toolchain of that target (see for_target). The two jars of
+testdata/btapi_runtime stand in for the Build Tools API runtime repository of the release, and
+fake_linux_arm64_without_btapi_toolchain is the linux_arm64 one of a release without a runtime.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
@@ -22,6 +24,12 @@ DEP_NAMES = ["gcc-fixture", "libffi-fixture", "llvm-fixture"]
 AIRPLANE_MODE = "-Xoverride-konan-properties=airplaneMode=true"
 NO_LIGHT_DEBUG = "-Xadd-light-debug=disable"
 
+# The jars of the fake Build Tools API runtime, in the order of the toolchain's btapi_classpath.
+BTAPI_RUNTIME = [
+    PACKAGE + "/testdata/btapi_runtime/kotlin-build-tools-impl.jar",
+    PACKAGE + "/testdata/btapi_runtime/kotlin-daemon-client.jar",
+]
+
 # The konan target of the exec host of the fake toolchains.
 FAKE_HOST = "linux_arm64"
 
@@ -36,6 +44,12 @@ def with_header_klibs(config_settings):
     """`config_settings` with the build setting experimental_native_header_klibs on."""
     settings = dict(config_settings)
     settings[str(Label("//kotlin/settings:experimental_native_header_klibs"))] = True
+    return settings
+
+def with_native_btapi(config_settings, enabled):
+    """`config_settings` with the build setting experimental_native_build_tools_api on or off."""
+    settings = dict(config_settings)
+    settings[str(Label("//kotlin/settings:experimental_native_build_tools_api"))] = enabled
     return settings
 
 # The attributes of a test whose rule runs with header klibs on (see with_header_klibs) or off.
@@ -66,6 +80,11 @@ def argument_after(argv, flag):
 def launcher_arguments(argv):
     """The arguments KonanLauncher takes itself: those between its executable and `--`."""
     return argv[1:argv.index("--")]
+
+def launcher_values(argv, flag):
+    """The values of every occurrence of a KonanLauncher flag, e.g. --source, in order."""
+    launcher = launcher_arguments(argv)
+    return [launcher[i + 1] for i in range(len(launcher)) if launcher[i] == flag]
 
 def tool_arguments(argv):
     """The arguments KonanLauncher passes to the tool: those after `--`."""
@@ -107,19 +126,32 @@ fake_klib = rule(
     provides = [KtKlibInfo],
 )
 
+def _define_fake_toolchain(name, target, btapi_runtime):
+    define_kt_native_toolchain(
+        name = name,
+        konan_target = target,
+        konan_host = FAKE_HOST,
+        konan_home = "//%s/testdata/konan_home:home" % PACKAGE,
+        konan = "//%s/testdata/konan_home:konan" % PACKAGE,
+        stdlib = "//%s/testdata/konan_home:stdlib" % PACKAGE,
+        platform_libs = "//%s/testdata/konan_home:platform_%s" % (PACKAGE, target),
+        konan_deps = "//%s/testdata/konan_deps:%s" % (PACKAGE, target),
+        btapi_runtime = btapi_runtime,
+        exec_compatible_with = [],
+        target_compatible_with = KONAN_TARGETS[target].constraints,
+    )
+
 # buildifier: disable=unnamed-macro
 def define_fake_toolchains():
-    """Declares fake_<target>_toolchain for ios_simulator_arm64, linux_arm64 and macos_arm64, over the trees of testdata/."""
+    """Declares fake_<target>_toolchain for ios_simulator_arm64, linux_arm64 and macos_arm64, over the trees of testdata/.
+
+    Also declares fake_linux_arm64_without_btapi_toolchain, of a release without a Build Tools API runtime.
+    """
+    native.filegroup(
+        name = "fake_btapi_runtime",
+        srcs = [path[len(PACKAGE) + 1:] for path in BTAPI_RUNTIME],
+    )
+    native.filegroup(name = "fake_empty_btapi_runtime")
     for target in ["ios_simulator_arm64", "linux_arm64", "macos_arm64"]:
-        define_kt_native_toolchain(
-            name = "fake_%s_toolchain" % target,
-            konan_target = target,
-            konan_host = FAKE_HOST,
-            konan_home = "//%s/testdata/konan_home:home" % PACKAGE,
-            konan = "//%s/testdata/konan_home:konan" % PACKAGE,
-            stdlib = "//%s/testdata/konan_home:stdlib" % PACKAGE,
-            platform_libs = "//%s/testdata/konan_home:platform_%s" % (PACKAGE, target),
-            konan_deps = "//%s/testdata/konan_deps:%s" % (PACKAGE, target),
-            exec_compatible_with = [],
-            target_compatible_with = KONAN_TARGETS[target].constraints,
-        )
+        _define_fake_toolchain("fake_%s_toolchain" % target, target, ":fake_btapi_runtime")
+    _define_fake_toolchain("fake_linux_arm64_without_btapi_toolchain", "linux_arm64", ":fake_empty_btapi_runtime")

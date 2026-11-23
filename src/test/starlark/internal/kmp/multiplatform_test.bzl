@@ -18,6 +18,7 @@ load("//kotlin/internal/kmp:multiplatform.bzl", "display_label", "konan_targets_
 load(
     "//src/test/starlark/internal/native:common.bzl",
     "for_target",
+    "launcher_values",
     "not_on_windows",
     "prefixed",
     "single_action",
@@ -63,9 +64,10 @@ def _native_test_impl(ctx):
     # The native library compiles, for the konan target, every fragment of a set of platforms
     # including it, most shared first, then its own leaf, and takes the other attributes of the
     # group of the target.
-    tool = tool_arguments(single_action(env, "KotlinNativeKlibCompile").argv)
+    argv = single_action(env, "KotlinNativeKlibCompile").argv
+    tool = tool_arguments(argv)
     _assert_fragments(env, tool, ctx.attr)
-    asserts.equals(env, ctx.attr.srcs, [_basename(path) for path in tool[tool.index("-o") + 2:]])
+    asserts.equals(env, ctx.attr.srcs, [_basename(path) for path in launcher_values(argv, "--source")])
     asserts.equals(env, ctx.attr.opt_in, "-opt-in=kotlin.ExperimentalStdlibApi" in tool, str(tool))
 
     return analysistest.end(env)

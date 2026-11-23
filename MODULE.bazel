@@ -88,10 +88,14 @@ bazel_dep(name = "apple_support", version = "2.5.2", repo_name = "build_bazel_ap
 kotlin_native = use_extension("//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
 use_repo(
     kotlin_native,
+    "com_github_jetbrains_kotlin_native_btapi",
     "com_github_jetbrains_kotlin_native_deps_linux_x86_64",
     "com_github_jetbrains_kotlin_native_deps_macos_aarch64",
     "com_github_jetbrains_kotlin_native_linux_x86_64",
     "com_github_jetbrains_kotlin_native_macos_aarch64",
+    # The Build Tools API the launcher of the Kotlin/Native actions bundles; a release ships the
+    # launcher jar only.
+    "kotlin_native_build_tools_api",
 )
 
 # One per (exec host, konan target), see define_kt_native_toolchains.

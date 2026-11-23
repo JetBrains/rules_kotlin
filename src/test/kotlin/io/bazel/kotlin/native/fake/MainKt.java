@@ -33,8 +33,9 @@ import org.jetbrains.kotlin.backend.konan.KonanCompilationException;
  *
  * <p>{@code daemonMain} writes a report of what it gets and sees to the file after {@code -o}: the
  * tool and its arguments, {@code konan.home}, the class loaders, and the dependencies staged in the
- * {@code -Xkonan-data-dir}. Then it throws a compilation error for {@code -fail} and a crash for
- * {@code -crash}.
+ * {@code -Xkonan-data-dir}. Then it prints the text of every {@code -Xfake-diagnostic=<text>} to
+ * {@code System.err}, as the compiler prints its diagnostics, and throws a compilation error for
+ * {@code -fail} and a crash for {@code -crash}.
  */
 public final class MainKt {
   private MainKt() {}
@@ -66,6 +67,9 @@ public final class MainKt {
     }
 
     for (String arg : args) {
+      if (arg.startsWith("-Xfake-diagnostic=")) {
+        System.err.println(arg.substring("-Xfake-diagnostic=".length()));
+      }
       if (arg.equals("-fail")) {
         throw new KonanCompilationException("Compilation finished with errors");
       }

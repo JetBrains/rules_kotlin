@@ -10,15 +10,19 @@ import java.util.concurrent.Executors
 
 /**
  * Upgrades the JVM compiler, the Build Tools API and Kotlin/Native of the rules_kotlin checkout at
- * [workspace]. Everything is fetched and validated before anything is written.
+ * [workspace], or Kotlin/Native alone. Everything is fetched and validated before anything is
+ * written; [log] reports what an upgrade leaves as it is.
  */
 class Upgrade(
   private val workspace: Path,
   private val source: ReleaseSource,
+  private val log: (String) -> Unit = {},
   private val replacer: FileReplacer = FileReplacer.ATOMIC,
 ) {
   /**
-   * The new content of each changed file, by workspace-relative path.
+   * The new content of each changed file, by workspace-relative path, for the release train of
+   * [version]: the JVM compiler, the Build Tools API, and Kotlin/Native unless rules_kotlin pins a
+   * newer one (see [planNative]), which stays as it is.
    *
    * @param keep the older releases that stay pinned for Kotlin/Native and in the docs; by default
    *   the current release.
@@ -31,8 +35,102 @@ class Upgrade(
     val current = Rewrites.currentRelease(files.versions)
     val releases = (listOf(version) + keep.ifEmpty { listOf(current) }).distinct()
     releases.forEach(::checkRelease)
+    val pinnedNative = Rewrites.nativeVersion(files.native)
+    val movesNative = Rewrites.VERSION_ORDER.compare(version, pinnedNative) >= 0
+    if (movesNative) checkNativeDefault(version)
 
     val konanHosts = Rewrites.konanHosts(files.targets)
+    val metadata = releases.associateWith { source.release(it, konanHosts.keys) }
+    val native =
+      if (movesNative) {
+        planNativeFiles(files, version, releases, konanHosts).files
+      } else {
+        log(
+          "Kotlin/Native stays on $pinnedNative, which is newer than $version: " +
+            "scripts/upgrade_kotlin.sh upgrade-native moves it",
+        )
+        emptyMap()
+      }
+    val nativePinned =
+      if (movesNative) releases.toSet() else Rewrites.nativePrebuilt(files.native).keys
+
+    val target = metadata.getValue(version)
+    val level = Rewrites.languageLevel(version)
+    val older = releases.filter { it != version }.sortedWith(Rewrites.VERSION_ORDER.reversed())
+    var doc =
+      Rewrites.rewriteDocRegion(
+        files.read(KMP_DOC),
+        older.joinToString("\n") {
+          docSection(version, metadata.getValue(it), it in nativePinned)
+        },
+      )
+    // Kotlin/Native follows the release train again: the sections above cover the kept releases.
+    if (movesNative) {
+      doc = Rewrites.rewriteDocRegion(doc, "", Rewrites.NATIVE_DOC_BEGIN, Rewrites.NATIVE_DOC_END)
+    }
+    val updated =
+      mapOf(
+        VERSIONS to Rewrites.rewriteVersions(files.versions, target),
+        TOOLCHAINS to Rewrites.rewriteToolchains(files.read(TOOLCHAINS), level),
+        KOTLINC_OPTIONS_TEST to
+          Rewrites.rewriteKotlincOptionsTest(files.read(KOTLINC_OPTIONS_TEST), level),
+        KMP_DOC to doc,
+      ) + native +
+        files.kotlinModules().associateWith {
+          Rewrites.rewriteKotlinArtifacts(files.read(it), version)
+        }
+    return updated.filter { (path, content) -> files.read(path) != content }
+  }
+
+  /**
+   * The new content of each changed file, by workspace-relative path, for Kotlin/Native [version]
+   * alone, a release or a dev build: the Kotlin/Native tables of native_compiler.bzl, the
+   * konan.properties excerpts of the tests, and the Kotlin/Native region of docs/kmp.md. [version]
+   * must have a Kotlin/Native Build Tools API, which is checked before anything is downloaded.
+   *
+   * @param keep the older Kotlin/Native releases that stay pinned and documented; by default the
+   *   current release of the JVM compiler.
+   */
+  fun planNative(
+    version: String,
+    keep: List<String> = emptyList(),
+  ): Map<String, String> {
+    val files = Checkout(workspace)
+    val releases =
+      (listOf(version) + keep.ifEmpty { listOf(Rewrites.currentRelease(files.versions)) })
+        .distinct()
+    releases.forEach(::checkRelease)
+    checkNativeDefault(version)
+
+    val plan = planNativeFiles(files, version, releases, Rewrites.konanHosts(files.targets))
+    val older = releases.filter { it != version }.sortedWith(Rewrites.VERSION_ORDER.reversed())
+    val doc =
+      Rewrites.rewriteDocRegion(
+        files.read(KMP_DOC),
+        older.joinToString("\n") { nativeDocSection(version, plan.releases.getValue(it)) },
+        Rewrites.NATIVE_DOC_BEGIN,
+        Rewrites.NATIVE_DOC_END,
+      )
+    return (plan.files + (KMP_DOC to doc)).filter { (path, content) -> files.read(path) != content }
+  }
+
+  /** The new Kotlin/Native files, and the metadata of [releases] they pin. */
+  private class NativePlan(
+    val files: Map<String, String>,
+    val releases: Map<String, NativeRelease>,
+  )
+
+  /**
+   * Pins exactly [releases] in the Kotlin/Native tables, [default] as KOTLIN_NATIVE_VERSION, after
+   * checking the published checksums against the pinned ones and the `konan.properties` of every
+   * distribution against KOTLIN_NATIVE_DEPS.
+   */
+  private fun planNativeFiles(
+    files: Checkout,
+    default: String,
+    releases: List<String>,
+    konanHosts: Map<String, String>,
+  ): NativePlan {
     val deps = Rewrites.nativeDeps(files.native)
     if (deps.keys != konanHosts.keys) {
       throw UpgradeException(
@@ -40,18 +138,27 @@ class Upgrade(
       )
     }
     val pinned = Rewrites.nativePrebuilt(files.native)
+    val pinnedBtapi = Rewrites.nativeBtapi(files.native)
     val archives = Rewrites.nativeArchives(files.native)
 
-    val metadata = releases.associateWith { source.release(it, konanHosts.keys) }
+    val metadata = releases.associateWith { source.nativeRelease(it, konanHosts.keys) }
     val problems = mutableListOf<String>()
     for ((release, data) in metadata) {
       for ((host, sha256) in pinned[release].orEmpty()) {
-        val published = data.nativePrebuiltSha256[host]
+        val published = data.prebuiltSha256[host]
         if (published != sha256) {
           problems += "KOTLIN_NATIVE_PREBUILT pins $sha256 for $release $host, " +
             "the release publishes $published"
         }
       }
+      pinnedBtapi[release]?.let {
+        if (it != data.btapiSha256) {
+          problems += "KOTLIN_NATIVE_BTAPI pins $it for $release, published: ${data.btapiSha256}"
+        }
+      }
+    }
+    if (metadata.getValue(default).btapiSha256 == null) {
+      problems += "Kotlin/Native $default publishes no Build Tools API"
     }
     fail(problems)
 
@@ -63,7 +170,7 @@ class Upgrade(
           .mapValues { (release, data) ->
             konanHosts.keys.associateWith { host ->
               CompletableFuture.supplyAsync({
-                source.konanProperties(release, host, data.nativePrebuiltSha256.getValue(host))
+                source.konanProperties(release, host, data.prebuiltSha256.getValue(host))
               }, pool)
             }
           }.mapValues { (_, hosts) -> hosts.mapValues { KonanProperties.parse(await(it.value)) } }
@@ -116,43 +223,32 @@ class Upgrade(
     }
     fail(problems)
 
-    val target = metadata.getValue(version)
-    val level = Rewrites.languageLevel(version)
     val excerptHosts =
       deps.entries.associate { (host, hostDeps) ->
         konanHosts.getValue(host) to hostDeps.targets.keys.toList()
       }
     val excerpts =
       properties.mapValues { (_, hosts) -> hosts.mapValues { it.value.excerpt(excerptHosts) } }
-    val older = releases.filter { it != version }.sortedWith(Rewrites.VERSION_ORDER.reversed())
-    val updated =
-      mapOf(
-        VERSIONS to Rewrites.rewriteVersions(files.versions, target),
-        NATIVE to
-          Rewrites.rewriteNative(
-            files.native,
-            metadata.mapValues { it.value.nativePrebuiltSha256 },
-            llvm,
-            newArchives,
-          ),
-        KONAN_TESTDATA to
-          Rewrites.rewriteKonanTestdata(
-            files.read(KONAN_TESTDATA),
-            excerpts,
-          ),
-        TOOLCHAINS to Rewrites.rewriteToolchains(files.read(TOOLCHAINS), level),
-        KOTLINC_OPTIONS_TEST to
-          Rewrites.rewriteKotlincOptionsTest(files.read(KOTLINC_OPTIONS_TEST), level),
-        KMP_DOC to
-          Rewrites.rewriteDocRegion(
-            files.read(KMP_DOC),
-            older.joinToString("\n") { docSection(version, metadata.getValue(it)) },
-          ),
-      ) +
-        files.kotlinModules().associateWith {
-          Rewrites.rewriteKotlinArtifacts(files.read(it), version)
-        }
-    return updated.filter { (path, content) -> files.read(path) != content }
+    val btapi =
+      metadata.entries
+        .mapNotNull { (release, data) -> data.btapiSha256?.let { release to it } }
+        .toMap()
+    return NativePlan(
+      files =
+        mapOf(
+          NATIVE to
+            Rewrites.rewriteNative(
+              files.native,
+              default,
+              metadata.mapValues { it.value.prebuiltSha256 },
+              llvm,
+              btapi,
+              newArchives,
+            ),
+          KONAN_TESTDATA to Rewrites.rewriteKonanTestdata(files.read(KONAN_TESTDATA), excerpts),
+        ),
+      releases = metadata,
+    )
   }
 
   /**
@@ -337,10 +433,19 @@ class Upgrade(
     private const val NATIVE_EXTENSION =
       "@rules_kotlin//src/main/starlark/core/repositories:native.bzl"
 
-    private val RELEASE = Regex("^\\d+\\.\\d+\\.\\d+(-[A-Za-z0-9.]+)?$")
-
     private fun checkRelease(version: String) {
-      if (!RELEASE.matches(version)) throw UpgradeException("$version is not a Kotlin release")
+      if (!Rewrites.isRelease(version)) throw UpgradeException("$version is not a Kotlin release")
+    }
+
+    /** The default Kotlin/Native release needs a Build Tools API: the launcher compiles with it. */
+    private fun checkNativeDefault(version: String) {
+      if (!KotlinRelease.hasNativeBtapi(version)) {
+        throw UpgradeException(
+          "Kotlin/Native $version has no Build Tools API, which rules_kotlin compiles klibs " +
+            "with: the default Kotlin/Native release must be ${KotlinRelease.FIRST_NATIVE_BTAPI} " +
+            "or newer; keep $version with --keep instead",
+        )
+      }
     }
 
     private fun <T> await(future: CompletableFuture<T>): T =
@@ -418,19 +523,27 @@ class Upgrade(
         """.trimMargin()
     }
 
+    /** @param nativePinned whether the Kotlin/Native tables pin [release]. */
     private fun docSection(
       current: String,
       release: KotlinRelease,
+      nativePinned: Boolean,
     ): String {
       val currentLevel = Rewrites.languageLevel(current)
       val level = Rewrites.languageLevel(release.version)
+      val pins =
+        if (nativePinned) {
+          "rules_kotlin pins the Kotlin/Native distributions and\n|the LLVM of ${release.version}."
+        } else {
+          "rules_kotlin does not pin the Kotlin/Native\n|distributions of ${release.version}, " +
+            "whose checksums the snippet gives, nor its LLVM."
+        }
       return """
         |### Staying on Kotlin ${release.version}
         |
         |rules_kotlin defaults to Kotlin $current. A root module that stays on Kotlin
         |${release.version} selects it for the JVM compiler, the Build Tools API implementation and
-        |Kotlin/Native in its `MODULE.bazel`; rules_kotlin pins the Kotlin/Native distributions and
-        |the LLVM of ${release.version}.
+        |Kotlin/Native in its `MODULE.bazel`; $pins
         |
         |```starlark
         |${overridesSnippet(release).trimEnd('\n')}
@@ -443,6 +556,35 @@ class Upgrade(
         |The Build Tools API jar stays the one of $current: the worker of rules_kotlin is compiled
         |against it, and it runs implementations from three version lines back, so the
         |`btapi_impl` record above runs the compiler of ${release.version}.
+        |
+        """.trimMargin()
+    }
+
+    private fun nativeDocSection(
+      default: String,
+      release: NativeRelease,
+    ): String {
+      val v = release.version
+      val compilation =
+        if (release.btapiSha256 != null) {
+          "Its klibs compile with its Kotlin/Native Build Tools API, as those of $default do."
+        } else {
+          "It has no Kotlin/Native Build Tools API: its klibs compile with the konanc command\n" +
+            "|line, whatever `experimental_native_build_tools_api` says."
+        }
+      return """
+        |### Staying on Kotlin/Native $v
+        |
+        |rules_kotlin defaults to Kotlin/Native $default. A root module that stays on Kotlin/Native
+        |$v selects it in its `MODULE.bazel`; rules_kotlin pins the distributions and the LLVM of
+        |$v, so the tag needs no checksums.
+        |
+        |```starlark
+        |kotlin_native = use_extension("$NATIVE_EXTENSION", "kotlin_native")
+        |kotlin_native.version(version = "$v")
+        |```
+        |
+        |$compilation
         |
         """.trimMargin()
     }
