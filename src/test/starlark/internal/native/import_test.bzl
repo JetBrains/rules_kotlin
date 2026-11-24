@@ -34,10 +34,7 @@ def _provider_test_impl(ctx):
     info = target[KtKlibInfo]
     asserts.equals(env, _KLIB, info.klib.path)
     asserts.equals(env, [info.klib], target[DefaultInfo].files.to_list())
-    asserts.equals(env, "native", info.platform)
     asserts.equals(env, "linux_arm64", info.konan_target)
-    asserts.equals(env, "org.example:imported", info.module_name)
-    asserts.equals(env, None, info.cc_info)
 
     # Its export, which its consumers compile against as if they listed it, and the closure of its
     # deps and exports, which they compile against and link.
@@ -139,7 +136,6 @@ def native_import_test_suite(name):
         name = "imported_linux_arm64",
         klib = "testdata/imported.klib",
         konan_target = "linux_arm64",
-        module_name = "org.example:imported",
         tags = ["manual"],
         exports = [":imported_export_linux_arm64"],
         deps = [":imported_cinterop_linux_arm64"],

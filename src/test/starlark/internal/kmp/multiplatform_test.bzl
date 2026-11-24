@@ -14,7 +14,7 @@ load("//kotlin:native.bzl", "KtKlibInfo")
 load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo", "KtFragmentsGraphInfo", "kt_kmp_fragments_graph")
 
 # buildifier: disable=bzl-visibility
-load("//kotlin/internal/kmp:multiplatform.bzl", "display_label", "konan_targets_compatibility")
+load("//kotlin/internal/kmp:multiplatform.bzl", "alias_branches", "display_label", "konan_targets_compatibility")
 load(
     "//src/test/starlark/internal/native:common.bzl",
     "for_target",
@@ -26,7 +26,6 @@ load(
 )
 
 _PACKAGE = "src/test/starlark/internal/kmp"
-_NAMES = "src_test_starlark_internal_kmp-"
 _KOTLIN_PLATFORM_TYPE = str(Label("//kotlin/settings:kotlin_platform_type"))
 
 # The sources of the mpp fixture that several platforms list: every platform the common ones, and
@@ -85,7 +84,7 @@ def _alias_native_test_impl(ctx):
     target = analysistest.target_under_test(env)
     asserts.true(env, KtKlibInfo in target, "the alias should be the native library")
     asserts.false(env, JavaInfo in target, "the alias should not be the JVM library")
-    asserts.equals(env, _NAMES + "mpp_native", target[KtKlibInfo].module_name)
+    asserts.equals(env, "mpp_native.klib", target[KtKlibInfo].klib.basename)
 
     return analysistest.end(env)
 
@@ -96,7 +95,7 @@ def _alias_native_only_test_impl(ctx):
     # is, as for a library of the JVM alone, whatever asks: here nothing set the platform type native.
     target = analysistest.target_under_test(env)
     asserts.true(env, KtKlibInfo in target, "the alias should be the native library")
-    asserts.equals(env, _NAMES + "mpp_ios_only_native", target[KtKlibInfo].module_name)
+    asserts.equals(env, "mpp_ios_only_native.klib", target[KtKlibInfo].klib.basename)
 
     return analysistest.end(env)
 
@@ -257,6 +256,41 @@ def _konan_targets_compatibility_test(ctx):
 
     return unittest.end(env)
 
+def _alias_branches_test(ctx):
+    env = unittest.begin(ctx)
+
+    # Bazel convention: a dependency that does not build for a platform is incompatible with it, so
+    # its dependents are skipped. The alias is the native library for every Kotlin/Native consumer,
+    # also one of a konan target the library does not list, for which the native library is
+    # incompatible; it is never a JVM library, which no Kotlin/Native rule can depend on.
+    native = str(Label("//kotlin/native/platforms:native"))
+    android = str(Label("@platforms//os:android"))
+    asserts.equals(
+        env,
+        {android: ":lib_android", native: ":lib_native", "//conditions:default": ":lib_jvm"},
+        alias_branches("lib", {"android": ["android"], "common": [], "ios": [], "jvm": ["jvm"], "native": ["ios_arm64"]}),
+    )
+    asserts.equals(
+        env,
+        {native: ":lib_native", "//conditions:default": ":lib_jvm"},
+        alias_branches("lib", {"jvm": ["jvm"], "native": ["linux_x64"]}),
+    )
+
+    # A library of one kind of platform is that library by default: `bazel build` of the alias builds it.
+    asserts.equals(
+        env,
+        {native: ":lib_native", "//conditions:default": ":lib_native"},
+        alias_branches("lib", {"native": ["linux_x64"]}),
+    )
+    asserts.equals(
+        env,
+        {android: ":lib_android", "//conditions:default": ":lib_android"},
+        alias_branches("lib", {"android": ["android"]}),
+    )
+    asserts.equals(env, {"//conditions:default": ":lib_jvm"}, alias_branches("lib", {"jvm": ["jvm"]}))
+
+    return unittest.end(env)
+
 def _display_label_test(ctx):
     env = unittest.begin(ctx)
 
@@ -274,6 +308,7 @@ def _display_label_test(ctx):
     return unittest.end(env)
 
 konan_targets_compatibility_test = unittest.make(_konan_targets_compatibility_test)
+alias_branches_test = unittest.make(_alias_branches_test)
 display_label_test = unittest.make(_display_label_test)
 
 def multiplatform_test_suite(name):
@@ -805,6 +840,7 @@ leaf ios_simulator_arm64
     unittest.suite(
         "multiplatform_helpers",
         konan_targets_compatibility_test,
+        alias_branches_test,
         display_label_test,
     )
 

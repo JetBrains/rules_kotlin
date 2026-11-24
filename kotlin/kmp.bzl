@@ -5,7 +5,7 @@ Experimental:
   default hierarchy of Kotlin Multiplatform: a library per platform, compiling the sources it
   shares with other platforms as K2 fragments, so `expect` declarations and their `actual` ones
   are in one module, and an alias selecting the library of its consumer: the native one for a
-  Kotlin/Native rule (`@rules_kotlin//kotlin/native/platforms:native_<konan target>`), the Android
+  Kotlin/Native rule (`@rules_kotlin//kotlin/native/platforms:native`), the Android
   one for an Android platform and the JVM one otherwise. `platforms` lists the platforms, its
   `srcs`, `deps`, `exports` and `plugins` are those of every platform, and `srcs_ios`,
   `deps_apple` and the like those of a group or a platform, which each platform below it

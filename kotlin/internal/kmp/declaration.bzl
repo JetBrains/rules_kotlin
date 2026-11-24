@@ -98,17 +98,6 @@ def _untargeted_error(hierarchy, unsupported, node, subject, does, remove):
         return message + "none of them is supported yet, so remove %s" % remove
     return message + "add %s, or remove %s" % (_alternatives(supported), remove)
 
-def _native_group_error(hierarchy, group):
-    """The error of a group of konan targets in `native`, as the macro took them before `platforms`."""
-    message = ("native sets the group '%s': native takes the attributes of the native library; list its konan " +
-               "targets in platforms and pass ") % group
-    if group in hierarchy.lineage and group != hierarchy.root:
-        return message + _enumeration([_qualified(attr, group) for attr in QUALIFIED_ATTRS])
-    return message + "its lists as %s for a group or a platform <q>" % _enumeration([
-        _qualified(attr, "<q>")
-        for attr in QUALIFIED_ATTRS
-    ])
-
 def _settings_error(hierarchy, unsupported, targeted, node, attrs):
     """The error of the dict of attributes of the library of a node, or None."""
     library = _LIBRARY_NAMES[node]
@@ -119,10 +108,6 @@ def _settings_error(hierarchy, unsupported, targeted, node, attrs):
             return "%s sets %s: pass %s to the macro" % (node, key, _qualified(key, node))
         if key == _DERIVED_ATTR:
             return "%s sets %s, which the macro derives from the sources" % (node, key)
-        if node == "native" and type(attrs[key]) == "dict":
-            return _native_group_error(hierarchy, key)
-        if node == "native" and key == "targets":
-            return "native sets targets: list the konan targets in platforms"
     if attrs and node not in targeted:
         return _untargeted_error(
             hierarchy,

@@ -421,7 +421,6 @@ labels as it compares the `srcs` (`a.kt`, `:a.kt` and `//shared:a.kt` are one la
 | A label that a list above already lists             | `deps_ios lists :lib, which deps_apple already lists`, or `which the deps of the macro already list`                                                          |
 | Settings of a library that is not declared          | `android sets attributes of the Android library, but platforms does not list android`                                                                         |
 | An attribute the macro sets, in a settings dict     | `jvm sets srcs: pass srcs_jvm to the macro`; `native sets kmp_fragments, which the macro derives from the sources`                                            |
-| A group of `native`, as the macro took them before  | `native sets the group 'apple': native takes the attributes of the native library; list its konan targets in platforms and pass srcs_apple, deps_apple, exports_apple and plugins_apple` |
 | A dict of attributes for another node               | `ios: only jvm, android and native take a dict of attributes of their library`                                                                                |
 
 The macro cannot read the labels of a `select()` in the `deps`, `exports` or `plugins` of `jvm` or
@@ -503,7 +502,7 @@ platform `leaf`, the fragments it `refines`, the `platforms` compiling a fragmen
 | `shared_native`              | `kt_native_library`                 | When `platforms` lists konan targets: for the konan target of the build's platform, the fragments of that target and its leaf, against the lists of its lineage, with the attributes of `native`. It is incompatible with the other platforms.                |
 | `shared_srcs`                | `filegroup`                         | The sources of every platform.                                                                                                                                                                                                                                 |
 | `shared.fragments`           | `kt_kmp_fragments_graph` (internal) | An executable target (`bazel run //<pkg>:shared.fragments`) that prints the derived fragments, their `refines` edges, their platforms and their sources.                                                                                                       |
-| `shared`                     | `alias`                             | `shared_native` for a Kotlin/Native consumer building for one of its konan targets, `shared_android` on `@platforms//os:android`, and otherwise `shared_jvm` (or, without `jvm`, `shared_android`, then `shared_native`).                                      |
+| `shared`                     | `alias`                             | `shared_native` for a Kotlin/Native consumer, `shared_android` on `@platforms//os:android`, and otherwise `shared_jvm` (or, without `jvm`, `shared_android`, then `shared_native`).                                      |
 
 A consumer depends on the alias or on the library of a platform. The libraries get their fragments
 through an internal attribute, `kmp_fragments`, which only the macro sets.

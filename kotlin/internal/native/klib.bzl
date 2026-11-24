@@ -62,11 +62,9 @@ def native_module_name(ctx):
     return utils.derive_module_name(ctx)
 
 def _check_klib_deps(konan_target, deps):
-    """Fails unless every dep is a Kotlin/Native klib of `konan_target`."""
+    """Fails unless every dep is a klib of `konan_target`."""
     for dep in deps:
         info = dep[KtKlibInfo]
-        if info.platform != "native":
-            fail("dep %s is a %s klib, not a Kotlin/Native one" % (dep.label, info.platform))
         if info.konan_target != konan_target:
             fail("dep {dep} is for target {dt}, but this target is {t}".format(
                 dep = dep.label,
@@ -85,7 +83,7 @@ def collect_klib_deps(konan_target, deps):
 
     Args:
       konan_target: the konan target of the compilation.
-      deps: targets providing KtKlibInfo, which must be Kotlin/Native klibs of `konan_target`.
+      deps: targets providing KtKlibInfo, which must be klibs of `konan_target`.
 
     Returns:
       A depset of the klib Files.
@@ -102,7 +100,7 @@ def collect_compile_klib_deps(konan_target, deps):
 
     Args:
       konan_target: the konan target of the compilation.
-      deps: targets providing KtKlibInfo, which must be Kotlin/Native klibs of `konan_target`.
+      deps: targets providing KtKlibInfo, which must be klibs of `konan_target`.
 
     Returns:
       A depset of the klib Files.

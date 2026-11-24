@@ -40,16 +40,17 @@ The macro declares:
   incompatible with other platforms;
 - shared_srcs: a filegroup of the sources of every platform;
 - shared.fragments: an executable target printing the derived fragment graph;
-- shared: an alias of shared_native for a Kotlin/Native consumer building for one of the konan
-  targets, of shared_android for an Android platform, and otherwise of shared_jvm, or of the only
-  library declared.
+- shared: an alias of shared_native for a Kotlin/Native consumer, of shared_android for an Android
+  platform, and otherwise of shared_jvm, or of the only library declared.
 
-The alias selects on //kotlin/native/platforms:native_<konan target>, which only matches below the
-Kotlin/Native rules: they set //kotlin/settings:kotlin_platform_type to native for themselves and
-their deps. So on a macOS or Linux host, whose platform is also the one of a konan target, the alias
-is shared_jvm for a JVM consumer and shared_native for a native one. The lists of shared_native and
-its compatibility select on the platform only (`is_<konan target>`): it is the Kotlin/Native rule,
-which transitions itself.
+The alias selects on //kotlin/native/platforms:native, which only matches below the Kotlin/Native
+rules: they set //kotlin/settings:kotlin_platform_type to native for themselves and their deps. So
+on a macOS or Linux host, whose platform is also the one of a konan target, the alias is shared_jvm
+for a JVM consumer and shared_native for a native one. A Kotlin/Native consumer building for a konan
+target that `platforms` does not list gets shared_native too, which is incompatible with that
+target, and so is the consumer: a build of every target skips it. The lists of shared_native and its
+compatibility select on the platform only (`is_<konan target>`): it is the Kotlin/Native rule, which
+transitions itself.
 """
 
 load("//kotlin/internal/jvm:kt_android_library.bzl", "kt_android_library")
@@ -68,8 +69,8 @@ _DEFAULT = "//conditions:default"
 def _is_konan_target(konan_target):
     return str(Label("//kotlin/native/platforms:is_" + konan_target))
 
-def _native_konan_target(konan_target):
-    return str(Label("//kotlin/native/platforms:native_" + konan_target))
+# Matches the Kotlin/Native rules and their deps, whatever their konan target.
+_NATIVE = str(Label("//kotlin/native/platforms:native"))
 
 def konan_targets_compatibility(konan_targets):
     """The branches of the target_compatible_with of a target for some konan targets: it is compatible with their platforms alone.
@@ -87,6 +88,34 @@ def konan_targets_compatibility(konan_targets):
     compatible = {_is_konan_target(target): [] for target in konan_targets}
     compatible[_DEFAULT] = [str(Label("@platforms//:incompatible"))]
     return compatible
+
+def alias_branches(name, targeted):
+    """The branches of the alias of a library: the library of each kind of consumer.
+
+    A Kotlin/Native consumer gets the native library whatever its konan target: for a target the
+    library does not list, the native library is incompatible, and so is the consumer.
+
+    Args:
+      name: the name of the macro.
+      targeted: the nodes at or above the platforms of the library, as `parse_declaration` returns
+        them, e.g. `jvm` and `native`.
+
+    Returns:
+      The dict of a select(): `<name>_native` below the Kotlin/Native rules, `<name>_android` for an
+      Android platform, and by default `<name>_jvm`, or the library of the only node there is.
+    """
+    actual = {}
+    if "android" in targeted:
+        actual[str(Label("@platforms//os:android"))] = ":%s_android" % name
+    if "native" in targeted:
+        actual[_NATIVE] = ":%s_native" % name
+    if "jvm" in targeted:
+        actual[_DEFAULT] = ":%s_jvm" % name
+    elif "android" in targeted:
+        actual[_DEFAULT] = ":%s_android" % name
+    else:
+        actual[_DEFAULT] = ":%s_native" % name
+    return actual
 
 # The parameter `native` of the macro hides the module.
 def _filegroup(**kwargs):
@@ -315,19 +344,8 @@ def kt_multiplatform_library(
         **rule_attrs
     )
 
-    actual = {}
-    if "android" in declaration.targeted:
-        actual[str(Label("@platforms//os:android"))] = ":%s_android" % name
-    for target in konan_targets:
-        actual[_native_konan_target(target)] = ":%s_native" % name
-    if "jvm" in declaration.targeted:
-        actual[_DEFAULT] = ":%s_jvm" % name
-    elif "android" in declaration.targeted:
-        actual[_DEFAULT] = ":%s_android" % name
-    else:
-        actual[_DEFAULT] = ":%s_native" % name
     _alias(
         name = name,
-        actual = select(actual),
+        actual = select(alias_branches(name, declaration.targeted)),
         **rule_attrs
     )

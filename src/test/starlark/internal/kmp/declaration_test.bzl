@@ -291,23 +291,6 @@ def _declaration_errors_test(ctx):
             {"native": dict(kmp_fragments = [])},
             {},
         ),
-        (
-            "native sets the group 'apple': native takes the attributes of the native library; list its konan targets " +
-            "in platforms and pass srcs_apple, deps_apple, exports_apple and plugins_apple",
-            ["ios_arm64", "macos_arm64"],
-            {},
-            {"native": {"apple": dict(srcs = ["a.kt"], targets = ["ios_arm64", "macos_arm64"])}},
-            {},
-        ),
-        (
-            "native sets the group 'shared': native takes the attributes of the native library; list its konan targets " +
-            "in platforms and pass its lists as srcs_<q>, deps_<q>, exports_<q> and plugins_<q> for a group or a platform <q>",
-            ["linux_x64"],
-            {},
-            {"native": {"shared": dict(targets = ["linux_x64"])}},
-            {},
-        ),
-        ("native sets targets: list the konan targets in platforms", ["ios_arm64"], {}, {"native": dict(targets = ["ios_arm64"])}, {}),
     ]:
         asserts.equals(env, message, parse_declaration(platforms, common, settings, kwargs, normalize = _relative).error)
 

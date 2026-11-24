@@ -6,7 +6,7 @@ its own deps and exports and in its consumers. It builds with the Kotlin platfor
 the other Kotlin/Native rules (see transition.bzl).
 """
 
-load(":klib.bzl", "collect_compile_klib_deps", "collect_klib_deps", "native_module_name")
+load(":klib.bzl", "collect_compile_klib_deps", "collect_klib_deps")
 load(":providers.bzl", "KtKlibInfo")
 load(":targets.bzl", "KONAN_TARGETS")
 load(":transition.bzl", "TRANSITION_ATTRS", "kt_native_transition")
@@ -18,7 +18,6 @@ def _kt_klib_import_impl(ctx):
     return [
         DefaultInfo(files = depset([klib])),
         KtKlibInfo(
-            cc_info = None,
             compile_klib = klib,
             exported_klibs = depset(
                 [export.klib for export in exports],
@@ -26,8 +25,6 @@ def _kt_klib_import_impl(ctx):
             ),
             klib = klib,
             konan_target = konan_target,
-            module_name = native_module_name(ctx),
-            platform = "native",
             transitive_compile_klibs = depset(
                 [klib],
                 transitive = [collect_compile_klib_deps(konan_target, ctx.attr.deps + ctx.attr.exports)],
@@ -67,10 +64,6 @@ kt_klib_import = rule(
             doc = "The konan target of the klib, e.g. `linux_x64`.",
             mandatory = True,
             values = sorted(KONAN_TARGETS.keys()),
-        ),
-        "module_name": attr.string(
-            doc = """The module name of the klib, for information: konanc reads the unique_name of a klib from its manifest.
-            By default it is derived from the label, as for the other rules.""",
         ),
     }),
     cfg = kt_native_transition,

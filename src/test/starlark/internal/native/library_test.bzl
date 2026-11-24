@@ -140,10 +140,11 @@ def _provider_test_impl(ctx):
 
     info = analysistest.target_under_test(env)[KtKlibInfo]
     asserts.equals(env, "exporter_linux_arm64.klib", info.klib.basename)
-    asserts.equals(env, "native", info.platform)
     asserts.equals(env, "linux_arm64", info.konan_target)
-    asserts.equals(env, "exporter", info.module_name)
-    asserts.equals(env, None, info.cc_info)
+
+    # The module_name of the library is the unique_name konanc writes into the manifest of the klib.
+    tool = tool_arguments(single_action(env, "KotlinNativeKlibCompile").argv)
+    asserts.equals(env, "exporter", argument_after(tool, "-module-name"))
 
     # Its exports and theirs, which its dependents compile against as if they were their deps.
     asserts.equals(
@@ -272,13 +273,6 @@ def _klib_target_mismatch_test_impl(ctx):
     env = analysistest.begin(ctx)
 
     asserts.expect_failure(env, "is for target linux_x64, but this target is linux_arm64")
-
-    return analysistest.end(env)
-
-def _klib_platform_mismatch_test_impl(ctx):
-    env = analysistest.begin(ctx)
-
-    asserts.expect_failure(env, "is a js klib, not a Kotlin/Native one")
 
     return analysistest.end(env)
 
@@ -445,11 +439,6 @@ klib_target_mismatch_test = analysistest.make(
     config_settings = for_target("linux_arm64"),
     expect_failure = True,
 )
-klib_platform_mismatch_test = analysistest.make(
-    _klib_platform_mismatch_test_impl,
-    config_settings = for_target("linux_arm64"),
-    expect_failure = True,
-)
 fragments_test = analysistest.make(_fragments_test_impl, config_settings = for_target("linux_arm64"))
 empty_leaf_test = analysistest.make(_empty_leaf_test_impl, config_settings = for_target("linux_arm64"))
 file_in_two_fragments_test = analysistest.make(
@@ -588,17 +577,6 @@ def native_library_test_suite(name):
         srcs = ["testdata/greeter.kt"],
         tags = ["manual"],
         deps = [":fake_linux_x64_klib"],
-    )
-    fake_klib(
-        name = "fake_js_klib",
-        platform = "js",
-        tags = ["manual"],
-    )
-    kt_native_library(
-        name = "js_dep_linux_arm64",
-        srcs = ["testdata/greeter.kt"],
-        tags = ["manual"],
-        deps = [":fake_js_klib"],
     )
 
     # fragments_linux_arm64: frag_native refines frag_common, shared by more platforms including its
@@ -750,11 +728,6 @@ def native_library_test_suite(name):
         target_under_test = ":mismatched_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
-    klib_platform_mismatch_test(
-        name = "klib_platform_mismatch_test",
-        target_under_test = ":js_dep_linux_arm64",
-        target_compatible_with = not_on_windows(),
-    )
     fragments_test(
         name = "klib_fragments_test",
         target_under_test = ":fragments_linux_arm64",
@@ -790,7 +763,6 @@ def native_library_test_suite(name):
             ":klib_header_exports_test",
             ":klib_header_incompatible_dep_test",
             ":klib_header_provider_test",
-            ":klib_platform_mismatch_test",
             ":klib_plugins_test",
             ":klib_provider_test",
             ":klib_refine_mismatch_test",

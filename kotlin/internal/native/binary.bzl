@@ -5,7 +5,7 @@ deps (see link.bzl). The konan target is the one of the resolved toolchain (the 
 --platforms), and the executable runs on a host of that target, e.g. with `bazel run` on the host.
 """
 
-load(":link.bzl", "LINK_ATTRS", "link_native")
+load(":link.bzl", "EXECUTABLE_ATTRS", "LINK_ATTRS", "executable_runfiles", "link_native")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 load(":transition.bzl", "kt_native_transition")
 
@@ -21,15 +21,16 @@ def _kt_native_binary_impl(ctx):
         output = binary,
         progress_message = "Linking Kotlin/Native binary %{label} (" + tc.konan_target + ")",
     )
-    return [DefaultInfo(executable = binary, files = depset([binary]))]
+    return [DefaultInfo(executable = binary, files = depset([binary]), runfiles = executable_runfiles(ctx))]
 
 kt_native_binary = rule(
     doc = """Links a Kotlin/Native executable, `<name>.kexe`, for the konan target of the build's platform.
 
-    Experimental. The entry point, `main`, is in the srcs or in a dep. The link dependencies of the target
-    must be staged: see kotlin_native.targets(...).""",
+    Experimental. The entry point is the function `main` of the root package, in the srcs or in a dep; another
+    function is named in full with the konanc option `-e`: `link_opts = ["-e", "org.example.main"]`. The link
+    dependencies of the target must be staged: see kotlin_native.targets(...).""",
     implementation = _kt_native_binary_impl,
-    attrs = LINK_ATTRS,
+    attrs = dict(LINK_ATTRS, **EXECUTABLE_ATTRS),
     cfg = kt_native_transition,
     executable = True,
     toolchains = [KT_NATIVE_TOOLCHAIN_TYPE],

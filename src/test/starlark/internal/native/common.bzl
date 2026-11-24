@@ -104,24 +104,20 @@ def _fake_klib_impl(ctx):
     return [
         DefaultInfo(files = depset([klib])),
         KtKlibInfo(
-            cc_info = None,
             compile_klib = klib,
             exported_klibs = depset(),
             klib = klib,
-            konan_target = ctx.attr.konan_target or None,
-            module_name = ctx.label.name,
-            platform = ctx.attr.platform,
+            konan_target = ctx.attr.konan_target,
             transitive_compile_klibs = depset([klib]),
             transitive_klibs = depset([klib]),
         ),
     ]
 
 fake_klib = rule(
-    doc = "A klib that is not compiled: a stand-in for one of another konan target or platform.",
+    doc = "A klib that is not compiled: a stand-in for one of another konan target.",
     implementation = _fake_klib_impl,
     attrs = {
-        "konan_target": attr.string(),
-        "platform": attr.string(default = "native"),
+        "konan_target": attr.string(mandatory = True),
     },
     provides = [KtKlibInfo],
 )

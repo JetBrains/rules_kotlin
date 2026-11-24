@@ -200,10 +200,34 @@ def _test_link_test_impl(ctx):
 
     return analysistest.end(env)
 
-def _test_not_runnable_test_impl(ctx):
+def _test_for_another_target_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    asserts.expect_failure(env, "a kt_native_test for macos_arm64 does not run on the exec host, which runs linux_arm64 binaries")
+    # Bazel convention, as for cc_test: a test for a platform the exec host does not run still builds,
+    # so `bazel build //...` for that platform does. The fake toolchains run on a linux_arm64 host.
+    link = single_action(env, "KotlinNativeLink")
+    tool = tool_arguments(link.argv)
+    asserts.equals(env, "ios_simulator_arm64", argument_after(tool, "-target"))
+    asserts.true(env, "-generate-test-runner" in tool, str(tool))
+    binary = link.outputs.to_list()[0]
+    asserts.equals(env, binary, analysistest.target_under_test(env)[DefaultInfo].files_to_run.executable)
+
+    return analysistest.end(env)
+
+def _data_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # Bazel convention for executables: the data, and the runfiles of the data, are runfiles of the
+    # executable. They are no input of its compilation or of its link.
+    info = analysistest.target_under_test(env)[DefaultInfo]
+    runfiles = [f.short_path for f in info.default_runfiles.files.to_list()]
+    for path in [PACKAGE + "/testdata/greeter.kt", PACKAGE + "/testdata/FakePlugin.java"]:
+        asserts.true(env, path in runfiles, "%s should be in the runfiles %s" % (path, runfiles))
+    asserts.true(env, info.files_to_run.executable.short_path in runfiles, str(runfiles))
+    asserts.equals(env, [info.files_to_run.executable], info.files.to_list())
+    for mnemonic in ["KotlinNativeKlibCompile", "KotlinNativeLink"]:
+        inputs = [f.short_path for f in single_action(env, mnemonic).inputs.to_list()]
+        asserts.false(env, PACKAGE + "/testdata/FakePlugin.java" in inputs, "the data should not be an input of " + mnemonic)
 
     return analysistest.end(env)
 
@@ -233,11 +257,11 @@ test_link_header_klibs_test = analysistest.make(
     attrs = HEADER_KLIBS_ATTRS,
     config_settings = with_header_klibs(for_target("linux_arm64")),
 )
-test_not_runnable_test = analysistest.make(
-    _test_not_runnable_test_impl,
-    config_settings = for_target("macos_arm64"),
-    expect_failure = True,
+test_for_another_target_test = analysistest.make(
+    _test_for_another_target_test_impl,
+    config_settings = for_target("ios_simulator_arm64"),
 )
+data_test = analysistest.make(_data_test_impl, config_settings = for_target("linux_arm64"))
 test_without_srcs_test = analysistest.make(
     _test_without_srcs_test_impl,
     config_settings = for_target("linux_arm64"),
@@ -315,8 +339,28 @@ def native_binary_test_suite(name):
         tags = ["manual"],
     )
     kt_native_test(
-        name = "unrunnable_test_macos_arm64",
+        name = "test_ios_simulator_arm64",
         srcs = ["testdata/greeter.kt"],
+        tags = ["manual"],
+    )
+
+    # A binary and a test with data: a file, and a target with runfiles of its own.
+    native.filegroup(
+        name = "data_with_runfiles",
+        srcs = ["testdata/FakePlugin.java"],
+        data = ["testdata/greeter.kt"],
+        tags = ["manual"],
+    )
+    kt_native_binary(
+        name = "data_binary_linux_arm64",
+        srcs = ["testdata/main.kt"],
+        data = [":data_with_runfiles"],
+        tags = ["manual"],
+    )
+    kt_native_test(
+        name = "data_test_linux_arm64",
+        srcs = ["testdata/greeter.kt"],
+        data = [":data_with_runfiles"],
         tags = ["manual"],
     )
     kt_native_test(
@@ -366,10 +410,19 @@ def native_binary_test_suite(name):
         target_compatible_with = not_on_windows(),
     )
 
-    # The fake toolchains run on a linux_arm64 host.
-    test_not_runnable_test(
-        name = "test_not_runnable_test",
-        target_under_test = ":unrunnable_test_macos_arm64",
+    test_for_another_target_test(
+        name = "test_for_another_target_links_test",
+        target_under_test = ":test_ios_simulator_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+    data_test(
+        name = "binary_data_test",
+        target_under_test = ":data_binary_linux_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+    data_test(
+        name = "test_data_test",
+        target_under_test = ":data_test_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
     test_without_srcs_test(
@@ -381,13 +434,15 @@ def native_binary_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
+            ":binary_data_test",
             ":binary_options_test",
             ":binary_without_srcs_test",
             ":link_header_klibs_test",
             ":link_inputs_test",
             ":test_link_header_klibs_test",
+            ":test_data_test",
+            ":test_for_another_target_links_test",
             ":test_link_test",
-            ":test_not_runnable_test",
             ":test_without_srcs_fails_test",
             ":unstaged_link_fails_test",
         ],

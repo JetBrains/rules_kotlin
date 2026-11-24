@@ -47,7 +47,6 @@ def _kt_native_library_impl(ctx):
     return [
         DefaultInfo(files = depset([klib])),
         KtKlibInfo(
-            cc_info = None,
             compile_klib = compile_klib,
             exported_klibs = depset(
                 [export.klib for export in exports],
@@ -55,8 +54,6 @@ def _kt_native_library_impl(ctx):
             ),
             klib = klib,
             konan_target = tc.konan_target,
-            module_name = module_name,
-            platform = "native",
             transitive_compile_klibs = depset([compile_klib], transitive = [compile_klib_deps]),
             transitive_klibs = depset([klib], transitive = [klib_deps]),
         ),

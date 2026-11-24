@@ -4,21 +4,19 @@ The srcs compile into a private klib, and the link generates a test runner for i
 link.bzl). The runner exits with 1 when a test fails. It takes its own options, e.g.
 `--ktest_filter=<pattern>`, through `args` or `bazel test --test_arg=...`.
 
-The test runs where it is linked, on the exec host, so it must be for the konan target of the exec
-host: the build's platform is the host's, as by default.
+The test runs on the exec host, which runs the binaries of its own konan target: the build's
+platform is the host's, as by default. A test for another konan target links like a cc_test for
+another platform, so a build of every target for that platform builds it too, but it does not
+run on the host.
 """
 
-load(":link.bzl", "LINK_ATTRS", "link_native")
+load(":link.bzl", "EXECUTABLE_ATTRS", "LINK_ATTRS", "executable_runfiles", "link_native")
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 load(":transition.bzl", "kt_native_transition")
 
 def _kt_native_test_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
-    if tc.konan_target != tc.konan_host:
-        fail(("%s: a kt_native_test for %s does not run on the exec host, which runs %s binaries; " +
-              "build it for %s, or set target_compatible_with to skip it") %
-             (ctx.label, tc.konan_target, tc.konan_host, tc.konan_host))
     if not ctx.files.srcs:
         fail("%s: kt_native_test has no srcs; its test runner only runs the tests of its srcs" % ctx.label)
 
@@ -32,15 +30,18 @@ def _kt_native_test_impl(ctx):
         extra_args = ["-generate-test-runner"],
         progress_message = "Linking Kotlin/Native test %{label} (" + tc.konan_target + ")",
     )
-    return [DefaultInfo(executable = binary, files = depset([binary]))]
+    return [DefaultInfo(executable = binary, files = depset([binary]), runfiles = executable_runfiles(ctx))]
 
 kt_native_test = rule(
     doc = """Links the tests of the srcs into a Kotlin/Native test runner, `<name>.kexe`, which `bazel test` runs.
 
-    Experimental. The tests use kotlin.test, e.g. `@kotlin.test.Test`. The test is for the konan target of the
-    exec host, whose link dependencies must be staged: see kotlin_native.targets(...).""",
+    Experimental. The tests use kotlin.test, e.g. `@kotlin.test.Test`. The link dependencies of the target
+    must be staged: see kotlin_native.targets(...). `bazel test` runs the test on the exec host, so the test
+    is for the konan target of that host, as it is by default. For another konan target, e.g. with
+    `--platforms`, the test runner links but does not run on the host: set `target_compatible_with` on a
+    test to skip it for the platforms it does not run on.""",
     implementation = _kt_native_test_impl,
-    attrs = dict(LINK_ATTRS, **{
+    attrs = dict(LINK_ATTRS, **dict(EXECUTABLE_ATTRS, **{
         "associates": attr.label_list(
             doc = """kt_native_library targets whose internal declarations the srcs see. They are deps of the test
             too. The srcs compile against their header klibs when they write one (see the build setting
@@ -51,7 +52,7 @@ kt_native_test = rule(
             doc = "Kotlin sources with the tests.",
             allow_files = [".kt"],
         ),
-    }),
+    })),
     cfg = kt_native_transition,
     test = True,
     toolchains = [KT_NATIVE_TOOLCHAIN_TYPE],

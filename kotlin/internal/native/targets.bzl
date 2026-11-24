@@ -88,8 +88,8 @@ def define_konan_platforms():
       for the target, and their deps, which the rules transition to `native`.
 
     `native` matches the Kotlin/Native rules and their deps, whatever their target. An alias that
-    selects a klib for a Kotlin/Native consumer and a JVM library otherwise selects on
-    `native_<target>`.
+    selects a klib for a Kotlin/Native consumer and a JVM library otherwise selects on `native`, or
+    on `native_<target>` for the klib of one target.
     """
     native.config_setting(
         name = "native",

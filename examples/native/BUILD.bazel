@@ -53,11 +53,19 @@ HOST_KONAN_TARGET = select({
     "@rules_kotlin//kotlin/native/platforms:is_macos_arm64": ["macos_arm64"],
 })
 
+# A build for another platform, e.g. with --platforms, skips them.
+HOST_ONLY = select({
+    "@rules_kotlin//kotlin/native/platforms:is_linux_x64": [],
+    "@rules_kotlin//kotlin/native/platforms:is_macos_arm64": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
 sh_test(
     name = "greeter_klib_test",
     srcs = ["validate_klib.sh"],
     args = ["$(rootpath :greeter)"] + HOST_KONAN_TARGET + ["greeter"],
     data = [":greeter"],
+    target_compatible_with = HOST_ONLY,
 )
 
 sh_test(
@@ -68,6 +76,7 @@ sh_test(
         "greeter",
     ],
     data = [":app"],
+    target_compatible_with = HOST_ONLY,
 )
 
 sh_test(
@@ -78,6 +87,7 @@ sh_test(
         "app",
     ],
     data = [":top"],
+    target_compatible_with = HOST_ONLY,
 )
 
 sh_test(
@@ -85,6 +95,7 @@ sh_test(
     srcs = ["validate_klib.sh"],
     args = ["$(rootpath :util)"] + HOST_KONAN_TARGET + ["example_util"],
     data = [":util"],
+    target_compatible_with = HOST_ONLY,
 )
 
 # --- cross-target: the same klib for every konan target, whatever the host ---
@@ -185,6 +196,13 @@ sh_test(
     srcs = ["expect_test_failure.sh"],
     args = ["$(rootpath :failing_test)"],
     data = [":failing_test"],
+)
+
+# data_test reads greeting.txt, a file of its data, from its runfiles.
+kt_native_test(
+    name = "data_test",
+    srcs = ["DataTest.kt"],
+    data = ["greeting.txt"],
 )
 
 # --- cross-link: the same executable for each Linux target, a native or a cross link ---

@@ -15,7 +15,8 @@ targets of kotlin_native.targets(...), so the link action runs sandboxed with no
 targets also need the SDK of the local Xcode, which konanc finds with xcrun.
 
 The linking rules declare LINK_ATTRS, with the attribute of kt_native_transition, the transition of
-the Kotlin/Native rules to the Kotlin platform type native (see transition.bzl).
+the Kotlin/Native rules to the Kotlin platform type native (see transition.bzl). Those that link an
+executable also declare EXECUTABLE_ATTRS, whose `data` is in the runfiles of the executable.
 """
 
 load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
@@ -30,7 +31,8 @@ LINK_ATTRS = dict(TRANSITION_ATTRS, **{
         providers = [KtKlibInfo],
     ),
     "link_opts": attr.string_list(
-        doc = "More konanc options of the link, e.g. `-opt`. They follow the options of the rule.",
+        doc = """More konanc options of the link, e.g. `-opt`. They follow the options of the rule. An argument of the
+        linker itself is the value of the konanc option `-linker-option`: `["-linker-option", "-dead_strip"]`.""",
     ),
     "module_name": attr.string(
         doc = """The Kotlin module name of the srcs, the unique_name of the klib they compile into. By default it is derived
@@ -50,6 +52,28 @@ LINK_ATTRS = dict(TRANSITION_ATTRS, **{
         allow_files = [".kt"],
     ),
 })
+
+EXECUTABLE_ATTRS = {
+    "data": attr.label_list(
+        doc = """Files the executable reads when it runs, with their own runfiles. They are in its runfiles tree, where
+        `bazel run` and `bazel test` start it: a file of the main repository is at its path from the root of the
+        workspace, e.g. `testdata/input.txt`.""",
+        allow_files = True,
+    ),
+}
+
+def executable_runfiles(ctx):
+    """The runfiles of an executable of a rule with EXECUTABLE_ATTRS: its data, and the runfiles of its data.
+
+    Args:
+      ctx: the context of a rule with EXECUTABLE_ATTRS.
+
+    Returns:
+      The runfiles.
+    """
+    return ctx.runfiles(files = ctx.files.data).merge_all(
+        [data[DefaultInfo].default_runfiles for data in ctx.attr.data],
+    )
 
 def link_native(
         ctx,
