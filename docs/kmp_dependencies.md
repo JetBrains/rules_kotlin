@@ -153,8 +153,7 @@ or a `kt_jvm_library` without sources that exports the libraries it stands for, 
 of `@kmp_maven//:org_jetbrains_compose_runtime_runtime` on Android gets the AndroidX AARs, and the
 JVM jar of the JetBrains library otherwise. An `android_library` has no runtime-only dependencies,
 so the Android target exports every dependency of the variant; the `kt_jvm_library` keeps the
-runtime-only ones in its `runtime_deps`. It is a `kt_jvm_library` without sources, which forwards
-`JavaInfo` and `KtJvmInfo` without compiling anything. The `exports` of an `aar_import` can only be
+runtime-only ones in its `runtime_deps`. The `exports` of an `aar_import` can only be
 imports (`aar_import`, `java_import`, `kt_jvm_import`), so an `aar_import` exporting a redirect
 exports the imports the redirect stands for instead (following redirects to redirects), e.g. the
 Android target of Coil's `coil-compose-core` exports `androidx_compose_foundation_foundation.android`
@@ -175,20 +174,35 @@ the config_settings of `@rules_kotlin//kotlin/native/platforms`:
 | `native_<t>`   | The Kotlin/Native rules building for konan target `<t>`, and their deps.                                   |
 | `is_<t>`       | Any target built for the platform of `<t>`: the OS and CPU of a host of `<t>` included, JVM targets too.   |
 
-A dependency that differs per platform, written by hand, selects its klibs on `native_<t>` and its
-JVM library by default, as the aliases of `kmp_maven` and `kt_multiplatform_library` do:
+A dependency that differs per platform, written by hand, selects on `native` between its klibs and
+its other variants, and on `native_<t>` among its klibs, as the aliases of `kmp_maven` do:
 
 ```starlark
 alias(
     name = "sqlite",
     actual = select({
-        "@rules_kotlin//kotlin/native/platforms:native_linux_x64": ":sqlite_linux_x64",
-        "@rules_kotlin//kotlin/native/platforms:native_macos_arm64": ":sqlite_macos_arm64",
+        "@rules_kotlin//kotlin/native/platforms:native": ":sqlite_native",
         "@platforms//os:android": ":sqlite_android",
         "//conditions:default": ":sqlite_jvm",
     }),
 )
+
+alias(
+    name = "sqlite_native",
+    actual = select(
+        {
+            "@rules_kotlin//kotlin/native/platforms:native_linux_x64": ":sqlite_linux_x64",
+            "@rules_kotlin//kotlin/native/platforms:native_macos_arm64": ":sqlite_macos_arm64",
+        },
+        no_match_error = "sqlite has no klib for this konan target",
+    ),
+)
 ```
+
+A single `select()` with the `native_<t>` keys next to the default would give a Kotlin/Native
+consumer of another konan target the JVM library, which fails on its providers. The alias of a
+`kt_multiplatform_library` selects its native library on `native` for the same reason: that library
+builds for every konan target it lists and is incompatible with the others.
 
 `is_<t>` is no such key: a Linux x86_64 or macOS arm64 host platform matches `is_linux_x64` or
 `is_macos_arm64`, so a JVM target built for the host would get the klib.
@@ -224,9 +238,16 @@ the analysis, as for `kt_native_library`.
   repositories to the pin target, e.g.
   `bazel run @kmp_maven//pin -- --credential-helper=/path/to/helper` or
   `--repository-credentials-file=...`. Builds download with the credentials of `~/.netrc`.
-- The platform type follows the rule transition of the Kotlin/Native rules: the `data` of a
-  Kotlin/Native target and its exec tools, e.g. its compiler plugins, are built with `native` too,
-  and a rule that only changes the platform, like `platform_transition_filegroup`, keeps `jvm`:
+- The platform type follows the rule transition of the Kotlin/Native rules. The `data` of a
+  `kt_native_binary` or a `kt_native_test` is built with `native` too, so an alias in it resolves to
+  its klib. The tools of a Kotlin/Native target, its compiler plugins and KSP processors, are JVM
+  code and are built with `jvm`, so an alias among their deps resolves to its JVM library: the build
+  setting has the scope `target`, which the exec transition of Bazel 9 resets, and
+  `kt_compiler_plugin`, `kt_plugin_cfg` and `kt_ksp_plugin` set it to `jvm` themselves for Bazel 7
+  and 8, which ignore the scope. On those, the other tools of a Kotlin/Native target, the launcher
+  of its actions and the KSP command-line tool, build in an exec configuration that keeps `native`,
+  so they build a second time next to those of a JVM target.
+- A rule that only changes the platform, like `platform_transition_filegroup`, keeps `jvm`:
   transition a Kotlin/Native target, e.g. `//shared:shared_native`, rather than an alias.
 - The JVM variants depend on the `kotlin-stdlib` jar of the manifest (2.1.0 for
   `kotlinx-coroutines-core:1.10.2`) next to the standard library of the Kotlin toolchain, as with

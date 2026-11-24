@@ -195,7 +195,8 @@ _COMMON_ATTRS = {
         doc = "The module name KSP is given; by default the name of the target.",
     ),
     "processor_options": attr.string_dict(
-        doc = "More KSP options, as `ksp.arg` of Gradle, on top of those of the `processors`.",
+        doc = """More KSP options, as `ksp.arg` of Gradle, on top of those of the `processors`. A key or a value with
+        `:`, `=` or a line break fails the analysis: the KSP command line has no escape for them.""",
     ),
     "processors": attr.label_list(
         doc = "The KSP processors, as kt_ksp_plugin targets: their runtime classpath is the one KSP loads them from, and their options are passed on.",
@@ -235,7 +236,7 @@ _COMMON_ATTRS = {
 kt_jvm_ksp_sources = rule(
     doc = """Runs KSP2 (`KSPJvmMain`) over the sources of a JVM or Android platform and declares the Kotlin files it generates.
 
-    Experimental. See the documentation of kotlin/internal/kmp/ksp.bzl. Compiling the generated files: list the
+    Experimental. See "KSP for a multiplatform library" in docs/kmp.md. Compiling the generated files: list the
     target in the `srcs_jvm` or `srcs_android` of the kt_multiplatform_library, and in no other list, so they are
     the leaf fragment of that platform.""",
     implementation = _kt_jvm_ksp_sources_impl,
@@ -284,7 +285,7 @@ def _kt_native_ksp_sources_impl(ctx):
 kt_native_ksp_sources = rule(
     doc = """Runs KSP2 (`KSPNativeMain`) over the sources of a konan target and declares the Kotlin files it generates.
 
-    Experimental. See the documentation of kotlin/internal/kmp/ksp.bzl. The target is for the konan target of the
+    Experimental. See "KSP for a multiplatform library" in docs/kmp.md. The target is for the konan target of the
     build's platform, like kt_native_library: its `deps` are klibs of that target, which KSP resolves symbols
     against, with the standard library and platform libraries of the distribution. List it in the `srcs` of the
     kt_native_library of the platform, or in the srcs of the group or the platform of a kt_multiplatform_library

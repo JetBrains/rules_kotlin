@@ -102,7 +102,7 @@ kt_native_library = rule(
             cfg = "exec",
         ),
         "srcs": attr.label_list(
-            doc = "Kotlin sources.",
+            doc = "Kotlin sources. Without any, the library compiles an empty klib and passes its exports on.",
             allow_files = [".kt"],
         ),
     }),

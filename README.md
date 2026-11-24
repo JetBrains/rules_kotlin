@@ -463,13 +463,9 @@ On Linux x86_64 and macOS arm64 hosts, the Kotlin/Native rules of `@rules_kotlin
 build klibs, executables, test runners and static Apple frameworks for the konan target of the
 build's platform: `linux_x64`, `linux_arm64`, `macos_arm64`, `ios_arm64` or `ios_simulator_arm64`.
 `kt_multiplatform_library` (`@rules_kotlin//kotlin:kmp.bzl`) declares a Kotlin Multiplatform module
-as the Kotlin Gradle plugin does: a library per platform, which compiles the sources it shares with
-other platforms and its own in one module, the `expect` declarations of the shared code with the
-`actual` ones of the platform, behind one label. It follows the default hierarchy of Kotlin
-Multiplatform, as the Kotlin Toolchain does: `platforms` lists the platforms of the module, the
-macro's `srcs` and `deps` are those of every platform, those of a group or a platform are its own
-lists, e.g. `srcs_ios` or `deps_apple`, and the sources of each group are a K2 fragment of the
-compilations of its platforms. The rules are experimental and may change.
+along the default hierarchy of Kotlin Multiplatform: a library per platform, which compiles the
+sources it shares with other platforms and its own in one module, behind one label. The rules are
+experimental and may change.
 
 ```python
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
@@ -497,11 +493,8 @@ kt_multiplatform_library(
 klib of the konan target for the Kotlin/Native rules, e.g. the `kt_native_framework` an iOS app links.
 
 Kotlin/Native is pinned apart from the Kotlin compiler of the JVM toolchain, to a dev build of the next
-Kotlin release (`kotlin_native.version(...)` selects another release, e.g. `2.4.21`, which stays
-pinned). Its klibs compile through the Kotlin Build Tools API by default; the build setting
-`--@rules_kotlin//kotlin/settings:experimental_native_build_tools_api=false` compiles them with the
-konanc command line, as a release without a Kotlin/Native Build Tools API always does. See
-[docs/kmp.md](docs/kmp.md#the-kotlinnative-build-tools-api).
+Kotlin release, whose klibs compile through the Kotlin Build Tools API: see
+[docs/kmp.md](docs/kmp.md#status-and-prerequisites) for the release and how to select another.
 
 * [docs/kmp.md](docs/kmp.md): the guide: setup, platforms, rules, from Gradle to Bazel, the Android
   and iOS apps, limitations.

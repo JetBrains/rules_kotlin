@@ -147,7 +147,9 @@ Measured with Kotlin and Kotlin/Native 2.4.21.
   links.
 
 The integration test `//src/test/integration:compile_avoidance_test` checks the first two for an
-edit to a private body and for a public signature edit.
+edit to a private body and for a public signature edit, and
+`//src/test/integration:native_compilation_modes_test` builds and runs a program with header klibs
+on; both use the Kotlin/Native release rules_kotlin pins.
 
 ## Limitations
 

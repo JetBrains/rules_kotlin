@@ -17,6 +17,10 @@ integration with Android and iOS apps. The attributes of each rule are in the
   unaffected.
 - **Konan targets**: `linux_x64` and `linux_arm64` on both hosts; `macos_arm64`, `ios_arm64` and
   `ios_simulator_arm64` on macOS only.
+- **Other hosts and platforms**: no Kotlin/Native toolchain is registered for another exec host, or
+  for a platform of no konan target, e.g. the x86_64 iOS simulator (`ios_x64`). Built for such a
+  platform, a Kotlin/Native target fails the analysis with `No matching toolchains found` for
+  `//kotlin/internal/native:kt_native_toolchain_type`, unless its `target_compatible_with` skips it.
 - **Xcode**: the Apple targets need a macOS host with Xcode, whose SDK konanc finds with `xcrun`:
   Xcode 15.4 or newer for Kotlin/Native 2.5.20-dev-5696 (`minimalXcodeVersion` of its
   `konan.properties`).
@@ -25,7 +29,7 @@ integration with Android and iOS apps. The attributes of each rule are in the
   [The Kotlin/Native Build Tools API](#the-kotlinnative-build-tools-api)). It is pinned apart from the
   Kotlin compiler of the JVM toolchain, 2.4.21, as klibs are coupled to the Kotlin/Native compiler
   that produced them; `kotlin_native.version(version = "2.4.21")` stays on the release.
-- **Bazel**: the rules build with Bazel 7 and newer (`examples/native` runs with 7.x, 8.x and 9.3.1).
+- **Bazel**: the rules build with Bazel 7 and newer (`examples/native` runs with 7.x, 8.x and 9.x).
   `examples/kmp` and `examples/kmp_app` need Bazel 8.4.2 or newer, as they get the Android SDK (and
   `examples/kmp_app` the Android NDK) from `hermetic_android_toolchains`; `examples/kmp_app` also
   builds its iOS app with rules_apple 5.x, which dropped Bazel 7.
@@ -40,7 +44,7 @@ integration with Android and iOS apps. The attributes of each rule are in the
 ## The `kotlin_native` module extension
 
 rules_kotlin registers a Kotlin/Native toolchain per exec host and konan target. Their repositories
-come from the `kotlin_native` module extension, two per exec host and one for the release:
+come from the `kotlin_native` module extension, two per exec host and two for the release:
 
 - `com_github_jetbrains_kotlin_native_<host>`: the prebuilt distribution,
   `kotlin-native-prebuilt-<host>-<version>` from the GitHub releases of JetBrains/kotlin, or from the
@@ -55,6 +59,9 @@ come from the `kotlin_native` module extension, two per exec host and one for th
   implementation of the release, from Maven Central, or from the Kotlin dev Maven repository for a dev
   build; empty for a release without one (see
   [The Kotlin/Native Build Tools API](#the-kotlinnative-build-tools-api)).
+- `kotlin_native_build_tools_api`: the Build Tools API jar of the release rules_kotlin pins, which the
+  launcher of the Kotlin/Native actions is compiled against, whatever release the `version` tag
+  selects.
 
 A build fetches them when it builds a Kotlin/Native target, for its exec host only: JVM-only builds
 download nothing.
@@ -201,14 +208,14 @@ the build's platform, with the Kotlin platform type `native`, and their deps are
 | Rule                                                   | Output             | Purpose                                                                                                                                                                                                 |
 |--------------------------------------------------------|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | [`kt_native_library`](kotlin.md#kt_native_library)     | `<name>.klib`      | Compiles Kotlin sources into a klib. Its `exports` are klibs its dependents compile against too.                                                                                                        |
-| [`kt_native_binary`](kotlin.md#kt_native_binary)       | `<name>.kexe`      | Links an executable, which `bazel run` runs on a host of its target. Its `main` is in the `srcs` or in a dep.                                                                                            |
-| [`kt_native_test`](kotlin.md#kt_native_test)           | `<name>.kexe`      | Links the `kotlin.test` tests of its sources into a test runner, which `bazel test` runs, for the konan target of the exec host. Its `associates` are libraries whose internal declarations it sees; runner options, e.g. `--ktest_filter=<pattern>`, go in `args` or `--test_arg`. |
+| [`kt_native_binary`](kotlin.md#kt_native_binary)       | `<name>.kexe`      | Links an executable, which `bazel run` runs on a host of its target, with the files of its `data`. Its `main` is in the `srcs` or in a dep.                                                             |
+| [`kt_native_test`](kotlin.md#kt_native_test)           | `<name>.kexe`      | Links the `kotlin.test` tests of its sources into a test runner, which `bazel test` runs on a host of its konan target, with the files of its `data`. Its `associates` are libraries whose internal declarations it sees; runner options, e.g. `--ktest_filter=<pattern>`, go in `args` or `--test_arg`. |
 | [`kt_native_framework`](kotlin.md#kt_native_framework) | `<name>.framework` | Links a static Apple framework, named after the target like the prefix of its Objective-C names, whose header declares the API of its `srcs` and `exports` (and of their exports, unless `transitive_exports = False`). `bundle_id` is its `CFBundleIdentifier`. |
 | [`kt_klib_import`](kotlin.md#kt_klib_import)           | the `klib`         | A prebuilt klib of one `konan_target`, e.g. of a Maven library, as a dep.                                                                                                                               |
 
 The linking rules compile their sources, if any, into a private klib, `_kt_native/<name>.klib`, and
-link it with the klibs of their deps, as the Kotlin Gradle plugin does: `opts` are options of the
-compilation and `link_opts` options of the link, e.g. `-opt`. `kt_native_library` and the linking
+link it with the klibs of their deps, as the Kotlin Gradle plugin does: `opts` are konanc options of
+the compilation and `link_opts` konanc options of the link, e.g. `-opt`. `kt_native_library` and the linking
 rules also take Kotlin compiler `plugins` (`kt_compiler_plugin`), and `kt_native_library` compiles
 the sources a `kt_multiplatform_library` shares (see [`kt_multiplatform_library`](#kt_multiplatform_library)).
 [`KtKlibInfo`](kotlin.md#KtKlibInfo) is the provider of a klib.
@@ -234,10 +241,45 @@ kt_native_test(
 )
 ```
 
+### Options, data and inputs
+
+- **Entry point.** A `kt_native_binary` starts at the function `main` of the root package; without
+  one, the link fails with `Could not find '/main' function`. Another function is named in full
+  with the konanc option `-e`, the `settings.native.entryPoint` of the Kotlin Toolchain:
+  `link_opts = ["-e", "org.example.main"]`.
+- **Linker arguments.** `link_opts` are options of konanc, not of the linker it runs:
+  `link_opts = ["-dead_strip"]` fails with `Invalid argument`. An argument of the linker, one of the
+  `linkerOptions` of the Kotlin Toolchain, is the value of the konanc option `-linker-option`:
+  `link_opts = ["-linker-option", "-dead_strip"]`.
+- **Data.** `data` lists the files a `kt_native_binary` or a `kt_native_test` reads when it runs,
+  with their own runfiles. They are in its runfiles tree, where `bazel run` and `bazel test` start
+  it, a file of the main repository at its path from the root of the workspace: `data_test` of
+  `examples/native` opens `greeting.txt` with `fopen("greeting.txt", "r")`.
+- **Tests for another konan target.** `bazel test` runs a `kt_native_test` on the exec host, so for
+  the konan target of that host, `linux_x64` or `macos_arm64`, as by default. Built for another
+  target, e.g. with `--platforms`, the runner links, like a `cc_test` for another platform, but
+  nothing runs it: not the host, the iOS simulator or an emulator. `target_compatible_with` on a
+  test skips it for the platforms it does not run on.
+- **Staged link dependencies.** A binary, a test or a framework links for the targets of
+  `kotlin_native.targets(...)` only. A build of every target for another one, e.g.
+  `bazel build //... --platforms=@rules_kotlin//kotlin/native/platforms:linux_arm64`, fails on each
+  of them with `the Kotlin/Native link dependencies of linux_arm64 are not staged`: add the target
+  to the tag, or make them incompatible with that platform.
+- **Sources.** A `kt_native_library` without `srcs` compiles an empty klib and passes its `exports`
+  on, like a `kt_jvm_library` that only exports. A `kt_native_binary` needs `srcs` or `deps`, a
+  `kt_native_test` `srcs`, and a `kt_native_framework` `srcs` or `exports`: without them the
+  analysis fails with what to add.
+- **Module names.** `module_name`, derived from the label by default, is the `unique_name` of the
+  klib. No analysis check finds two klibs with one name among the deps of a target, e.g. two
+  imports of one library: konanc fails with `The same 'unique_name=<name>' found in more than one
+  library`, naming both files.
+
 ### Frameworks and the `framework_files` output group
 
 `kt_native_framework` links a static framework (`-Xstatic-framework`) for an Apple konan target, and
 fails for another one: its `target_compatible_with`, e.g. `["@platforms//os:ios"]`, skips it there.
+The framework, its module and the prefix of its Objective-C names are named after the target, so a
+name that starts with a digit fails the analysis.
 Its default output is the `<name>.framework` directory. The output group `framework_files` holds the
 four files of the framework, copied out of the directory into `_kt_native/<name>.framework/` when a
 build requests them:
@@ -250,15 +292,7 @@ build requests them:
 | `Info.plist`               | The property list of the bundle; for `macos_arm64`, the `Resources/Info.plist` of its versioned layout. |
 
 rules_apple's `apple_static_framework_import` imports a framework from its files, not from a
-directory, so a `filegroup` of the output group bridges the two:
-
-```starlark
-filegroup(
-    name = "Shared_files",
-    srcs = [":Shared"],
-    output_group = "framework_files",
-)
-```
+directory, so a `filegroup` of the output group bridges the two: see [The iOS app](#the-ios-app).
 
 The link always gets the whole closure of the `deps` and `exports`; what the header declares is the
 API of the `exports` (`-Xexport-library`). By default it includes their own exports too, as Bazel's
@@ -267,8 +301,6 @@ framework of the Kotlin Gradle plugin exports only the libraries its `export()` 
 `transitiveExport` is off by default). A module whose `api` dependencies are Compose or Ktor keeps
 them out of its Objective-C header that way: `kt_native_framework(name = "shared", exports =
 ["//app/shared"], transitive_exports = False)` declares the API of `app/shared` alone.
-
-[The iOS app](#the-ios-app) shows the rest.
 
 ## `kt_multiplatform_library`
 
@@ -363,8 +395,10 @@ or end with, a `select()`. Each platform receives, per attribute, the lists of i
 `common` and of the groups, an alias that selects the variant of the platform, such as those of
 `kmp_maven`, or another `kt_multiplatform_library`; in those of `jvm` and `android`, JVM libraries;
 in those below `native`, klibs of the konan target or aliases that select them. A JVM library alone
-fails the native library, which takes klibs only. `plugins` are `kt_compiler_plugin` targets, the
-only kind of plugin `kt_native_library` takes; KSP runs as a separate action instead: see
+fails the native library, which takes klibs only. When the JVM compiles no source of the module,
+`<name>_jvm` gets its deps as `runtime_deps`: a `kt_jvm_library` takes no `deps` without sources.
+`plugins` are `kt_compiler_plugin` targets, the only kind of plugin `kt_native_library` takes; KSP
+runs as a separate action instead: see
 [KSP for a multiplatform library](#ksp-for-a-multiplatform-library).
 
 `jvm`, `android` and `native` are dicts of the other attributes of `<name>_jvm`, `<name>_android` and
@@ -391,10 +425,14 @@ The declaration maps that of a module of the Kotlin Toolchain:
 |-----------------------------------------------|------------------------------------------------------|
 | `product.platforms: [jvm, android, iosArm64]` | `platforms = ["jvm", "android", "ios_arm64"]`        |
 | `src/`, `dependencies:`                       | `srcs`, `deps`, `exports`, `plugins`                 |
+| A dependency that is `exported`               | A label in `exports`                                 |
 | `src@ios/`, `dependencies@ios:`               | `srcs_ios`, `deps_ios`, `exports_ios`, `plugins_ios` |
 | `settings@android:`                           | `android = dict(...)`, likewise `jvm` and `native`   |
 | Lists appended from common to specific        | The same, per attribute                              |
 | `aliases:`                                    | Not provided                                         |
+| `test/`, `test@ios/`, `test-dependencies:`    | Not provided: a test target per platform (see [Tests, binaries and frameworks](#tests-binaries-and-frameworks)) |
+| `settings: kotlin: linkerOptions`             | `link_opts = ["-linker-option", ...]` of the rule that links |
+| `settings: native: entryPoint`                | `link_opts = ["-e", ...]` of `kt_native_binary`      |
 
 A Bazel keyword cannot hold `@`, so the qualifier follows `_`: `srcs@ios` is `srcs_ios`.
 
@@ -511,8 +549,11 @@ The alias tells a Kotlin/Native consumer from a JVM one by the Kotlin platform t
 `@rules_kotlin//kotlin/settings:kotlin_platform_type`: `jvm` by default, and `native` for the
 Kotlin/Native rules and their deps, which set it with a rule transition. So on a Linux x86_64 or
 macOS arm64 host, whose platform is also the one of a konan target, a `kt_jvm_test` gets `shared_jvm`
-and a `kt_native_framework` gets `shared_native`. The aliases of `@kmp_maven` select the same way,
-and so does a dependency written by hand: see
+and a `kt_native_framework` gets `shared_native`. A Kotlin/Native consumer building for a konan
+target that `platforms` does not list gets `shared_native` too, which is incompatible with that
+target, and so is the consumer: `bazel build //...` skips it, and a build that names it fails with
+the incompatibility. The aliases of `@kmp_maven` tell the consumers apart the same way, and so does
+a dependency written by hand: see
 [The Kotlin platform type](kmp_dependencies.md#the-kotlin-platform-type).
 
 A library compiles the sources of its fragments into its own jar or klib, so the aspects of other
@@ -542,6 +583,11 @@ kt_native_test(
     deps = ["//shared"],
 )
 ```
+
+There is no multiplatform test macro, the `test/` and `test@<platform>/` of a Kotlin Toolchain
+module: a test that several platforms should run is a test target per platform. A `kt_native_test`
+runs for the konan target of the exec host only (see
+[Options, data and inputs](#options-data-and-inputs)).
 
 ### KSP for a multiplatform library
 
@@ -616,8 +662,12 @@ which KSP processes after the others (see below), while the library of the platf
   by the aliases of `kmp_maven` below the Kotlin/Native transition, cinterop klibs included), the
   standard library and the platform libraries of the distribution; never JVM jars.
 - `processors` are `kt_ksp_plugin` targets, whose runtime classpath KSP loads the processors from, and
-  whose options (and `processor_options`) are passed on. The language and API versions, and the JVM
-  target, are those of the Kotlin toolchain unless set on the rule.
+  whose options (and `processor_options`) are passed on. The KSP command line separates options with
+  `:` and a key from its value with `=`, without an escape, so the analysis fails on an option whose
+  key or value has `:`, `=` or a line break, naming the option and where it comes from. The language
+  and API versions, and the JVM target, are those of the Kotlin toolchain unless set on the rule.
+- KSP runs in a JVM of the exec platform with a 2 GB heap (`-Xmx2g`), and its action uses the default
+  shell environment.
 
 This is a deliberate exception, not inline KSP: it is one KSP run per platform, which does not give the
 processors the sources other compiler plugins generate. The compiler plugin still does not work with
@@ -632,12 +682,13 @@ the libraries of a `kt_multiplatform_library`, and no generated `.srcjar` is sup
 | The `sourceSets` of the default hierarchy: `commonMain`, `iosMain`, `appleMain`, `nativeMain`, `jvmMain` | `srcs`, `srcs_ios`, `srcs_apple`, `srcs_native`, `srcs_jvm`, with a list per source set, e.g. `COMMON = glob(["src/commonMain/kotlin/**/*.kt"])`: the hierarchy makes the fragments and what they refine (see [Fragments](#fragments)) |
 | A source set outside the default hierarchy, e.g. `nonAndroidMain`, and its `dependsOn`               | A list in the srcs of each group or platform compiling it, e.g. `srcs_jvm` and `srcs_native`, which forms the fragment `jvm-native`                             |
 | `commonMain.dependencies { implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2") }` | `kmp_maven.install(artifacts = [...])` in `MODULE.bazel`, and `"@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"` in the `deps` of the macro; those of `iosMain.dependencies` in `deps_ios` |
-| `binaries.framework { baseName = "Shared"; isStatic = true }`                                        | `kt_native_framework(name = "Shared", exports = ["//shared"], transitive_exports = False)`; `export(...)` in the block is `transitive_exports = True` for the listed exports |
+| `binaries.framework { baseName = "Shared"; isStatic = true }`                                        | `kt_native_framework(name = "Shared", exports = ["//shared"], transitive_exports = False)`; a library of an `export(...)` in the block is one more label in `exports` |
 | The Xcode build phase that embeds the framework (`embedAndSignAppleFrameworkForXcode`)               | `filegroup(output_group = "framework_files")`, `apple_static_framework_import` and `ios_application`; or a build phase of the Xcode project that runs `bazel build` (see [The iOS app](#the-ios-app)) |
 | The `androidApp` module                                                                              | `kt_android_library` and `android_binary`, with `--android_platforms`                                                                                            |
 | The Android SDK of `local.properties` (`sdk.dir`) or `ANDROID_HOME`                                  | `android.sdk` and `android.ndk` of `hermetic_android_toolchains` in `MODULE.bazel`, their licenses accepted with `--repo_env` in `.bazelrc`                      |
 | `./gradlew :shared:jvmTest`                                                                          | A `kt_jvm_test` that depends on `//shared`                                                                                                                       |
-| `./gradlew :shared:iosSimulatorArm64Test`                                                            | No equivalent yet: `kt_native_test` runs for the konan target of the exec host only                                                                              |
+| `./gradlew :shared:macosArm64Test`, `:shared:linuxX64Test`                                           | A `kt_native_test` that depends on `//shared`, on a host of that konan target                                                                                    |
+| `./gradlew :shared:iosSimulatorArm64Test`                                                            | No equivalent yet: a `kt_native_test` built for `ios_simulator_arm64` links, but nothing runs it in the simulator                                                |
 
 ### Limitations of the fragments
 
@@ -682,46 +733,11 @@ Kotlin/Native rules, the Android variant on Android and the JVM jar otherwise. S
 
 An `android_binary` needs the Android SDK and, even without native code, the Android NDK: it
 resolves a C++ toolchain for the Android platform. `hermetic_android_toolchains` downloads both and
-registers their toolchains, so the host needs neither installed, as in the `MODULE.bazel` of
-`examples/kmp_app`:
-
-```starlark
-# MODULE.bazel
-bazel_dep(name = "rules_android", version = "0.8.0")
-bazel_dep(name = "hermetic_android_toolchains", version = "0.5.0", dev_dependency = True)
-bazel_dep(name = "rules_android_ndk", version = "0.1.5", dev_dependency = True)
-
-android = use_extension("@hermetic_android_toolchains//:extensions.bzl", "android", dev_dependency = True)
-android.sdk(
-    build_tools_version = "35.0.0",
-    version = "35",
-)
-android.ndk(version = "r29")
-use_repo(android, "androidndk", "androidsdk")
-
-# The @androidsdk of rules_android and the @androidndk of rules_android_ndk are the hermetic ones.
-android_sdk_repository_extension = use_extension(
-    "@rules_android//rules/android_sdk_repository:rule.bzl",
-    "android_sdk_repository_extension",
-    dev_dependency = True,
-)
-
-override_repo(android_sdk_repository_extension, "androidsdk")
-
-android_ndk_repository_extension = use_extension(
-    "@rules_android_ndk//:extension.bzl",
-    "android_ndk_repository_extension",
-    dev_dependency = True,
-)
-
-override_repo(android_ndk_repository_extension, "androidndk")
-
-register_toolchains(
-    "@androidndk//:all",
-    "@androidsdk//:all",
-    dev_dependency = True,
-)
-```
+registers their toolchains, so the host needs neither installed: the
+[`MODULE.bazel` of `examples/kmp_app`](../examples/kmp_app/MODULE.bazel) declares `android.sdk` and
+`android.ndk`, overrides the `@androidsdk` of rules_android and the `@androidndk` of
+rules_android_ndk with them, and registers `@androidsdk//:all` and `@androidndk//:all`, as
+`examples/android` does for the SDK.
 
 Once you have reviewed the licenses of the SDK and the NDK, accept them in `.bazelrc` for the
 versions the build downloads:
@@ -759,29 +775,9 @@ The label is canonical, `@@//` for the main repository: on Bazel 9, rules_androi
 `flag_alias` of its `MODULE.bazel`), which would read `//:android_arm64` as a label of the
 rules_android repository.
 
-```starlark
-# androidApp/BUILD.bazel
-load("@rules_android//android:rules.bzl", "android_binary")
-load("@rules_kotlin//kotlin:android.bzl", "kt_android_library")
-
-kt_android_library(
-    name = "lib",
-    srcs = glob(["src/main/kotlin/**/*.kt"]),
-    custom_package = "org.example.kmpapp.android",
-    manifest = "src/main/AndroidManifest.xml",
-    deps = [
-        "//shared",
-        "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core",
-    ],
-)
-
-android_binary(
-    name = "androidApp",
-    custom_package = "org.example.kmpapp.android",
-    manifest = "src/main/AndroidManifest.xml",
-    deps = [":lib"],
-)
-```
+The app itself is a `kt_android_library` whose `deps` list `//shared` and the aliases of
+`@kmp_maven`, and the `android_binary` of that library: see
+[`androidApp/BUILD.bazel`](../examples/kmp_app/androidApp/BUILD.bazel).
 
 `bazel build //androidApp` builds `bazel-bin/androidApp/androidApp.apk`, which
 `adb install bazel-bin/androidApp/androidApp.apk` installs on a device or an emulator.
@@ -889,14 +885,25 @@ the `<name>.framework` directory (the output directory of an iOS configuration i
 needs no embedding or signing. `-c opt` for the `Release` configuration gives the optimized link of
 the `releaseFramework` task.
 
+## Build settings and tags
+
+The build settings of `@rules_kotlin//kotlin/settings` for Kotlin/Native, set on the command line or
+in `.bazelrc` as `--@rules_kotlin//kotlin/settings:<name>=<value>`:
+
+| Build setting                         | Default | Effect                                                                                                                                                                                                                 |
+|---------------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `experimental_native_build_tools_api` | `true`  | klib compilations run through the Kotlin Build Tools API; `false` runs the konanc command line. See [The Kotlin/Native Build Tools API](#the-kotlinnative-build-tools-api).                                           |
+| `experimental_native_header_klibs`    | `false` | Each `kt_native_library` also writes a header klib, which the compilations of its dependents read instead of its klib. See [Kotlin/Native](../CompileAvoidance.md#kotlinnative) in the compilation avoidance docs.   |
+| `kotlin_platform_type`                | `jvm`   | Not for the command line: the Kotlin/Native rules set it to `native` for themselves and their deps, and aliases select on it. See [The Kotlin platform type](kmp_dependencies.md#the-kotlin-platform-type).           |
+
+The tag `kt_native_header_klib_incompatible` on a `kt_native_library` turns the header klib off for
+that library: its dependents compile against its klib.
+
 ## Limitations
 
-- Linux x86_64 and macOS arm64 exec hosts only: Windows is not supported. The konan targets are the
-  five above.
-- Kotlin/Native defaults to a dev build of the next Kotlin release, 2.5.20-dev-5696, whose klibs
-  compile through the experimental Kotlin/Native Build Tools API: see
-  [The Kotlin/Native Build Tools API](#the-kotlinnative-build-tools-api).
-  `kotlin_native.version(version = "2.4.21")` selects the release.
+- Linux x86_64 and macOS arm64 exec hosts only, and the five konan targets above: see
+  [Status and prerequisites](#status-and-prerequisites). `ios_x64` has its place in the hierarchy of
+  `kt_multiplatform_library`, but the macro rejects it in `platforms`.
 - No cinterop rule yet: the code cannot bind a C or Objective-C library of its own. The platform
   libraries of the distribution are available, and the cinterop klibs of a Maven library are imported
   with it.
@@ -904,8 +911,13 @@ the `releaseFramework` task.
   `android` and the konan targets, and `kmp_maven` leaves the `wasmjs` variants out.
 - Static frameworks only: no dynamic framework and no XCFramework. A framework is for one konan
   target, which the platform of the app selects.
-- `kt_native_test` runs for the konan target of the exec host only (`linux_x64` or `macos_arm64`):
-  not in the iOS simulator, nor through an emulator.
+- `bazel test` runs a `kt_native_test` for the konan target of the exec host only (`linux_x64` or
+  `macos_arm64`). For another target the test runner links, but nothing runs it: not the iOS
+  simulator, nor an emulator.
+- No multiplatform test macro: a test is a target per platform (see
+  [Tests, binaries and frameworks](#tests-binaries-and-frameworks)).
+- konanc, not the analysis, finds two klibs with the same `unique_name` among the deps of a target
+  (see [Options, data and inputs](#options-data-and-inputs)).
 - `bazel coverage` instruments the Kotlin code compiled for the JVM and Android, the sources of
   their fragments included; the Kotlin/Native rules do not instrument theirs. An `ios_application`
   does not link the profile runtime of instrumented Swift code, so `examples/kmp_app` leaves its
@@ -932,8 +944,16 @@ the `releaseFramework` task.
 
 | Example                                   | Shows                                                                                                                                                                                       | Hosts                                                                         |
 |-------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
-| [`examples/native`](../examples/native)   | klibs for the host and for every konan target, an executable run end to end, tests, Linux executables linked for both Linux targets, and a framework and its `framework_files` per Apple target. | Linux x86_64 and macOS arm64, the Apple targets on macOS only.             |
-| [`examples/kmp`](../examples/kmp)         | A `kt_multiplatform_library` for the JVM, Android, the Apple and the Linux targets, with its common sources and deps in the `srcs` and `deps` of the macro, those of the Apple and Linux targets in `srcs_apple` and `srcs_linux`, and Gradle's `nonAndroidMain` in `srcs_jvm` and `srcs_native`, the fragment `jvm-native` between `common` and the fragments `apple` and `linux`; JVM and native tests that depend on `//shared`, `kotlinx-coroutines-core` from `kmp_maven`, and kotlin-inject components generated by KSP for the JVM, Android and Apple sources. | Linux x86_64 and macOS arm64, the Apple klibs on macOS only; Bazel 8.4.2 or newer. |
+| [`examples/native`](../examples/native)   | klibs for the host and for every konan target, an executable run end to end, tests, one of them reading a file of its `data`, Linux executables linked for both Linux targets, and a framework and its `framework_files` per Apple target. | Linux x86_64 and macOS arm64, the Apple targets on macOS only.             |
+| [`examples/kmp`](../examples/kmp)         | A `kt_multiplatform_library` for the JVM, Android, the Apple and the Linux targets, with sources of the groups `apple` and `linux` and Gradle's `nonAndroidMain` as the fragment `jvm-native`; JVM and native tests that depend on `//shared`, `kotlinx-coroutines-core` from `kmp_maven`, and kotlin-inject components generated by KSP for the JVM, Android and Apple sources. | Linux x86_64 and macOS arm64, the Apple klibs on macOS only; Bazel 8.4.2 or newer. |
 | [`examples/kmp_app`](../examples/kmp_app) | An Android app and an iOS app that share one `kt_multiplatform_library`, laid out like the project of the Kotlin Multiplatform wizard.                                                      | macOS arm64 builds both apps, Linux x86_64 the Android app; Bazel 8.4.2 or newer. |
 
 Each builds and tests with `bazel build //...` and `bazel test //...` in its directory.
+
+`examples/native` also has two manual checks, which no Bazel test runs:
+
+- `./repro_check.sh` builds two copies of the example, in directories whose paths differ, and
+  compares their klibs, executables and frameworks byte for byte: the outputs do not depend on the
+  path of the checkout.
+- `./e2e_linux_docker.sh` runs the `linux_x64` `//:hello` in a container without a JRE; it needs
+  Docker.

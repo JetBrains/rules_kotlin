@@ -118,7 +118,7 @@ _version_tag = tag_class(
 _targets_tag = tag_class(
     doc = "The konan targets to stage link dependencies for; all of them by default. Only the " +
           "root module may declare it. klibs compile for every target regardless, but " +
-          "kt_native_binary only links for these.",
+          "kt_native_binary, kt_native_test and kt_native_framework only link for these.",
     attrs = {
         "targets": attr.string_list(
             mandatory = True,

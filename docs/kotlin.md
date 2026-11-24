@@ -837,7 +837,7 @@ off for the library. See CompileAvoidance.md.
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="kt_native_library-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
 | <a id="kt_native_library-deps"></a>deps |  The klibs the sources compile against, e.g. kt_native_library targets. They are for the same konan target.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_native_library-srcs"></a>srcs |  Kotlin sources.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_library-srcs"></a>srcs |  Kotlin sources. Without any, the library compiles an empty klib and passes its exports on.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_library-exports"></a>exports |  Klibs the sources compile against that the library also re-exports: its dependents compile against them as if they listed them in their own deps.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_library-kmp_fragments"></a>kmp_fragments |  The K2 fragments of a `kt_multiplatform_library` that the srcs refine: the sources of the groups above the konan target in its hierarchy, e.g. `common`, `native` and `apple`, and those it shares with other groups or platforms. `kt_multiplatform_library` sets it from the sources of each group and platform; it is not set by hand. The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one compilation (`-Xmulti-platform`), against the deps, so the `actual` declarations of the srcs implement the `expect` ones of the fragments; the srcs are the leaf fragment, named after the konan target. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_library-module_name"></a>module_name |  The Kotlin module name, which is the unique_name of the klib. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
@@ -932,7 +932,7 @@ kt_jvm_ksp_sources(<a href="#kt_jvm_ksp_sources-name">name</a>, <a href="#kt_jvm
 
 Runs KSP2 (`KSPJvmMain`) over the sources of a JVM or Android platform and declares the Kotlin files it generates.
 
-Experimental. See the documentation of kotlin/internal/kmp/ksp.bzl. Compiling the generated files: list the
+Experimental. See "KSP for a multiplatform library" in docs/kmp.md. Compiling the generated files: list the
 target in the `srcs_jvm` or `srcs_android` of the kt_multiplatform_library, and in no other list, so they are
 the leaf fragment of that platform.
 
@@ -951,7 +951,7 @@ the leaf fragment of that platform.
 | <a id="kt_jvm_ksp_sources-jvm_target"></a>jvm_target |  The `-jvm-target` of KSP; by default the one of the Kotlin toolchain.   | String | optional |  `""`  |
 | <a id="kt_jvm_ksp_sources-language_version"></a>language_version |  The `-language-version` of KSP; by default the one of the Kotlin toolchain.   | String | optional |  `""`  |
 | <a id="kt_jvm_ksp_sources-module_name"></a>module_name |  The module name KSP is given; by default the name of the target.   | String | optional |  `""`  |
-| <a id="kt_jvm_ksp_sources-processor_options"></a>processor_options |  More KSP options, as `ksp.arg` of Gradle, on top of those of the `processors`.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> String</a> | optional |  `{}`  |
+| <a id="kt_jvm_ksp_sources-processor_options"></a>processor_options |  More KSP options, as `ksp.arg` of Gradle, on top of those of the `processors`. A key or a value with `:`, `=` or a line break fails the analysis: the KSP command line has no escape for them.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> String</a> | optional |  `{}`  |
 | <a id="kt_jvm_ksp_sources-processors"></a>processors |  The KSP processors, as kt_ksp_plugin targets: their runtime classpath is the one KSP loads them from, and their options are passed on.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 
 
@@ -968,7 +968,7 @@ kt_native_ksp_sources(<a href="#kt_native_ksp_sources-name">name</a>, <a href="#
 
 Runs KSP2 (`KSPNativeMain`) over the sources of a konan target and declares the Kotlin files it generates.
 
-Experimental. See the documentation of kotlin/internal/kmp/ksp.bzl. The target is for the konan target of the
+Experimental. See "KSP for a multiplatform library" in docs/kmp.md. The target is for the konan target of the
 build's platform, like kt_native_library: its `deps` are klibs of that target, which KSP resolves symbols
 against, with the standard library and platform libraries of the distribution. List it in the `srcs` of the
 kt_native_library of the platform, or in the srcs of the group or the platform of a kt_multiplatform_library
@@ -987,7 +987,7 @@ whose konan targets compile them, e.g. its `srcs_apple` for the Apple targets.
 | <a id="kt_native_ksp_sources-generated"></a>generated |  The Kotlin files the processors generate, relative to the output root of KSP: the directory of the package and the file name, e.g. `com/example/InjectAppComponent.kt`. The files are outputs of the target, under a directory of its name, to list in the `srcs` of the platform library. The action fails on a file the processors write that is not listed, and on one listed that they do not write.   | List of strings | required |  |
 | <a id="kt_native_ksp_sources-language_version"></a>language_version |  The `-language-version` of KSP; by default the one of the Kotlin toolchain.   | String | optional |  `""`  |
 | <a id="kt_native_ksp_sources-module_name"></a>module_name |  The module name KSP is given; by default the name of the target.   | String | optional |  `""`  |
-| <a id="kt_native_ksp_sources-processor_options"></a>processor_options |  More KSP options, as `ksp.arg` of Gradle, on top of those of the `processors`.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> String</a> | optional |  `{}`  |
+| <a id="kt_native_ksp_sources-processor_options"></a>processor_options |  More KSP options, as `ksp.arg` of Gradle, on top of those of the `processors`. A key or a value with `:`, `=` or a line break fails the analysis: the KSP command line has no escape for them.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> String</a> | optional |  `{}`  |
 | <a id="kt_native_ksp_sources-processors"></a>processors |  The KSP processors, as kt_ksp_plugin targets: their runtime classpath is the one KSP loads them from, and their options are passed on.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 
 

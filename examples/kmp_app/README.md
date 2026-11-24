@@ -43,24 +43,15 @@ and rules_apple 5.x dropped Bazel 7. Windows has no Kotlin/Native toolchain.
 
 ## How it fits together
 
-- `MODULE.bazel` gets the Android SDK (35, build tools 35.0.0) and the NDK r29 from
-  `hermetic_android_toolchains` and registers their toolchains: `android_binary` needs the NDK's C++
-  toolchain for the Android platform even without native code. `.bazelrc` accepts their licenses with
-  `--repo_env=ACCEPTED_ANDROID_SDK_LICENSE_VERSION=35` and `--repo_env=ACCEPTED_ANDROID_NDK_LICENSE_VERSION=r29`.
-- `--android_platforms=@@//:android_arm64` (`.bazelrc`, the platform is in `BUILD.bazel`) makes
-  `android_binary` build its deps for Android, so `//shared` and the alias of kotlinx.coroutines
-  resolve to their Android variants. The label is canonical: on Bazel 9, rules_android makes
-  `--android_platforms` an alias of its own flag, which would read `//:android_arm64` in its repository.
-- `ios_application` builds its deps for the iOS platform of `--ios_multi_cpus`, and the framework
-  follows it: `sim_arm64`, the value of `.bazelrc`, links it for `ios_simulator_arm64`, and
-  `--ios_multi_cpus=arm64` for `ios_arm64`: a device build, which needs a provisioning profile.
-- The four targets between the framework and the app are
-  `target_compatible_with = ["@platforms//os:ios"]`: `bazel build //...` skips them in the host
-  configuration and builds them in the configuration of the app. The framework alone builds with
-  `bazel build //iosApp:Shared --platforms=@rules_kotlin//kotlin/native/platforms:ios_simulator_arm64`.
+- [The Android app](../../docs/kmp.md#the-android-app): the Android SDK and NDK of
+  `hermetic_android_toolchains` and their licenses, and `--android_platforms=@@//:android_arm64`,
+  which makes `//shared` and the alias of kotlinx.coroutines resolve to their Android variants.
+- [The iOS app](../../docs/kmp.md#the-ios-app): the framework follows the iOS platform of
+  `--ios_multi_cpus` (`sim_arm64` in `.bazelrc`; `arm64` is a device build, which needs a
+  provisioning profile), and the targets between it and the app are compatible with iOS only, so
+  `bazel build //...` skips them in the host configuration.
 - `kotlin_native.targets(...)` in `MODULE.bazel` stages the link dependencies of `ios_arm64` and
   `ios_simulator_arm64` only.
-- `kmp_manifest.json` pins kotlinx-coroutines-core 1.10.2 for every platform; it is the manifest of
-  `examples/kmp`. After changing `kmp_maven.install`, pin it again with `bazel run @kmp_maven//pin`
-  and commit it (see [Pinning the manifest](../../docs/kmp_dependencies.md#pinning-the-manifest)):
-  until then, the targets of `@kmp_maven` fail with that command.
+- `kmp_manifest.json` pins kotlinx-coroutines-core 1.10.2 for every platform. After changing
+  `kmp_maven.install`, pin it again with `bazel run @kmp_maven//pin` and commit it (see
+  [Pinning the manifest](../../docs/kmp_dependencies.md#pinning-the-manifest)).
