@@ -37,6 +37,7 @@ bzl_library(
     visibility = ["//kotlin:__subpackages__"],
     deps = [
         "//kotlin/internal/kmp",
+        "//kotlin/internal/native",
         "//src/main/starlark/core/pipeline",
         "//third_party:bzl",
         "@bazel_skylib//lib:sets",

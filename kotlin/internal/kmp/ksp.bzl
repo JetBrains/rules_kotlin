@@ -61,15 +61,31 @@ _ANDROID_SDK_TOOLCHAIN_TYPE = Label("@rules_android//toolchains/android_sdk:tool
 # The work directory of the action stands for a temporary directory the script creates.
 _WORK = "__KSP_WORK__"
 
+def _check_option(ctx, key, value, owner):
+    """Fails on an option the KSP command line cannot carry.
+
+    The tool splits `-processor-options` at every `:` and an option at every `=`, of which it keeps
+    the first two parts, with no escape: it would cut the value short, or read its rest as another
+    option. The params file of the action holds one argument per line.
+    """
+    for part, text in [("key", key), ("value", value)]:
+        for separator in [":", "=", "\n"]:
+            if separator in text:
+                fail(("%s: the KSP option '%s' of %s has %s in its %s: the KSP command-line tool separates options " +
+                      "with ':' and a key from its value with '=', without an escape; pass a key and a value " +
+                      "without ':', '=' and line breaks") % (ctx.label, key, owner, repr(separator), part))
+
 def _processors(ctx):
     classpath = depset(transitive = [processor[DefaultInfo].files for processor in ctx.attr.processors])
     options = {}
     for processor in ctx.attr.processors:
         for key, value in processor[KspPluginInfo].options.items():
+            _check_option(ctx, key, value, "the processor %s" % processor.label)
             if key in options and options[key] != value:
                 fail("%s: conflicting KSP option '%s' of the processors" % (ctx.label, key))
             options[key] = value
     for key, value in ctx.attr.processor_options.items():
+        _check_option(ctx, key, value, "processor_options")
         options[key] = value
     return struct(classpath = classpath, options = options)
 

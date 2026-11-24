@@ -346,6 +346,40 @@ class KonanLauncherTest {
   }
 
   @Test
+  fun deletesTheScratchDirectoriesWhenTheToolFails() {
+    // The scratch directories are beside the output of the action, in the output tree when it runs
+    // without a sandbox: a failed action leaves nothing there either.
+    val result = launch("-crash", stagedDeps = listOf("bundle/dependencies/llvm-fixture"))
+
+    assertThat(result.exitCode).isEqualTo(KonanLauncher.EXIT_INTERNAL_ERROR)
+    assertThat(Files.exists(execroot.resolve(DATA_DIR))).isFalse()
+    assertThat(Files.exists(execroot.resolve(AUTO_CACHE_DIR))).isFalse()
+    assertThat(Files.exists(execroot.resolve("bundle/dependencies/llvm-fixture/bin/marker")))
+      .isTrue()
+  }
+
+  @Test
+  fun keepsAPathWithSpacesInOneArgument() {
+    // A file name with spaces is a valid Bazel label: the path is one argument of the compiler, as
+    // a source and in the fragment flag that must name the same path.
+    val result =
+      compileKlib(
+        "-Xfragment-sources=common:src/my common.kt",
+        sources = listOf("src/my common.kt"),
+        klibCompiler = { _, _, _ -> throw AssertionError("not a Build Tools API compilation") },
+      )
+
+    assertThat(result.exitCode).isEqualTo(KonanLauncher.EXIT_OK)
+    assertThat(report().filter { it.startsWith("arg=") })
+      .containsAtLeast(
+        "arg=-Xfragment-sources=common:${execroot.resolve("src/my common.kt")}",
+        "arg=-o",
+        "arg=${execroot.resolve("report.txt")}",
+        "arg=${execroot.resolve("src/my common.kt")}",
+      ).inOrder()
+  }
+
+  @Test
   fun rejectsInvalidArguments() {
     val valid =
       listOf("--konan-home", "dist", "--data-dir", DATA_DIR, "--auto-cache-dir", AUTO_CACHE_DIR)

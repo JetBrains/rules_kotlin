@@ -25,6 +25,7 @@ load(
     _KtCompilerPluginInfo = "KtCompilerPluginInfo",
     _TOOLCHAIN_TYPE = "TOOLCHAIN_TYPE",
 )
+load("//kotlin/internal/native:transition.bzl", "TRANSITION_ATTRS", "kt_jvm_tool_transition")
 load("//src/main/starlark/core/plugin:common.bzl", "plugin_common")
 load("//third_party:jarjar.bzl", "jarjar_action")
 
@@ -273,7 +274,7 @@ kt_jvm_library(
 )
 ```
 """,
-    attrs = {
+    attrs = dict(TRANSITION_ATTRS, **{
         "compile_phase": attr.bool(
             doc = "Runs the compiler plugin during kotlin compilation. Known examples: `allopen`, `sam_with_reciever`",
             default = True,
@@ -331,7 +332,8 @@ Supports the following template values:
             default = Label("//kotlin/internal/jvm:kotlin-compiler-reshade.jarjar"),
             allow_single_file = True,
         ),
-    },
+    }),
+    cfg = kt_jvm_tool_transition,
     implementation = kt_compiler_plugin_impl,
     provides = [_KtCompilerPluginInfo],
     # Optional: the toolchain tells which compiler dialect runs the plugin. Without a resolved
@@ -364,7 +366,7 @@ kt_jvm_library(
 )
 ```
 """,
-    attrs = {
+    attrs = dict(TRANSITION_ATTRS, **{
         "deps": attr.label_list(
             doc = """The list of libraries to be added to the compiler's plugin classpath. The plugin classpath
             is the transitive runtime classpath of these libraries. A neverlink library therefore contributes
@@ -397,7 +399,8 @@ kt_jvm_library(
             default = Label("//kotlin/internal/jvm:kotlin-compiler-reshade.jarjar"),
             allow_single_file = True,
         ),
-    },
+    }),
+    cfg = kt_jvm_tool_transition,
     implementation = kt_ksp_plugin_impl,
     provides = [_KspPluginInfo],
 )
@@ -409,7 +412,7 @@ kt_plugin_cfg = rule(
 
     This allows setting options and dependencies independently from the initial plugin definition.
     """,
-    attrs = {
+    attrs = dict(TRANSITION_ATTRS, **{
         "data": attr.label_list(
             doc = """The files the plugin reads at compile time. An option value names one of them as
             `$(location <file>)`. The files and the runfiles of each listed target are inputs of the
@@ -435,5 +438,6 @@ kt_plugin_cfg = rule(
             providers = [_KtCompilerPluginInfo],
             mandatory = True,
         ),
-    },
+    }),
+    cfg = kt_jvm_tool_transition,
 )

@@ -11,6 +11,9 @@ load(":transition.bzl", "kt_native_transition")
 
 def _kt_native_binary_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
+    if not ctx.files.srcs and not ctx.attr.deps:
+        fail("%s: kt_native_binary has neither srcs nor deps, so nothing to link; add the srcs with `main`, or the dep with it" % ctx.label)
+
     binary = ctx.actions.declare_file(ctx.label.name + ".kexe")
     link_native(
         ctx,

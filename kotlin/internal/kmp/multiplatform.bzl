@@ -95,13 +95,6 @@ def _filegroup(**kwargs):
 def _alias(**kwargs):
     native.alias(**kwargs)
 
-def _as_written(label):
-    return str(label)
-
-def _strip_colon(label):
-    text = str(label)
-    return text[1:] if text.startswith(":") else text
-
 def display_label(label, pkg):
     """Formats a resolved Label relative to `pkg` (`:__pkg__` of the macro's package).
 
@@ -120,13 +113,7 @@ def display_label(label, pkg):
     return "//%s:%s" % (label.package, label.name)
 
 def _label_formatter():
-    """Returns `(normalize, label_of)` for source labels in the package of the macro.
-
-    Bazel versions without native.package_relative_label compare the labels as written and strip a
-    leading `:` for display.
-    """
-    if not hasattr(native, "package_relative_label"):
-        return _as_written, _strip_colon
+    """Returns `(normalize, label_of)` for source labels in the package of the macro."""
     pkg = native.package_relative_label(":__pkg__")
     displayed = {}
 
@@ -266,11 +253,17 @@ def kt_multiplatform_library(
         )
 
     if "jvm" in declaration.targeted:
+        jvm_attrs = dict(declaration.settings["jvm"], **_lineage_lists("jvm"))
+
+        # kt_jvm_library takes no deps without sources, which only a compilation reads: the library of
+        # a JVM that compiles no source keeps them for the runtime classpath of its dependents.
+        if not derived.leaf_srcs["jvm"] and not derived.leaf_refines["jvm"]:
+            jvm_attrs["runtime_deps"] = jvm_attrs.get("runtime_deps", []) + jvm_attrs.pop("deps")
         kt_jvm_library(
             name = name + "_jvm",
             srcs = derived.leaf_srcs["jvm"],
             kmp_fragments = _fragments("jvm"),
-            **dict(rule_attrs, **dict(declaration.settings["jvm"], **_lineage_lists("jvm")))
+            **dict(rule_attrs, **jvm_attrs)
         )
 
     if "android" in declaration.targeted:

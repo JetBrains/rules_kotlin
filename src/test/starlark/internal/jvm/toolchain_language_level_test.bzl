@@ -19,8 +19,13 @@ def _language_level_test_impl(ctx):
     asserts.equals(env, "2.4", toolchain_language_level("2.4.30", _PINNED))
     asserts.equals(env, "2.4", toolchain_language_level("2.4.30-RC", _PINNED))
 
+    # A development build compiles at the version it is a build of, also when the rules pin one.
+    asserts.equals(env, "2.4", toolchain_language_level("2.4.30-dev-1234", _PINNED))
+    asserts.equals(env, "2.5", toolchain_language_level("2.5.20-dev-4986", "2.5.20-dev-4986"))
+
     # A newer compiler, or one older than the toolchain allows, keeps the default of the rule.
     asserts.equals(env, None, toolchain_language_level("2.6.0", _PINNED))
+    asserts.equals(env, None, toolchain_language_level("2.5.20-dev-4986", _PINNED))
     asserts.equals(env, None, toolchain_language_level("3.0.0-Beta1", _PINNED))
     asserts.equals(env, None, toolchain_language_level("1.9.25", _PINNED))
     asserts.equals(env, None, toolchain_language_level("latest", _PINNED))

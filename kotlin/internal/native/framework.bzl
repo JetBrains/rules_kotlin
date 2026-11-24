@@ -84,6 +84,12 @@ def _kt_native_framework_impl(ctx):
     if not tc.is_apple:
         fail(("%s: kt_native_framework builds Apple frameworks, but this target is %s; " +
               "set target_compatible_with to skip it") % (ctx.label, tc.konan_target))
+    if ctx.label.name[0].isdigit():
+        fail(("%s: the Objective-C names of a framework start with the name of its target, and no Objective-C " +
+              "name starts with a digit; rename the target") % ctx.label)
+    if not ctx.files.srcs and not ctx.attr.exports:
+        fail(("%s: kt_native_framework has neither srcs nor exports, so no API for its header; " +
+              "add srcs, or list the libraries of its API in exports") % ctx.label)
 
     extra_args = ["-Xstatic-framework"]
     if ctx.attr.bundle_id:

@@ -66,6 +66,16 @@ def _native_test_impl(ctx):
     asserts.equals(env, ["Gen.kt"], [f.basename for f in action.outputs.to_list()])
     return analysistest.end(env)
 
+def _options_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    action = single_action(env, "KspJvm")
+
+    # Every option goes to every processor, as `ksp.arg` of Gradle and `processorOptions` of the Kotlin
+    # Toolchain: those of the processors, then the processor_options of the target, which win.
+    options = [arg for arg in action.argv if arg.startswith("-processor-options=")]
+    asserts.equals(env, ["-processor-options=mode=fast:name=target:verbose=true"], options)
+    return analysistest.end(env)
+
 def _failure_test(message):
     def _impl(ctx):
         env = analysistest.begin(ctx)
@@ -81,6 +91,13 @@ not_kotlin_test = _failure_test("must be a relative path of a .kt file")
 absolute_test = _failure_test("must be a relative path of a .kt file")
 parent_test = _failure_test("must be a relative path of a .kt file")
 duplicate_test = _failure_test("generated lists 'a/Gen.kt' twice")
+options_test = analysistest.make(_options_test_impl)
+
+# The KSP command line has no escape for its separators: an option it would cut short or split into two is
+# an error of the target, not an option the processors silently get wrong.
+option_colon_test = _failure_test("the KSP option 'schema' of processor_options has \":\" in its value")
+option_equals_test = _failure_test("the KSP option 'filter' of the processor")
+option_key_test = _failure_test("the KSP option 'a:b' of processor_options has \":\" in its key")
 
 def ksp_test_suite(name):
     """Declares KSP targets, and the tests of their outputs and libraries.
@@ -169,6 +186,59 @@ def ksp_test_suite(name):
             target_compatible_with = not_on_windows(),
         )
 
+    kt_ksp_plugin(
+        name = "ksp_processor_with_options",
+        options = {
+            "mode": "fast",
+            "name": "processor",
+        },
+        processor_class = "example.Provider",
+        tags = ["manual"],
+        deps = [":ksp_processor_lib"],
+    )
+    kt_jvm_ksp_sources(
+        name = "ksp_options",
+        srcs = ["testdata/Platform.jvm.kt"],
+        generated = ["Gen.kt"],
+        processor_options = {
+            "name": "target",
+            "verbose": "true",
+        },
+        processors = [":ksp_processor_with_options"],
+        tags = ["manual"],
+    )
+    options_test(
+        name = "ksp_options_test",
+        target_under_test = ":ksp_options",
+        target_compatible_with = not_on_windows(),
+    )
+
+    kt_ksp_plugin(
+        name = "ksp_processor_with_equals",
+        options = {"filter": "a=b"},
+        processor_class = "example.Provider",
+        tags = ["manual"],
+        deps = [":ksp_processor_lib"],
+    )
+    for test_name, processor, options, rule in [
+        ("option_colon", ":ksp_processor", {"schema": "file:schemas"}, option_colon_test),
+        ("option_equals", ":ksp_processor_with_equals", {}, option_equals_test),
+        ("option_key", ":ksp_processor", {"a:b": "c"}, option_key_test),
+    ]:
+        kt_jvm_ksp_sources(
+            name = "ksp_invalid_" + test_name,
+            srcs = ["testdata/Platform.jvm.kt"],
+            generated = ["Gen.kt"],
+            processor_options = options,
+            processors = [processor],
+            tags = ["manual"],
+        )
+        rule(
+            name = "ksp_%s_test" % test_name,
+            target_under_test = ":ksp_invalid_" + test_name,
+            target_compatible_with = not_on_windows(),
+        )
+
     jvm_test(
         name = "ksp_jvm_test",
         target_under_test = ":ksp_jvm",
@@ -189,6 +259,10 @@ def ksp_test_suite(name):
             ":ksp_jvm_test",
             ":ksp_native_test",
             ":ksp_not_kotlin_test",
+            ":ksp_option_colon_test",
+            ":ksp_option_equals_test",
+            ":ksp_option_key_test",
+            ":ksp_options_test",
             ":ksp_parent_test",
         ],
     )

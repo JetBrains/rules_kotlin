@@ -41,6 +41,7 @@ test_suite(
         "//src/test/starlark/internal/native:native_framework_tests",
         "//src/test/starlark/internal/native:native_import_tests",
         "//src/test/starlark/internal/native:native_library_tests",
+        "//src/test/starlark/internal/native:native_sourceless_tests",
         "//src/test/starlark/internal/native:native_toolchain_tests",
         "//src/test/starlark/ksp:ksp_tests",
     ],

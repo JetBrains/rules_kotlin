@@ -89,6 +89,17 @@ def _alias_native_test_impl(ctx):
 
     return analysistest.end(env)
 
+def _alias_native_only_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # `bazel build` of the alias of a library with a single kind of platform builds the library there
+    # is, as for a library of the JVM alone, whatever asks: here nothing set the platform type native.
+    target = analysistest.target_under_test(env)
+    asserts.true(env, KtKlibInfo in target, "the alias should be the native library")
+    asserts.equals(env, _NAMES + "mpp_ios_only_native", target[KtKlibInfo].module_name)
+
+    return analysistest.end(env)
+
 def _alias_jvm_test_impl(ctx):
     env = analysistest.begin(ctx)
 
@@ -176,6 +187,10 @@ alias_native_test = analysistest.make(
 
 # A JVM consumer on a host of a konan target of the groups: the platform alone selects no native library.
 alias_jvm_on_native_host_test = analysistest.make(_alias_jvm_test_impl, config_settings = for_target("linux_arm64"))
+alias_native_only_test = analysistest.make(
+    _alias_native_only_test_impl,
+    config_settings = for_target("ios_simulator_arm64"),
+)
 alias_jvm_test = analysistest.make(
     _alias_jvm_test_impl,
     config_settings = {
@@ -623,6 +638,11 @@ def multiplatform_test_suite(name):
         target_under_test = ":mpp",
         target_compatible_with = not_on_windows(),
     )
+    alias_native_only_test(
+        name = "multiplatform_alias_native_only_test",
+        target_under_test = ":mpp_ios_only",
+        target_compatible_with = not_on_windows(),
+    )
     alias_jvm_test(
         name = "multiplatform_alias_jvm_test",
         target_under_test = ":mpp",
@@ -793,6 +813,7 @@ leaf ios_simulator_arm64
         tests = [
             ":multiplatform_alias_jvm_on_native_host_test",
             ":multiplatform_alias_jvm_test",
+            ":multiplatform_alias_native_only_test",
             ":multiplatform_alias_native_test",
             ":multiplatform_apple_fragment_test",
             ":multiplatform_collapse_fragments_graph_test",

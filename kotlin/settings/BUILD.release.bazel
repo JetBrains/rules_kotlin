@@ -91,9 +91,12 @@ bool_flag(
 # rules set it to native for themselves and their deps with a rule transition, so it needs no setting
 # on the command line. A select() tells a Kotlin/Native consumer from a JVM one with the
 # config_settings @rules_kotlin//kotlin/native/platforms:native and native_<konan target>.
+# The scope is target: the exec transition resets it, as the tools of a Kotlin/Native target, e.g.
+# its compiler plugins, are JVM code. Bazel 7 and 8 ignore the scope: see kt_jvm_tool_transition.
 string_flag(
     name = "kotlin_platform_type",
     build_setting_default = "jvm",
+    scope = "target",
     values = [
         "jvm",
         "native",

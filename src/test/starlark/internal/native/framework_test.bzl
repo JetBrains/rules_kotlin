@@ -157,6 +157,32 @@ def _framework_direct_exports_test_impl(ctx):
 
     return analysistest.end(env)
 
+def _framework_dashed_name_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # A name that is no identifier is still the name of the framework and of its files, as konanc writes
+    # them: it quotes the name in the module map and replaces the characters in the Objective-C prefix,
+    # so Objective-C imports the header, and a Swift with raw identifiers (6.2) the module in backticks.
+    target = analysistest.target_under_test(env)
+    asserts.equals(env, ["greeter-kit.framework"], [file.basename for file in target[DefaultInfo].files.to_list()])
+    prefix = PACKAGE + "/_kt_native/greeter-kit.framework/"
+    asserts.equals(
+        env,
+        [prefix + path for path in ["greeter-kit", "Headers/greeter-kit.h", "Modules/module.modulemap", "Info.plist"]],
+        [file.short_path for file in target[OutputGroupInfo].framework_files.to_list()],
+    )
+
+    return analysistest.end(env)
+
+def _framework_digit_name_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # konanc starts the Objective-C names of the header with the name as it is, e.g. `@interface 9KitBase`,
+    # which no Objective-C compiler reads.
+    asserts.expect_failure(env, "no Objective-C name starts with a digit; rename the target")
+
+    return analysistest.end(env)
+
 def _framework_non_apple_test_impl(ctx):
     env = analysistest.begin(ctx)
 
@@ -189,6 +215,15 @@ framework_without_srcs_test = analysistest.make(
 framework_direct_exports_test = analysistest.make(
     _framework_direct_exports_test_impl,
     config_settings = for_target("ios_simulator_arm64"),
+)
+framework_dashed_name_test = analysistest.make(
+    _framework_dashed_name_test_impl,
+    config_settings = for_target("ios_simulator_arm64"),
+)
+framework_digit_name_test = analysistest.make(
+    _framework_digit_name_test_impl,
+    config_settings = for_target("ios_simulator_arm64"),
+    expect_failure = True,
 )
 framework_non_apple_test = analysistest.make(
     _framework_non_apple_test_impl,
@@ -245,6 +280,16 @@ def native_framework_test_suite(name):
         deps = [":fw_dep_ios_simulator_arm64"],
     )
     kt_native_framework(
+        name = "greeter-kit",
+        srcs = ["testdata/greeter.kt"],
+        tags = ["manual"],
+    )
+    kt_native_framework(
+        name = "9Kit",
+        srcs = ["testdata/greeter.kt"],
+        tags = ["manual"],
+    )
+    kt_native_framework(
         name = "LinuxKit",
         srcs = ["testdata/greeter.kt"],
         tags = ["manual"],
@@ -267,6 +312,16 @@ def native_framework_test_suite(name):
         name = "framework_link_header_klibs_test",
         target_under_test = ":GreeterKit",
         header_klibs = True,
+        target_compatible_with = not_on_windows(),
+    )
+    framework_dashed_name_test(
+        name = "framework_dashed_name_test",
+        target_under_test = ":greeter-kit",
+        target_compatible_with = not_on_windows(),
+    )
+    framework_digit_name_test(
+        name = "framework_digit_name_fails_test",
+        target_under_test = ":9Kit",
         target_compatible_with = not_on_windows(),
     )
     framework_files_test(
@@ -300,6 +355,8 @@ def native_framework_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
+            ":framework_dashed_name_test",
+            ":framework_digit_name_fails_test",
             ":framework_direct_exports_test",
             ":framework_files_test",
             ":framework_link_header_klibs_test",

@@ -10,18 +10,26 @@ the official Build Tools API implementation assumes the embeddable compiler.
 load("@rules_java//java:defs.bzl", "java_import")
 load("@rules_testing//lib:analysis_test.bzl", "analysis_test")
 load("//kotlin:core.bzl", "kt_compiler_plugin")
+load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")
 load("//src/test/starlark:case.bzl", "suite")
 
 _BUILD_TOOLS_API_SETTING = str(Label("@rules_kotlin//kotlin/settings:experimental_build_tools_api"))
 
 _ATTRS = {
     "want_basenames": attr.string_list(),
+    "want_embeddable_basenames": attr.string_list(),
 }
 
 def _plugin_classpath_assertion(env, target):
     env.expect.that_collection(
         [f.basename for f in target[DefaultInfo].files.to_list()],
     ).contains_exactly(env.ctx.attr.want_basenames)
+
+    # The Kotlin/Native compiler is embeddable whichever compiler the Kotlin toolchain runs, so the
+    # classpath it loads follows the dialect of the plugin alone.
+    env.expect.that_collection(
+        [f.basename for f in target[KtCompilerPluginInfo].embeddable_classpath.to_list()],
+    ).contains_exactly(env.ctx.attr.want_embeddable_basenames)
 
 def _make_dialect_test(target_embedded_compiler, build_tools_api, want_infix):
     def _case(test):
@@ -44,13 +52,20 @@ def _make_dialect_test(target_embedded_compiler, build_tools_api, want_infix):
             want = ["%s_plugin_dep_lib_%s_%s" % (test.name, want_infix, dep_jar_basename)]
         else:
             want = [dep_jar_basename]
+        if target_embedded_compiler:
+            want_embeddable = [dep_jar_basename]
+        else:
+            want_embeddable = ["%s_plugin_dep_lib_embeddable_reshaded_%s" % (test.name, dep_jar_basename)]
 
         analysis_test(
             name = test.name,
             impl = _plugin_classpath_assertion,
             target = plugin,
             config_settings = {_BUILD_TOOLS_API_SETTING: build_tools_api},
-            attr_values = {"want_basenames": want},
+            attr_values = {
+                "want_basenames": want,
+                "want_embeddable_basenames": want_embeddable,
+            },
             attrs = _ATTRS,
         )
 
