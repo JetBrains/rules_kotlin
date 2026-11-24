@@ -1,10 +1,7 @@
 """Analysis tests for the KSP rules of Kotlin Multiplatform: the declared outputs and the libraries of each platform.
 
-kt_jvm_ksp_sources declares its generated files as individual outputs of the target and compiles against the
-JVM libraries of its deps. kt_native_ksp_sources, built for a konan target, runs on the klibs of that target
-and never on the JVM library of the same alias (see platform_type_test.bzl). Both run the KSP tool of the
-toolchain on the processor classpath. The action itself is tested by ksp_run_test.sh, and the whole by the
-examples/kmp fixture. The native tests use the fake toolchains of //src/test/starlark/internal/native.
+The action itself is tested by ksp_run_test.sh, and the whole by the examples/kmp fixture. The native
+tests use the fake toolchains of //src/test/starlark/internal/native.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")

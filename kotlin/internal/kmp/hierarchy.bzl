@@ -1,22 +1,6 @@
 """The hierarchy of the platforms of a kt_multiplatform_library: the default one of Kotlin Multiplatform.
 
-The hierarchy is a tree whose inner nodes are groups and whose leaves are platforms:
-
-    common
-    +-- jvm
-    +-- android
-    +-- native
-        +-- linux
-        |   +-- linux_x64
-        |   +-- linux_arm64
-        +-- apple
-            +-- macos
-            |   +-- macos_arm64
-            +-- ios
-                +-- ios_arm64
-                +-- ios_simulator_arm64
-                +-- ios_x64
-
+The hierarchy is a tree whose inner nodes are groups and whose leaves are platforms.
 `DEFAULT_HIERARCHY` describes it as `(group, members)` pairs, a member being a group of the table or
 a platform. What kt_multiplatform_library knows of groups and platforms is derived from this table:
 the qualified attributes (`srcs_ios`, `deps_apple`), the lists each platform receives, the fragments

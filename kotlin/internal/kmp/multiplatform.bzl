@@ -1,33 +1,9 @@
 """kt_multiplatform_library: a Kotlin Multiplatform library declared along the default hierarchy of Kotlin Multiplatform.
 
-    COMMON = glob(["common/*.kt"])
-    NON_ANDROID = glob(["non_android/*.kt"])
-
-    kt_multiplatform_library(
-        name = "shared",
-        platforms = ["jvm", "android", "ios_arm64", "macos_arm64", "linux_x64"],
-        srcs = COMMON,
-        deps = ["@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"],
-        srcs_jvm = NON_ANDROID + glob(["jvm/*.kt"]),
-        srcs_android = glob(["android/*.kt"]),
-        srcs_native = NON_ANDROID,
-        srcs_apple = glob(["apple/*.kt"]),
-        srcs_linux = glob(["linux/*.kt"]),
-        android = dict(manifest = "android/AndroidManifest.xml"),
-    )
-
 `platforms` lists the platforms of the library, leaves of the hierarchy (see hierarchy.bzl), and
-`srcs_<qualifier>`, `deps_<qualifier>`, `exports_<qualifier>` and `plugins_<qualifier>` the lists of
-a group or a platform of it (see declaration.bzl). Each platform compiles the lists of its lineage,
-from those of the macro down to its own: above, `ios_arm64` compiles COMMON, NON_ANDROID and the
-Apple sources against kotlinx.coroutines, and the JVM COMMON, NON_ANDROID and its own. The sources
-of a group form one K2 fragment named after it, `common` for the srcs of the macro, and those of a
-platform are its leaf fragment, named after it (see derive.bzl): COMMON is the fragment `common`,
-the Apple sources `apple` and the Linux ones `linux`. NON_ANDROID, which the JVM and native both
-list, is the fragment `jvm-native`: it refines `common`, and `apple`, `linux` and the leaf `jvm`
-refine it. The leaves of the konan targets are empty here.
-
-The macro declares:
+`<attr>_<qualifier>` the lists of a group or a platform of it (see declaration.bzl). Each platform
+compiles the lists of its lineage, and the sources of each group as a K2 fragment (see derive.bzl).
+With the name `shared`, the macro declares:
 - shared_fragment_<fragment>: a private kt_kmp_fragment per fragment (see fragment.bzl);
 - shared_jvm: when `platforms` lists `jvm`, a kt_jvm_library of the attributes of `jvm`, whose srcs
   are the sources only the JVM compiles, whose kmp_fragments are the fragments those refine, and
@@ -44,9 +20,7 @@ The macro declares:
   platform, and otherwise of shared_jvm, or of the only library declared.
 
 The alias selects on //kotlin/native/platforms:native, which only matches below the Kotlin/Native
-rules: they set //kotlin/settings:kotlin_platform_type to native for themselves and their deps. So
-on a macOS or Linux host, whose platform is also the one of a konan target, the alias is shared_jvm
-for a JVM consumer and shared_native for a native one. A Kotlin/Native consumer building for a konan
+rules (see //kotlin/internal/native:transition.bzl). A Kotlin/Native consumer building for a konan
 target that `platforms` does not list gets shared_native too, which is incompatible with that
 target, and so is the consumer: a build of every target skips it. The lists of shared_native and its
 compatibility select on the platform only (`is_<konan target>`): it is the Kotlin/Native rule, which
@@ -305,8 +279,6 @@ def kt_multiplatform_library(
 
     konan_targets = declaration.targeted.get("native", [])
     if konan_targets:
-        # Per konan target: the sources only it lists, the fragments they refine, and the lists of
-        # its lineage.
         branches = {attr: {} for attr in ["srcs", "kmp_fragments"] + _LINEAGE_ATTRS}
         for target in konan_targets:
             condition = _is_konan_target(target)

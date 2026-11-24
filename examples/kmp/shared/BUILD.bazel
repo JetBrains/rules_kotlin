@@ -1,10 +1,6 @@
 load("@rules_kotlin//kotlin:core.bzl", "kt_ksp_plugin")
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_jvm_ksp_sources", "kt_multiplatform_library", "kt_native_ksp_sources")
 
-# The sources of the module, in the lists of the groups and platforms of the hierarchy they belong
-# to: each platform compiles those of its lineage, from the common sources down to its own, and the
-# sources that exactly the same platforms compile form one K2 fragment.
-
 # Every platform, through the srcs of the macro: Gradle's commonMain, which declares platformName(),
 # PlatformInfo, Clock, injectedGreeting() and injectedNow() with `expect`.
 COMMON = [
@@ -52,19 +48,10 @@ COMMON_DEPS = [
 ]
 
 # --- KSP: kotlin-inject components in the sources of the platforms ---
-# The `@Component`s are in the platform sources and use the `@Inject` classes of the common ones, so
-# KSP runs once per platform, over every source the platform compiles, in a separate action
-# (kt_jvm_ksp_sources for the JVM and Android, kt_native_ksp_sources for the konan targets) and
-# declares the Kotlin files it generates. A file the processor writes that is not declared, or one
-# that is declared but not written, fails the action. KSP takes every source the platform compiles,
-# the common ones included, and those also go in the `common_srcs` of the KSP target: KSP processes
-# them after the platform's, so the `@Inject expect class Clock` of the common sources resolves to
-# the `actual` of the platform, as in the compilation of that platform.
-#
-# Only the platform or the group that compiles the generated files lists the KSP target in its srcs:
-# those of the JVM and Android, in srcs_jvm and srcs_android, are the leaves of their platforms, next
-# to JvmComponent and AndroidComponent; those of the Apple targets, in srcs_apple, are in its
-# fragment, next to AppleComponent.
+# KSP runs once per platform, in a separate action that declares the Kotlin files it generates (see
+# docs/kmp.md). It takes every source the platform compiles, the common ones also as `common_srcs`,
+# so the `@Inject expect class Clock` of the common sources resolves to the `actual` of the platform.
+# Only the platform or the group that compiles the generated files lists the KSP target in its srcs.
 
 kt_ksp_plugin(
     name = "kotlin_inject_ksp",
@@ -109,12 +96,6 @@ kt_native_ksp_sources(
 # JVM and ANDROID are the leaves `jvm` and `android`, with their KSP outputs; the leaves of the konan
 # targets are empty. The `actual` declarations are in the leaves of the JVM and Android and in the
 # fragments of the Apple and Linux sources, so every platform compiles one `actual` per `expect`.
-#
-# The macro declares a private target per fragment (shared_fragment_<fragment>), shared_jvm,
-# shared_android, shared_native, shared_srcs, shared.fragments and the alias shared, which selects
-# the library of its consumer: shared_native for a Kotlin/Native rule, shared_android for an Android
-# platform, shared_jvm otherwise. Every platform compiles the srcs and deps of the macro, then the
-# srcs of the groups above it and its own.
 kt_multiplatform_library(
     name = "shared",
     srcs = COMMON,

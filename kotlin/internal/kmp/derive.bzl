@@ -8,18 +8,7 @@ platforms list is shared by exactly those, in a fragment named after them, sorte
 `-`, e.g. `jvm-native`. The platforms of a fragment are the targeted platforms at or below its
 owners. A fragment refines the fragments directly above it: `A` refines `B` when every owner of `A`
 is at or below an owner of `B`, and no fragment lies in between. A leaf refines the fragments
-directly above its platform:
-
-    srcs:         COMMON
-    srcs_jvm:     NON_ANDROID + JVM
-    srcs_native:  NON_ANDROID
-    srcs_apple:   APPLE
-
-    common       COMMON
-    jvm-native   NON_ANDROID, refines common
-    apple        APPLE, refines jvm-native
-    jvm          the leaf of JVM, refines jvm-native; the leaves of the Apple targets are empty
-                 and refine apple
+directly above its platform.
 
 Groups of the same platforms stay apart, e.g. `common`, `native`, `apple` and `ios` in a library of
 iOS targets only, so an `expect` declaration of one and its `actual` in a lower one are in two

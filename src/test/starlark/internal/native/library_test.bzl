@@ -383,7 +383,6 @@ _KLIB_COMPILE_ATTRS = {
     "apple_sdk_platform": attr.string(),
     # Whether the launcher compiles the klib with the Build Tools API implementation of the toolchain.
     "btapi": attr.bool(default = True),
-    # Whether the library writes a header klib.
     "header_klib": attr.bool(),
     "konan_target": attr.string(),
     "other_target": attr.string(),

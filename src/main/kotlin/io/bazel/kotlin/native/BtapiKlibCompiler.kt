@@ -86,7 +86,6 @@ object BtapiKlibCompiler : KlibCompiler {
     }
   }
 
-  /** The class path of the implementation: the runtime jars, then the compiler jar. */
   fun classpath(
     compilation: KlibCompilation,
     runtimeClasspath: List<Path>,
@@ -94,7 +93,6 @@ object BtapiKlibCompiler : KlibCompiler {
     // Not `runtimeClasspath + compilation.compilerJar`: a Path is an Iterable of its names.
     runtimeClasspath + listOf(compilation.compilerJar)
 
-  /** The exit code of the launcher for the [result] of a compilation. */
   fun exitCode(result: CompilationResult): Int =
     when (result) {
       CompilationResult.COMPILATION_SUCCESS -> KonanLauncher.EXIT_OK

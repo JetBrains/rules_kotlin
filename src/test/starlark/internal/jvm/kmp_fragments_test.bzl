@@ -167,7 +167,6 @@ _abi_jar_enabled_test = analysistest.make(
 _class_jar_of_associate_test = analysistest.make(
     _class_jar_of_associate_test_impl,
     attrs = {
-        # The name of the associate of the target under test.
         "associate": attr.string(),
     },
     config_settings = {

@@ -38,9 +38,5 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 
-# Native toolchains, one per (exec host, konan target) of EXEC_HOSTS (targets.bzl), named
-# <host>_<target>, e.g. macos_aarch64_ios_simulator_arm64. A host distribution compiles
-# klibs for every target the host builds for, so a host's toolchains share its konan_home
-# and differ in the target's platform libraries, link dependencies and constraints. Their
-# actions run the KonanLauncher of //src/main/kotlin:konan_launcher.
+# A toolchain per (exec host, konan target) of EXEC_HOSTS (see define_kt_native_toolchains).
 define_kt_native_toolchains()

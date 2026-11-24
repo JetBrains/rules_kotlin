@@ -1,17 +1,7 @@
 """The actions every Kotlin/Native rule runs: konanc, through the KonanLauncher of the toolchain.
 
 kt_native_compile compiles sources into a klib, and kt_native_link links klibs into an executable,
-a test runner or a framework, as the Kotlin Gradle plugin does: a linking rule first compiles its
-own sources into a private klib (see link.bzl).
-
-KonanLauncher (src/main/kotlin/io/bazel/kotlin/native/KonanLauncher.kt) creates the action-local
-scratch directories, stages the link dependencies, replaces EXECROOT_PLACEHOLDER with the absolute
-working directory of the action and runs the tool in-process, with the in-sandbox distribution as
-konan.home. A klib compilation gives the launcher its output and sources apart from the konanc
-flags, and, with the toolchain's Kotlin/Native Build Tools API implementation (btapi_classpath,
-empty with the build setting experimental_native_build_tools_api off or for a release without
-one), the jars the launcher compiles the klib with through the Build Tools API instead of konanc.
-The actions are hermetic and reproducible:
+a test runner or a framework. The actions are hermetic and reproducible:
 
 - their inputs are only the parts of the distribution their konan target needs (the toolchain's
   compile_inputs), plus the link dependencies of the target when they link;
@@ -131,7 +121,6 @@ def _konanc_args(ctx, tc, *, output, produce = None, klib_srcs = None, module_na
     # Args.add rejects a directory, the output of a framework, but add_all takes one as it is.
     outputs = [output]
 
-    # The launcher's own arguments.
     args.add("--tool", "konanc")
     args.add("--konan-home", tc.konan_home.path)
     args.add_all("--data-dir", outputs, format_each = _DATA_DIR, expand_directories = False)
@@ -139,15 +128,12 @@ def _konanc_args(ctx, tc, *, output, produce = None, klib_srcs = None, module_na
     if stage_link_deps:
         args.add_all([d.path for d in tc.konan_deps.dirs], before_each = "--staged-deps")
 
-    # A klib compilation: the launcher adds -produce library, -o and the sources to the konanc flags,
-    # or gives them to the Build Tools API apart from them.
     if klib_srcs != None:
         args.add("--klib-output", output)
         args.add_all(klib_srcs, before_each = "--source")
         args.add_all(tc.btapi_classpath, before_each = "--btapi-classpath")
     args.add("--")
 
-    # konanc's arguments.
     if produce:
         args.add("-produce", produce)
     args.add("-target", tc.konan_target)

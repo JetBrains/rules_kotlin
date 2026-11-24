@@ -74,11 +74,8 @@ KOTLIN_NATIVE_BTAPI = {
     },
 }
 
-# The Build Tools API artifact the launcher is compiled against.
 KOTLIN_NATIVE_BTAPI_API = "kotlin-build-tools-api"
 
-# The Build Tools API implementation artifacts a klib compilation loads, besides the compiler jar of
-# the distribution.
 KOTLIN_NATIVE_BTAPI_RUNTIME = ["kotlin-build-tools-cri-impl", "kotlin-build-tools-impl", "kotlin-daemon-client"]
 
 # The generated BUILD files load these by canonical label, which resolves in any repository.

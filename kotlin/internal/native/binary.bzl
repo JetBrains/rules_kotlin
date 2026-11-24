@@ -1,8 +1,7 @@
 """kt_native_binary: links a Kotlin/Native executable.
 
 The srcs compile into a private klib, which the link includes in `<name>.kexe` with the klibs of the
-deps (see link.bzl). The konan target is the one of the resolved toolchain (the build's
---platforms), and the executable runs on a host of that target, e.g. with `bazel run` on the host.
+deps (see link.bzl).
 """
 
 load(":link.bzl", "EXECUTABLE_ATTRS", "LINK_ATTRS", "executable_runfiles", "link_native")

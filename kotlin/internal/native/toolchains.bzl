@@ -7,15 +7,9 @@ klibs for every target the host builds for, so all of a host's toolchains share 
 its link dependencies and `target_compatible_with`.
 
 Every toolchain also carries the KonanLauncher binary its actions run (see klib.bzl), the konan
-target of its exec host, whose binaries a test can run there, and, for an Apple target, the
-environment and execution requirements of an action using Xcode. It reads the build settings
-//kotlin/settings:experimental_native_header_klibs and experimental_native_build_tools_api, so
-every Kotlin/Native rule sees one value of each.
-
-With experimental_native_build_tools_api on, the toolchain carries the Kotlin/Native Build Tools
-API implementation of its release as `btapi_classpath`, which the launcher loads with the compiler
-jar of the distribution to compile klibs; it is empty with the setting off, or for a release without
-one, whose klibs compile with the konanc command line.
+target of its exec host and, for an Apple target, the environment and execution requirements of an
+action using Xcode. It reads the build settings //kotlin/settings:experimental_native_header_klibs
+and experimental_native_build_tools_api, so every Kotlin/Native rule sees one value of each.
 """
 
 load("@bazel_skylib//lib:dicts.bzl", "dicts")

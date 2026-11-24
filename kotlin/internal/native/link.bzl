@@ -1,22 +1,15 @@
 """What the linking rules (kt_native_binary, kt_native_test, kt_native_framework) share.
 
 They link in two actions, as the Kotlin Gradle plugin does: their srcs compile into a private klib,
-_kt_native/<name>.klib, and the link includes that klib in the output with -Xinclude, next to the
-klibs of the deps. The srcs compile against the compile klibs of the deps (KtKlibInfo.compile_klib,
-their header klibs with the build setting experimental_native_header_klibs), and the link reads
-full klibs only. A link can also use existing klibs as its main content, so a binary can take its
-entry point from a dep, and a framework can consist of its exports alone. They compile no Kotlin
-Multiplatform fragments: the sources a kt_multiplatform_library shares compile in its libraries,
-which a linking rule depends on.
+_kt_native/<name>.klib, against the compile klibs of the deps, and the link includes that klib in
+the output with -Xinclude, next to the full klibs of the deps. A link can also use existing klibs as
+its main content, so a binary can take its entry point from a dep, and a framework can consist of
+its exports alone.
 
 Linking needs the link dependencies of the konan target (LLVM, libffi, the cross-toolchain), which
 the `com_github_jetbrains_kotlin_native_deps_<host>` repository of each exec host stages for the
 targets of kotlin_native.targets(...), so the link action runs sandboxed with no network. Apple
 targets also need the SDK of the local Xcode, which konanc finds with xcrun.
-
-The linking rules declare LINK_ATTRS, with the attribute of kt_native_transition, the transition of
-the Kotlin/Native rules to the Kotlin platform type native (see transition.bzl). Those that link an
-executable also declare EXECUTABLE_ATTRS, whose `data` is in the runfiles of the executable.
 """
 
 load("//src/main/starlark/core/plugin:providers.bzl", "KtCompilerPluginInfo")

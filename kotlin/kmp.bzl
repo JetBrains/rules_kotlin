@@ -1,15 +1,9 @@
 """Public API for Kotlin Multiplatform.
 
 Experimental:
-- kt_multiplatform_library: a multiplatform library declared once for its platforms, along the
-  default hierarchy of Kotlin Multiplatform: a library per platform, compiling the sources it
-  shares with other platforms as K2 fragments, so `expect` declarations and their `actual` ones
-  are in one module, and an alias selecting the library of its consumer: the native one for a
-  Kotlin/Native rule (`@rules_kotlin//kotlin/native/platforms:native`), the Android
-  one for an Android platform and the JVM one otherwise. `platforms` lists the platforms, its
-  `srcs`, `deps`, `exports` and `plugins` are those of every platform, and `srcs_ios`,
-  `deps_apple` and the like those of a group or a platform, which each platform below it
-  receives after those above.
+- kt_multiplatform_library: a multiplatform library declared once for its platforms: a library per
+  platform, compiling the sources it shares with other platforms as K2 fragments, and an alias
+  selecting the library of its consumer.
 - kt_jvm_ksp_sources, kt_native_ksp_sources: KSP2 over the sources of a platform, as a separate
   action whose generated Kotlin files the library of the platform compiles.
 

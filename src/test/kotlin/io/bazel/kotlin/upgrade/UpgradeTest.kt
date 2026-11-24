@@ -622,10 +622,8 @@ class TestCheckout {
 
   fun snapshot(): Map<String, String> = FILES.associateWith(::read)
 
-  /** The files still equal to their original. */
   fun unchanged(): List<String> = FILES.filter { read(it) == original[it] }
 
-  /** The temporary files under the checkout. */
   fun temporaries(): List<Path> =
     Files.walk(root).use { files ->
       files.filter { "${it.fileName}".endsWith(".tmp") }.sorted().toList()

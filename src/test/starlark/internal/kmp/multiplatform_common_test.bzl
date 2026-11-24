@@ -1,11 +1,8 @@
 """Tests for the lists kt_multiplatform_library gives the library of each platform: those of its lineage in the hierarchy.
 
-The macro concatenates, per attribute, the lists of the nodes from `common` down to each platform:
-the JVM library gets those of `jvm` last, a select() included, and the native library, for its
-konan target, those of the groups and the platform above that target. The fixtures stand in for
-each level: an alias with the shape of those of kmp_maven for the lists of every platform, and fake
-klibs of the konan targets of a group for the lists of that group. The native tests use the fake
-toolchains of //src/test/starlark/internal/native (see common.bzl there).
+The fixtures stand in for each level: an alias with the shape of those of kmp_maven for the lists of
+every platform, and fake klibs of the konan targets of a group for the lists of that group. The
+native tests use the fake toolchains of //src/test/starlark/internal/native (see common.bzl there).
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")

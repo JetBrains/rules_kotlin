@@ -1,13 +1,9 @@
-"""The rule transition of the Kotlin/Native rules: their Kotlin platform type is native.
+"""The rule transitions of the Kotlin platform type (//kotlin/settings:kotlin_platform_type).
 
-//kotlin/settings:kotlin_platform_type is the Bazel form of the Gradle attribute
-org.jetbrains.kotlin.platform.type: `jvm` by default, which the JVM and Android rules leave as it is,
-and `native` for the Kotlin/Native rules, which set it for themselves and their deps. A select() on
-the config_settings //kotlin/native/platforms:native and native_<konan target>, like the alias of
-kt_multiplatform_library, then resolves to a klib below a Kotlin/Native rule and to a JVM library
-below any other rule, on any platform: a platform describes the machine, which a JVM library and a
-klib of the konan target of a host share. The transition is incoming, so a Kotlin/Native target
-used at the top level and as a dep is built once.
+The Kotlin/Native rules set it to `native` for themselves and their deps, so a select() on
+//kotlin/native/platforms:native or native_<konan target> resolves to a klib below them and to a
+JVM library below any other rule. The transition is incoming, so a Kotlin/Native target used at the
+top level and as a dep is built once.
 
 The tools of a Kotlin/Native target, e.g. its compiler plugins and KSP processors, are JVM code and
 build with `jvm`: the build setting has the scope `target`, which the exec transition resets, and
@@ -42,7 +38,6 @@ kt_jvm_tool_transition = transition(
     outputs = [str(KOTLIN_PLATFORM_TYPE)],
 )
 
-# The attribute a rule with one of the transitions declares, as every rule with a Starlark transition.
 TRANSITION_ATTRS = {
     "_allowlist_function_transition": attr.label(
         default = "@bazel_tools//tools/allowlists/function_transition_allowlist",

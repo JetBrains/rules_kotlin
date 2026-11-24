@@ -13,16 +13,10 @@ import kotlin.system.exitProcess
  * upgrade_kotlin --emit-overrides <release>
  * ```
  *
- * `--version` rewrites every pin of the release train from the published release metadata. The
- * per-release Kotlin/Native tables then hold exactly the new release and the `--keep` ones (by
- * default the current release), unless rules_kotlin pins a newer Kotlin/Native, which stays. It
- * then prints the Maven lock files that pin `org.jetbrains.kotlin` artifacts of the examples, as
- * `<module directory> <repository>` lines, also when the pins were already up to date.
- * `--native-version` rewrites the Kotlin/Native pins alone, to a release or a dev build, and keeps
- * the `--keep` ones (by default the current release of the JVM compiler); it prints nothing.
- * `--dry-run` lists the files it would change and writes nothing. `--emit-overrides` prints the
- * root MODULE.bazel snippet that selects a release, checksums included. scripts/upgrade_kotlin.sh
- * runs the generators that follow an upgrade.
+ * `--version` rewrites every pin of the release train, `--native-version` the Kotlin/Native pins
+ * alone, `--dry-run` lists the files it would change and writes nothing, and `--emit-overrides`
+ * prints the root MODULE.bazel snippet that selects a release. See docs/upgrading_kotlin.md;
+ * scripts/upgrade_kotlin.sh runs the generators that follow an upgrade.
  */
 object UpgradeKotlin {
   private const val USAGE =

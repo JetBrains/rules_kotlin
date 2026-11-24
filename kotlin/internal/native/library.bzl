@@ -1,11 +1,8 @@
 """kt_native_library: compiles Kotlin sources into a Kotlin/Native klib.
 
-The konan target is the one of the resolved toolchain (the build's --platforms), not a rule
-attribute. The klib action is the shared one of klib.bzl; linking is handled separately by
-kt_native_binary, kt_native_test and kt_native_framework (see link.bzl). With kmp_fragments, the
-sources a kt_multiplatform_library shares compile with the srcs, as K2 fragments (see
-//kotlin/internal/kmp:fragments.bzl). Like every Kotlin/Native rule, it builds with the Kotlin
-platform type native (see transition.bzl).
+The klib action is the shared one of klib.bzl. With kmp_fragments, the sources a
+kt_multiplatform_library shares compile with the srcs, as K2 fragments (see
+//kotlin/internal/kmp:fragments.bzl).
 """
 
 load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo")
@@ -25,7 +22,6 @@ def _kt_native_library_impl(ctx):
 
     klib = ctx.actions.declare_file(ctx.label.name + ".klib")
 
-    # The declarations of the klib without function bodies, which its dependents compile against.
     header = None
     if tc.header_klibs and "kt_native_header_klib_incompatible" not in ctx.attr.tags:
         header = ctx.actions.declare_file(ctx.label.name + ".header.klib")

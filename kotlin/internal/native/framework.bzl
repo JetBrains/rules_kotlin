@@ -1,13 +1,9 @@
 """kt_native_framework: links a static Apple framework.
 
 The srcs compile into a private klib, which the link includes in `<name>.framework` with the klibs
-of the deps and exports (see link.bzl). The framework is named after the target, and so is the
-prefix of its Objective-C names. Its header declares the API of the srcs and of the exports: the
-exports and their own exports, or the listed exports alone without transitive_exports, as a
-framework of the Kotlin Gradle plugin exports only what its `export()` names.
-
-The framework is a directory, which rules_apple cannot import: apple_static_framework_import takes
-the files of a framework. The output group framework_files copies them out of the directory.
+of the deps and exports (see link.bzl). The framework is a directory, which rules_apple cannot
+import: apple_static_framework_import takes the files of a framework, so the output group
+framework_files copies them out of the directory.
 """
 
 load(":link.bzl", "LINK_ATTRS", "link_native")
@@ -16,7 +12,6 @@ load(":targets.bzl", "KONAN_TARGETS")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 load(":transition.bzl", "kt_native_transition")
 
-# The output group of the files of the framework: its binary, header, module map and Info.plist.
 FRAMEWORK_FILES_OUTPUT_GROUP = "framework_files"
 
 # Copies each file of the framework ($1) to its output: the arguments that follow are pairs of a

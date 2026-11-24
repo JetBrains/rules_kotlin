@@ -2,8 +2,7 @@
 
 The import compiles nothing and needs no toolchain, so it analyzes on any host: its klib only
 reaches a compilation or a link of its konan target, as collect_klib_deps checks, in the import for
-its own deps and exports and in its consumers. It builds with the Kotlin platform type native, like
-the other Kotlin/Native rules (see transition.bzl).
+its own deps and exports and in its consumers.
 """
 
 load(":klib.bzl", "collect_compile_klib_deps", "collect_klib_deps")

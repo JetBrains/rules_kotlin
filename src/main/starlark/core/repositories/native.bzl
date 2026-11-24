@@ -55,7 +55,6 @@ def _kotlin_native_impl(module_ctx):
             konan_targets = host.targets,
         )
 
-        # Pre-staged LLVM/libffi/lldb/cross-toolchain bundle for binary linking (kt_native_binary).
         bundle = kotlin_native_bundle(host_key, config.targets, config.version)
         kotlin_native_deps_repository(
             name = KOTLIN_NATIVE_DEPS_REPO + host.repo_suffix,
@@ -67,7 +66,6 @@ def _kotlin_native_impl(module_ctx):
             version = config.version,
         )
 
-    # The Build Tools API implementation klib compilations of the selected release load.
     runtime = kotlin_native_btapi_runtime(config.btapi)
     kotlin_native_btapi_repository(
         name = KOTLIN_NATIVE_BTAPI_REPO,

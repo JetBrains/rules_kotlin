@@ -376,7 +376,6 @@ object KonanLauncher {
     )
   }
 
-  /** The parsed launcher arguments. */
   internal class Invocation(
     val tool: String,
     val konanHome: String,
@@ -443,12 +442,10 @@ object KonanLauncher {
 class KlibCompilation(
   /** The working directory of the action, which the paths the compiler reports are relative to. */
   val workingDir: Path,
-  /** The Kotlin/Native distribution. */
   val konanHome: Path,
   /** The compiler jar of the distribution, [KonanLauncher.COMPILER_JAR] under [konanHome]. */
   val compilerJar: Path,
   val sources: List<Path>,
-  /** The klib the compilation writes. */
   val output: Path,
   /** The konanc flags, without `-produce`, `-o` and the sources. */
   val flags: List<String>,

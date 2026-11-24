@@ -171,7 +171,6 @@ _BTAPI_TAG = {
 # on it with kotlin_native.version(...).
 _KEPT_RELEASE = "2.4.21"
 
-# The konan.properties of each pinned release, per exec host.
 _KONAN_PROPERTIES = KONAN_PROPERTIES
 
 # The konan.properties of each exec host's distribution of 2.4.21, which the tests below that name

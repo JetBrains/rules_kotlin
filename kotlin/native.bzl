@@ -3,7 +3,8 @@
 Experimental:
 - kt_native_library: compile .kt -> .klib for the resolved konan target.
 - kt_native_binary: link .kt sources + klib deps into a native executable (`bazel run`).
-- kt_native_test: link .kt tests + klib deps into a test runner (`bazel test`) for the exec host.
+- kt_native_test: link .kt tests + klib deps into a test runner, which `bazel test` runs on a host
+  of its konan target.
 - kt_native_framework: link .kt sources + klib deps into a static Apple framework. Its output
   group `framework_files` holds the files of the framework, which rules_apple's
   apple_static_framework_import imports.

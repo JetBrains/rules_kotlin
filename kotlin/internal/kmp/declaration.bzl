@@ -1,23 +1,9 @@
 """The declaration of a kt_multiplatform_library: its platforms, and the lists of each group and platform.
 
-The macro takes the lists of a node of the hierarchy (see hierarchy.bzl) as `<attr>_<qualifier>`:
-`<attr>` is `srcs`, `deps`, `exports` or `plugins`, and `<qualifier>` the name of a group or a
-platform below `common`, whose lists are the unqualified `srcs`, `deps`, `exports` and `plugins`:
-
-    kt_multiplatform_library(
-        name = "shared",
-        platforms = ["jvm", "ios_arm64", "ios_simulator_arm64"],
-        srcs = COMMON,
-        srcs_ios = IOS,
-        deps_ios_arm64 = [":device_only"],
-    )
-
-Each platform receives, per attribute, the lists of its lineage from `common` down to itself: the
-deps of `ios_arm64` are `deps + deps_native + deps_apple + deps_ios + deps_ios_arm64`. The dicts
-`jvm`, `android` and `native` hold the other attributes of the library of their node.
-
-`parse_declaration` checks a call when the macro is called, before any select() is resolved, and
-names what to change. The names it reports come from the hierarchy.
+The macro takes the lists of a node of the hierarchy (see hierarchy.bzl) as `<attr>_<qualifier>`,
+e.g. `srcs_ios` or `deps_ios_arm64`, and each platform receives, per attribute, the lists of its
+lineage from `common` down to itself. `parse_declaration` checks a call when the macro is called,
+before any select() is resolved, and names what to change.
 """
 
 load("//kotlin/internal/native:targets.bzl", "KONAN_TARGETS")

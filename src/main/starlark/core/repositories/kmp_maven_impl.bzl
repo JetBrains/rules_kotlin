@@ -1,19 +1,8 @@
 """The pure part of the kmp_maven module extension (kmp_maven.bzl): inputs, manifest, names and generated files.
 
-kmp_maven.install declares the Maven coordinates of Kotlin Multiplatform libraries, as an
-`implementation(...)` of commonMain does in Gradle, and the platforms of the build.
-bazel-kmp-resolver (https://github.com/JetBrains/bazel-kmp-resolver) resolves them into a manifest
-pinned in the workspace, whose schema version 2 is the contract of its docs/manifest.md. From the
-manifest, the extension generates, without resolving anything itself:
-- a repository per Maven module, `<hub>__<group>_<artifact>_<version>`, which downloads its klibs,
-  aar or jar by URL and integrity when a build needs them;
-- the hub repository `<hub>`: per library `<lib>`, a kt_klib_import per klib and konan target, a
-  kt_jvm_import or an aar_import per Android and JVM variant, an android_library or a
-  kt_jvm_library of exports per redirect variant (a variant without artifact, standing for its
-  dependencies), each named `<lib>.<platform>`, and an alias `<lib>` that selects the variant of
-  its consumer; or, when the manifest is missing or stale, a package that fails with the command
-  pinning it;
-- `@<hub>//pin`, which runs the resolver to write the manifest.
+The extension generates the repositories of an install from its manifest, which bazel-kmp-resolver
+(https://github.com/JetBrains/bazel-kmp-resolver) writes with schema version 2, the contract of its
+docs/manifest.md, without resolving anything itself (see kmp_maven.bzl for what it creates).
 
 These functions take no repository or module context, so //src/test/starlark:kmp_maven_tests
 tests them against an excerpt of a manifest of the resolver.
@@ -35,7 +24,6 @@ _UNSUPPORTED_PLATFORMS = {
 
 KMP_DEFAULT_REPOSITORIES = ["https://repo1.maven.org/maven2"]
 
-# The schema version of the manifests rules_kotlin reads.
 MANIFEST_SCHEMA_VERSION = 2
 
 # The release of bazel-kmp-resolver the pin targets run, the first one with generate-bazel-manifest

@@ -8,15 +8,10 @@ COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 COMMON = glob(["src/commonMain/kotlin/**/*.kt"])
 
 # The shared module of the wizard's project, whose Gradle build declares the androidTarget, iosArm64,
-# iosSimulatorArm64 and jvm targets, the platforms of the macro. The common sources and the deps of
-# the common code are its srcs and deps, which every platform compiles, and the sources of
-# src/<group or platform>Main those of that group or platform: the common sources are the fragment
-# common, and those of src/iosMain, in srcs_ios, the fragment ios, which refines it. The sources of
-# src/androidMain and src/jvmMain are the leaves of their platforms, with the `actual` getPlatform()
-# of each. The macro declares the fragments, shared_android, shared_jvm, shared_native, shared_srcs
-# and the alias shared, which selects the library of its consumer: shared_native for a Kotlin/Native
-# rule, such as the framework of //iosApp; shared_android for an Android platform, such as the deps
-# of //androidApp; shared_jvm otherwise, such as GreetingTest.
+# iosSimulatorArm64 and jvm targets, the platforms of the macro. The sources of src/commonMain are
+# its srcs, and those of src/<group or platform>Main the srcs of that group or platform. The alias
+# shared selects the library of its consumer: shared_native for the framework of //iosApp,
+# shared_android for the deps of //androidApp, and shared_jvm otherwise, such as GreetingTest.
 kt_multiplatform_library(
     name = "shared",
     srcs = COMMON,

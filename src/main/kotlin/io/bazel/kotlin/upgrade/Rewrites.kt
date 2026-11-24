@@ -97,7 +97,6 @@ object Rewrites {
   private const val ARCHIVES = "KOTLIN_NATIVE_ARCHIVES = {"
   private const val DEPS = "KOTLIN_NATIVE_DEPS = {"
 
-  /** The default Kotlin/Native release, KOTLIN_NATIVE_VERSION. */
   fun nativeVersion(nativeBzl: String): String =
     nativeBzl
       .lines()

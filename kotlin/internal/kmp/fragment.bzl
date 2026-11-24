@@ -1,12 +1,9 @@
 """kt_kmp_fragment and kt_kmp_fragments_graph: K2 fragment targets of a kt_multiplatform_library.
 
-kt_multiplatform_library declares one kt_kmp_fragment, `<name>_fragment_<fragment name>`, per group
-of its hierarchy with sources and per set of groups and platforms sharing sources (see derive.bzl),
-and one kt_kmp_fragments_graph, `<name>.fragments`, printing the derived fragment graph. A fragment
-compiles nothing by itself and has no deps: kt_jvm_library, kt_android_library and kt_native_library
-list in `kmp_fragments` the fragments their srcs refine, and compile the sources of those fragments,
-and of the fragments they refine, transitively, with their srcs, against their own deps (see
-fragments.bzl).
+kt_multiplatform_library declares one kt_kmp_fragment per fragment it derives (see derive.bzl), and
+one kt_kmp_fragments_graph, `<name>.fragments`, printing the derived fragment graph. A fragment
+compiles nothing by itself and has no deps: the libraries listing it in `kmp_fragments` compile its
+sources with their srcs, against their own deps (see fragments.bzl).
 
 Internal: kt_multiplatform_library is their only user.
 """

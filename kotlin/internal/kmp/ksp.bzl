@@ -7,45 +7,10 @@ not see across fragments. These rules run the KSP command-line tool of the KSP r
 instead, as the Kotlin Gradle plugin does for a multiplatform module: `KSPJvmMain` for the JVM and Android,
 `KSPNativeMain` for a konan target.
 
-    kt_jvm_ksp_sources(
-        name = "shared_ksp_jvm",
-        srcs = COMMON_SRCS + JVM_SRCS,
-        common_srcs = COMMON_SRCS,
-        deps = ["@maven//:me_tatarka_inject_kotlin_inject_runtime_kmp_jvm"],
-        processors = [":kotlin_inject_ksp"],        # a kt_ksp_plugin
-        generated = ["shared/InjectComponent.kt"],  # relative to the output root of KSP
-    )
-
-    kt_multiplatform_library(
-        name = "shared",
-        platforms = ["jvm", ...],
-        # Every platform compiles the srcs of the macro; the KSP target takes them in its srcs and
-        # again in its common_srcs.
-        srcs = COMMON_SRCS,
-        # Only the JVM lists the generated sources: its leaf fragment compiles them.
-        srcs_jvm = JVM_SRCS + [":shared_ksp_jvm"],
-        ...
-    )
-
 The output contract is a list of plain Kotlin files, never a srcjar or a directory: a library with
 `kmp_fragments` compiles the files of its `srcs` as the leaf fragment, and a Kotlin/Native fragment needs
-concrete source paths. The action fails, listing the files, when the processors write a file that
-`generated` does not declare or do not write one it declares, and when they write Java sources, class files or
-resources, which these rules do not feed to a compilation. Declare the files by running the tool once and
-listing the files the failure names.
-
-KSP processes the sources of the platform before the common ones (`common_srcs`), as the KSP Gradle plugin orders
-the source sets of a platform compilation: the expect/actual pairs of the module are in one KSP module, and a type
-resolves to the declaration KSP sees first, the `actual` one, with its constructors and members.
-
-The libraries KSP resolves symbols against are the ones of the platform: the compile classpath of `deps`
-and the Kotlin standard library for the JVM, plus the Android SDK jar for Android (when its toolchain is
-registered); for Kotlin/Native the klibs of `deps` of the konan target of the build, never JVM jars, and the
-standard library and platform libraries of the Kotlin/Native distribution.
-
-This is the exception to the rule that KSP of the JVM rules is the compiler plugin: it is a separate action, so
-it does not give the processors the generated sources of other plugins and runs once per platform. It does not
-make the compiler plugin work with `kmp_fragments`, and no srcjar of generated sources is supported by them.
+concrete source paths. KSP processes the sources of the platform before the common ones (see
+_source_roots). See docs/kmp.md for usage.
 """
 
 load("@rules_java//java:defs.bzl", "JavaInfo", "java_common")
