@@ -68,6 +68,29 @@ kt_jvm_library(
     resource_jars = [":resourcejar"],
 )
 
+java_binary(
+    name = "test_merge_resourcesjar_no_srcs_consumer",
+    srcs = ["propagation/ResourceDependent.java"],
+    main_class = "testing.ResourceDependent",
+    runtime_deps = [":test_merge_resourcesjar_no_srcs"],
+)
+
+# a test resource library whose pkg/file.txt differs from the one of :resourcejar.
+java_library(
+    name = "resourcejar_overlap",
+    resource_strip_prefix = "src/test/data/jvm/basic/resourcejar_overlap",
+    resources = glob(["resourcejar_overlap/**"]),
+)
+
+# The order of resource_jars is the subject of the test: the entry of the first jar wins.
+kt_jvm_library(
+    name = "test_merge_resourcesjar_overlap",
+    resource_jars = [
+        ":resourcejar_overlap",
+        ":resourcejar",
+    ],
+)
+
 kt_jvm_library(
     name = "test_embed_resources_strip_prefix",
     srcs = glob(["testresources/src/*.kt"]),
@@ -137,6 +160,8 @@ filegroup(
         ":test_manifest_lines_lib.jar",
         ":test_merge_resourcesjar.jar",
         ":test_merge_resourcesjar_no_srcs.jar",
+        ":test_merge_resourcesjar_no_srcs_consumer",
+        ":test_merge_resourcesjar_overlap.jar",
         ":test_module_name_attr_lib",
         ":test_module_name_bin",
         ":test_module_name_bin.jar",
