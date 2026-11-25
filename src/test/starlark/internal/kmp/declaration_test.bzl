@@ -1,9 +1,16 @@
-"""Unit tests for the declaration of kt_multiplatform_library: its qualified lists, its aliases, its settings, their checks and the lists of each platform."""
+"""Unit tests for the declaration of kt_multiplatform_library and kt_multiplatform_test: its qualified lists, its aliases, its settings, their checks and the lists of each platform."""
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 
 # buildifier: disable=bzl-visibility
-load("//kotlin/internal/kmp:declaration.bzl", "parse_declaration", "platform_list", "unsupported_platforms")
+load(
+    "//kotlin/internal/kmp:declaration.bzl",
+    "TEST_QUALIFIED_ATTRS",
+    "parse_declaration",
+    "platform_list",
+    "sourceless_error",
+    "unsupported_platforms",
+)
 
 # buildifier: disable=bzl-visibility
 load("//kotlin/internal/kmp:hierarchy.bzl", "make_hierarchy")
@@ -41,6 +48,18 @@ def _relative(label):
 
 def _parse(platforms = _IOS_APP, common = {}, settings = {}, aliases = None, **kwargs):
     return parse_declaration(platforms, common, settings, kwargs, aliases = aliases, normalize = _relative)
+
+def _parse_test(platforms = _IOS_APP, common = {}, settings = {}, aliases = None, **kwargs):
+    return parse_declaration(
+        platforms,
+        common,
+        settings,
+        kwargs,
+        aliases = aliases,
+        normalize = _relative,
+        attrs = TEST_QUALIFIED_ATTRS,
+        kind = "test",
+    )
 
 def _declaration_test(ctx):
     """A declaration of every kind of list parses into its lists, its settings and the attributes common to every rule."""
@@ -595,7 +614,111 @@ def _custom_hierarchy_test(ctx):
 
     return unittest.end(env)
 
+def _test_declaration_test(ctx):
+    """The declaration of a test has the srcs, deps and plugins of a library, no exports, and messages that call its targets tests."""
+    env = unittest.begin(ctx)
+
+    declaration = _parse_test(
+        aliases = {"count": ["jvm", "ios_arm64"]},
+        common = {"deps": [":kotlin_test"], "srcs": ["commonTest/GreetingTest.kt"]},
+        settings = {"jvm": dict(jvm_flags = ["-Xmx1g"])},
+        deps_jvm = [":junit"],
+        env_inherit = ["HOME"],
+        plugins_native = [":plugin"],
+        shard_count = 2,
+        size = "small",
+        srcs_count = ["countTest/Helper.kt"],
+        srcs_ios = ["iosTest/Helper.kt"],
+    )
+
+    asserts.equals(env, None, declaration.error)
+    asserts.equals(
+        env,
+        {
+            "deps": {"common": [":kotlin_test"], "jvm": [":junit"]},
+            "plugins": {"native": [":plugin"]},
+            "srcs": {
+                "common": ["commonTest/GreetingTest.kt"],
+                "count": ["countTest/Helper.kt"],
+                "ios": ["iosTest/Helper.kt"],
+            },
+        },
+        declaration.lists,
+    )
+    asserts.equals(env, {"android": {}, "jvm": {"jvm_flags": ["-Xmx1g"]}, "native": {}}, declaration.settings)
+
+    # The attributes of every test that end with the name of an alias are not lists of the alias.
+    asserts.equals(env, {"env_inherit": ["HOME"], "shard_count": 2, "size": "small"}, declaration.rule_attrs)
+    asserts.equals(env, [":kotlin_test", ":junit"], platform_list(declaration, "deps", "jvm"))
+    asserts.equals(env, [":plugin"], platform_list(declaration, "plugins", "ios_arm64"))
+
+    for message, platforms, settings, kwargs in [
+        ("exports: a test has no exports; its lists are srcs, deps and plugins", _IOS_APP, {}, {"exports": [":api"]}),
+        ("exports_jvm: a test has no exports; its lists are srcs, deps and plugins", _IOS_APP, {}, {"exports_jvm": [":api"]}),
+        ("jvm sets exports: a test has no exports", ["jvm"], {"jvm": dict(exports = [":api"])}, {}),
+        ("jvm sets deps: pass deps_jvm to the macro", ["jvm"], {"jvm": dict(deps = [])}, {}),
+        ("jvm must be a dict of attributes of the JVM test, not a list", ["jvm"], {"jvm": []}, {}),
+        (
+            "android sets attributes of the Android test, but platforms does not list android",
+            ["jvm"],
+            {"android": dict(manifest = "AndroidManifest.xml")},
+            {},
+        ),
+        (
+            "native sets attributes of the native test, but platforms lists no native platform: add %s, or remove native" % _KONAN_TARGETS,
+            ["jvm"],
+            {"native": dict(opts = ["-opt"])},
+            {},
+        ),
+        ("native sets kmp_fragments, which the macro derives from the sources", ["linux_x64"], {"native": dict(kmp_fragments = [])}, {}),
+        ("ios: only jvm, android and native take a dict of attributes of their test", _IOS_APP, {}, {"ios": dict(opts = [])}),
+        ("opts_ios: only srcs, deps and plugins take a group or a platform", _IOS_APP, {}, {"opts_ios": []}),
+        ("srcs_jvm lists sources, but platforms does not list jvm", ["linux_x64"], {}, {"srcs_jvm": ["a.kt"]}),
+    ]:
+        asserts.equals(
+            env,
+            message,
+            parse_declaration(platforms, {}, settings, kwargs, normalize = _relative, attrs = TEST_QUALIFIED_ATTRS, kind = "test").error,
+        )
+    asserts.equals(
+        env,
+        "opts_non_android: only srcs, deps and plugins take an alias",
+        _parse_test(aliases = _NON_ANDROID, opts_non_android = ["-opt"]).error,
+    )
+
+    # A library takes exports, and its messages call its targets libraries.
+    asserts.equals(env, None, _parse(exports_jvm = [":api"]).error)
+
+    return unittest.end(env)
+
+def _sourceless_error_test(ctx):
+    """The error of a platform without sources names the lists of the qualifiers covering it, from common down."""
+    env = unittest.begin(ctx)
+
+    declaration = _parse_test(
+        platforms = ["jvm", "linux_x64", "ios_arm64"],
+        aliases = {"jvm_linux": ["jvm", "linux_x64"]},
+        srcs_jvm = ["jvmTest/GreetingTest.kt"],
+    )
+    asserts.equals(env, None, declaration.error)
+    asserts.equals(
+        env,
+        "linux_x64 has no sources: list some in the srcs of the macro, srcs_native, srcs_jvm_linux, srcs_linux or " +
+        "srcs_linux_x64, or remove linux_x64 from platforms",
+        sourceless_error(declaration, "linux_x64"),
+    )
+    asserts.equals(
+        env,
+        "ios_arm64 has no sources: list some in the srcs of the macro, srcs_native, srcs_apple, srcs_ios or " +
+        "srcs_ios_arm64, or remove ios_arm64 from platforms",
+        sourceless_error(declaration, "ios_arm64"),
+    )
+
+    return unittest.end(env)
+
 declaration_test = unittest.make(_declaration_test)
+test_declaration_test = unittest.make(_test_declaration_test)
+sourceless_error_test = unittest.make(_sourceless_error_test)
 platform_list_test = unittest.make(_platform_list_test)
 aliases_test = unittest.make(_aliases_test)
 alias_errors_test = unittest.make(_alias_errors_test)
@@ -608,6 +731,8 @@ def declaration_test_suite(name):
     unittest.suite(
         name,
         declaration_test,
+        test_declaration_test,
+        sourceless_error_test,
         platform_list_test,
         aliases_test,
         alias_errors_test,

@@ -39,7 +39,7 @@ load(
     _utils = "utils",
 )
 
-_ATTRS = _utils.add_dicts(_BASE_ATTRS, _attrs.runnable_common_attr, {
+_ATTRS = _utils.add_dicts(_BASE_ATTRS, _attrs.runnable_common_attr, _attrs.test_kmp_fragments_attr, {
     "jacocorunner": attr.label(
         default = Label("@remote_java_tools//:jacoco_coverage_runner"),
     ),

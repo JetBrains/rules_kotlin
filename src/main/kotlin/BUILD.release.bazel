@@ -41,6 +41,15 @@ java_import(
     jars = ["konan_launcher_lib.jar"],
 )
 
+# The default test class of the JVM and Android tests of kt_multiplatform_test, on their runtime
+# classpath: it uses the JUnit 4 of the test runner jar of those tests.
+java_import(
+    name = "kmp_test_suite",
+    jars = ["kmp_test_suite.jar"],
+    visibility = ["//visibility:public"],
+    runtime_deps = ["//kotlin/compiler:kotlin-stdlib"],
+)
+
 java_import(
     name = "jdeps-gen",
     jars = ["jdeps-gen.jar"],

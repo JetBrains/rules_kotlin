@@ -2,7 +2,9 @@
 
 The srcs compile into a private klib, and the link generates a test runner for its tests (see
 link.bzl). The runner exits with 1 when a test fails. It takes its own options, e.g.
-`--ktest_filter=<pattern>`, through `args` or `bazel test --test_arg=...`.
+`--ktest_filter=<pattern>`, through `args` or `bazel test --test_arg=...`. With kmp_fragments, the
+test sources a kt_multiplatform_test shares compile with the srcs, as K2 fragments (see
+//kotlin/internal/kmp:fragments.bzl).
 
 The test runs on the exec host, which runs the binaries of its own konan target: the build's
 platform is the host's, as by default. A test for another konan target links like a cc_test for
@@ -10,6 +12,8 @@ another platform, so a build of every target for that platform builds it too, bu
 run on the host.
 """
 
+load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo")
+load("//kotlin/internal/kmp:fragments.bzl", "collect_fragments")
 load(":link.bzl", "EXECUTABLE_ATTRS", "LINK_ATTRS", "executable_runfiles", "link_native")
 load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
@@ -17,8 +21,9 @@ load(":transition.bzl", "kt_native_transition")
 
 def _kt_native_test_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
-    if not ctx.files.srcs:
-        fail("%s: kt_native_test has no srcs; its test runner only runs the tests of its srcs" % ctx.label)
+    fragments = collect_fragments(ctx, ctx.attr.kmp_fragments, tc.konan_target, ctx.files.srcs)
+    if not fragments.srcs:
+        fail("%s: kt_native_test has no sources, in its srcs or its kmp_fragments; its test runner only runs the tests of its own sources" % ctx.label)
 
     binary = ctx.actions.declare_file(ctx.label.name + ".kexe")
     link_native(
@@ -28,6 +33,7 @@ def _kt_native_test_impl(ctx):
         extra_deps = ctx.attr.associates,
         friends = [associate[KtKlibInfo].compile_klib for associate in ctx.attr.associates],
         extra_args = ["-generate-test-runner"],
+        fragments = fragments,
         progress_message = "Linking Kotlin/Native test %{label} (" + tc.konan_target + ")",
     )
     return [DefaultInfo(executable = binary, files = depset([binary]), runfiles = executable_runfiles(ctx))]
@@ -47,6 +53,16 @@ kt_native_test = rule(
             too. The srcs compile against their header klibs when they write one (see the build setting
             experimental_native_header_klibs): a header klib keeps internal declarations.""",
             providers = [KtKlibInfo],
+        ),
+        "kmp_fragments": attr.label_list(
+            doc = """The K2 fragments of a `kt_multiplatform_test` that the srcs refine: the test sources of the groups above
+            the konan target in its hierarchy, e.g. `common`, `native` and `apple`, and those it shares with other groups
+            or platforms. `kt_multiplatform_test` sets it from the sources of each group and platform; it is not set by
+            hand. The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one
+            compilation (`-Xmulti-platform`), against the deps and the associates, so the `actual` declarations of the srcs
+            implement the `expect` ones of the fragments; the srcs are the leaf fragment, named after the konan target, and
+            may be empty. The test runner runs the tests of the fragments too.""",
+            providers = [KtFragmentInfo],
         ),
         "srcs": attr.label_list(
             doc = "Kotlin sources with the tests.",

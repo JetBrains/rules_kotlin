@@ -199,7 +199,7 @@ def _source_in_two_fragments_test(ctx):
     asserts.equals(
         env,
         "the source shared/Platform.kt is in both fragment 'jvm-linux_x64' and 'jvm': a source is in one fragment, " +
-        "and two lists of kt_multiplatform_library name it through different labels; list it once",
+        "and two lists of the macro name it through different labels; list it once",
         plan.error,
     )
 

@@ -23,7 +23,7 @@ bzl_library(
     visibility = ["//kotlin:__subpackages__"],
 )
 
-# The macro and the KSP rules, apart: they load the JVM, Android and Kotlin/Native rules, which
+# The macros and the KSP rules, apart: they load the JVM, Android and Kotlin/Native rules, which
 # load the fragments.
 bzl_library(
     name = "multiplatform",
@@ -34,6 +34,7 @@ bzl_library(
         "ksp.bzl",
         "multiplatform.bzl",
         "qualifiers.bzl",
+        "test.bzl",
     ],
     visibility = ["//kotlin:__subpackages__"],
     deps = [

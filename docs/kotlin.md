@@ -182,8 +182,8 @@ This rule compiles and links Kotlin and Java sources into a .jar file.
 load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
 
 kt_jvm_test(<a href="#kt_jvm_test-name">name</a>, <a href="#kt_jvm_test-deps">deps</a>, <a href="#kt_jvm_test-srcs">srcs</a>, <a href="#kt_jvm_test-data">data</a>, <a href="#kt_jvm_test-resources">resources</a>, <a href="#kt_jvm_test-associates">associates</a>, <a href="#kt_jvm_test-env">env</a>, <a href="#kt_jvm_test-env_inherit">env_inherit</a>, <a href="#kt_jvm_test-java_stub_template">java_stub_template</a>,
-            <a href="#kt_jvm_test-javac_opts">javac_opts</a>, <a href="#kt_jvm_test-jvm_flags">jvm_flags</a>, <a href="#kt_jvm_test-kotlinc_opts">kotlinc_opts</a>, <a href="#kt_jvm_test-main_class">main_class</a>, <a href="#kt_jvm_test-manifest_lines">manifest_lines</a>, <a href="#kt_jvm_test-module_name">module_name</a>, <a href="#kt_jvm_test-plugins">plugins</a>,
-            <a href="#kt_jvm_test-resource_jars">resource_jars</a>, <a href="#kt_jvm_test-resource_strip_prefix">resource_strip_prefix</a>, <a href="#kt_jvm_test-runtime_deps">runtime_deps</a>, <a href="#kt_jvm_test-test_class">test_class</a>)
+            <a href="#kt_jvm_test-javac_opts">javac_opts</a>, <a href="#kt_jvm_test-jvm_flags">jvm_flags</a>, <a href="#kt_jvm_test-kmp_fragments">kmp_fragments</a>, <a href="#kt_jvm_test-kotlinc_opts">kotlinc_opts</a>, <a href="#kt_jvm_test-main_class">main_class</a>, <a href="#kt_jvm_test-manifest_lines">manifest_lines</a>,
+            <a href="#kt_jvm_test-module_name">module_name</a>, <a href="#kt_jvm_test-plugins">plugins</a>, <a href="#kt_jvm_test-resource_jars">resource_jars</a>, <a href="#kt_jvm_test-resource_strip_prefix">resource_strip_prefix</a>, <a href="#kt_jvm_test-runtime_deps">runtime_deps</a>, <a href="#kt_jvm_test-test_class">test_class</a>)
 </pre>
 
 Setup a simple kotlin_test.
@@ -208,6 +208,7 @@ Setup a simple kotlin_test.
 | <a id="kt_jvm_test-java_stub_template"></a>java_stub_template |  -   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `"@rules_kotlin//third_party:java_stub_template.txt"`  |
 | <a id="kt_jvm_test-javac_opts"></a>javac_opts |  Javac options to be used when compiling this target. These opts if provided will be used instead of the ones provided to the toolchain.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
 | <a id="kt_jvm_test-jvm_flags"></a>jvm_flags |  A list of flags to embed in the wrapper script generated for running this binary. Note: does not yet support make variable substitution.   | List of strings | optional |  `[]`  |
+| <a id="kt_jvm_test-kmp_fragments"></a>kmp_fragments |  The K2 fragments of a `kt_multiplatform_test` that the srcs refine: the test sources of the groups above the platform in its hierarchy, e.g. `common`, and those the platform shares with other groups or platforms. `kt_multiplatform_test` sets it from the sources of each group and platform; it is not set by hand. The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one compilation (`-Xmulti-platform`), against the deps and the associates of the target, so the `actual` declarations of the srcs implement the `expect` ones of the fragments; the srcs are the leaf fragment, `jvm` or `android`. A target with fragments cannot have .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_jvm_test-kotlinc_opts"></a>kotlinc_opts |  Kotlinc options to be used when compiling this target. These opts if provided will be used instead of the ones provided to the toolchain.   | <a href="https://bazel.build/concepts/labels">Label</a> | optional |  `None`  |
 | <a id="kt_jvm_test-main_class"></a>main_class |  -   | String | optional |  `"com.google.testing.junit.runner.BazelTestRunner"`  |
 | <a id="kt_jvm_test-manifest_lines"></a>manifest_lines |  Lines to add to the main section of the manifest of the output jar, each in the form `Name: value`. They follow the `Target-Label` and `Injecting-Rule-Kind` attributes the rules write. A line that repeats them, `Manifest-Version` or `Created-By` is rejected. As in the `deploy_manifest_lines` attribute of `java_binary`, `Multi-Release`, `Add-Exports` and `Add-Opens` lines are not copied as they are: singlejar merges them and writes them in its normalized form, and `Multi-Release` takes `true` or `false`. A target without `srcs` and `resources` (and, for a library, `kmp_fragments`) has no jar of its own and rejects the attribute.   | List of strings | optional |  `[]`  |
@@ -852,7 +853,8 @@ off for the library. See CompileAvoidance.md.
 <pre>
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_test")
 
-kt_native_test(<a href="#kt_native_test-name">name</a>, <a href="#kt_native_test-deps">deps</a>, <a href="#kt_native_test-srcs">srcs</a>, <a href="#kt_native_test-data">data</a>, <a href="#kt_native_test-associates">associates</a>, <a href="#kt_native_test-link_opts">link_opts</a>, <a href="#kt_native_test-module_name">module_name</a>, <a href="#kt_native_test-opts">opts</a>, <a href="#kt_native_test-plugins">plugins</a>)
+kt_native_test(<a href="#kt_native_test-name">name</a>, <a href="#kt_native_test-deps">deps</a>, <a href="#kt_native_test-srcs">srcs</a>, <a href="#kt_native_test-data">data</a>, <a href="#kt_native_test-associates">associates</a>, <a href="#kt_native_test-kmp_fragments">kmp_fragments</a>, <a href="#kt_native_test-link_opts">link_opts</a>, <a href="#kt_native_test-module_name">module_name</a>, <a href="#kt_native_test-opts">opts</a>,
+               <a href="#kt_native_test-plugins">plugins</a>)
 </pre>
 
 Links the tests of the srcs into a Kotlin/Native test runner, `<name>.kexe`, which `bazel test` runs.
@@ -873,6 +875,7 @@ test to skip it for the platforms it does not run on.
 | <a id="kt_native_test-srcs"></a>srcs |  Kotlin sources with the tests.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_test-data"></a>data |  Files the executable reads when it runs, with their own runfiles. They are in its runfiles tree, where `bazel run` and `bazel test` start it: a file of the main repository is at its path from the root of the workspace, e.g. `testdata/input.txt`.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_test-associates"></a>associates |  kt_native_library targets whose internal declarations the srcs see. They are deps of the test too. The srcs compile against their header klibs when they write one (see the build setting experimental_native_header_klibs): a header klib keeps internal declarations.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_test-kmp_fragments"></a>kmp_fragments |  The K2 fragments of a `kt_multiplatform_test` that the srcs refine: the test sources of the groups above the konan target in its hierarchy, e.g. `common`, `native` and `apple`, and those it shares with other groups or platforms. `kt_multiplatform_test` sets it from the sources of each group and platform; it is not set by hand. The Kotlin sources of the fragments, and of the fragments they refine, compile with the srcs in one compilation (`-Xmulti-platform`), against the deps and the associates, so the `actual` declarations of the srcs implement the `expect` ones of the fragments; the srcs are the leaf fragment, named after the konan target, and may be empty. The test runner runs the tests of the fragments too.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_native_test-link_opts"></a>link_opts |  More konanc options of the link, e.g. `-opt`. They follow the options of the rule. An argument of the linker itself is the value of the konanc option `-linker-option`: `["-linker-option", "-dead_strip"]`.   | List of strings | optional |  `[]`  |
 | <a id="kt_native_test-module_name"></a>module_name |  The Kotlin module name of the srcs, the unique_name of the klib they compile into. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
 | <a id="kt_native_test-opts"></a>opts |  More konanc options of the compilation of the srcs, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`.   | List of strings | optional |  `[]`  |
@@ -912,12 +915,15 @@ Experimental:
 - kt_multiplatform_library: a multiplatform library declared once for its platforms: a library per
   platform, compiling the sources it shares with other platforms as K2 fragments, and an alias
   selecting the library of its consumer.
+- kt_multiplatform_test: the tests of such a library, declared the same way: a test per platform,
+  compiling the test sources it shares with other platforms as K2 fragments, with the library of
+  the platform as associate, and a test_suite of them.
 - kt_jvm_ksp_sources, kt_native_ksp_sources: KSP2 over the sources of a platform, as a separate
   action whose generated Kotlin files the library of the platform compiles.
 
-kt_multiplatform_library declares a kt_android_library when it has an `android` platform, so this
-file loads the Android rules. See examples/kmp and examples/kmp_app for usage, and docs/kmp.md
-for the guide.
+kt_multiplatform_library declares a kt_android_library when it has an `android` platform, and
+kt_multiplatform_test a kt_android_local_test, so this file loads the Android rules. See
+examples/kmp and examples/kmp_app for usage, and docs/kmp.md for the guide.
 
 <a id="kt_jvm_ksp_sources"></a>
 
@@ -1062,5 +1068,69 @@ name, neither above the other.
 | <a id="kt_multiplatform_library-tags"></a>tags |  the tags of the targets.   |  `[]` |
 | <a id="kt_multiplatform_library-testonly"></a>testonly |  whether the targets are testonly.   |  `False` |
 | <a id="kt_multiplatform_library-kwargs"></a>kwargs |  the lists of the groups, the platforms and the aliases, `<attr>_<qualifier>`: `<attr>` is `srcs`, `deps`, `exports` or `plugins`, and `<qualifier>` a group, `native`, `linux`, `apple`, `macos` or `ios`, a platform, or an alias. Each is a list of labels; an empty one is the same as none. The deps, exports and plugins of `jvm` and `android`, whose libraries build a single platform, may also be or end with a select(). The other keyword arguments are attributes common to every rule, e.g. `features`, of every target.   |  none |
+
+
+<a id="kt_multiplatform_test"></a>
+
+## kt_multiplatform_test
+
+<pre>
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_test")
+
+kt_multiplatform_test(<a href="#kt_multiplatform_test-name">name</a>, <a href="#kt_multiplatform_test-library">library</a>, <a href="#kt_multiplatform_test-platforms">platforms</a>, <a href="#kt_multiplatform_test-aliases">aliases</a>, <a href="#kt_multiplatform_test-srcs">srcs</a>, <a href="#kt_multiplatform_test-deps">deps</a>, <a href="#kt_multiplatform_test-plugins">plugins</a>, <a href="#kt_multiplatform_test-jvm">jvm</a>, <a href="#kt_multiplatform_test-android">android</a>, <a href="#kt_multiplatform_test-native">native</a>,
+                      <a href="#kt_multiplatform_test-visibility">visibility</a>, <a href="#kt_multiplatform_test-tags">tags</a>, <a href="#kt_multiplatform_test-kwargs">**kwargs</a>)
+</pre>
+
+Declares the tests of a Kotlin Multiplatform library: a test per platform, the test fragments they share, `<name>.fragments` and a test_suite.
+
+Experimental. The test sources are declared as the sources of `kt_multiplatform_library` are:
+`platforms` lists the platforms to test, `srcs`, `deps` and `plugins` are those of every
+platform, a group, a platform or an alias of `aliases` has its own as `<attr>_<qualifier>`, e.g.
+`srcs_jvm`, `srcs_native` or `deps_non_android`, and each platform compiles the lists of the
+groups and aliases above it and its own. The test sources of a group or an alias are a K2
+fragment of the tests of its platforms, named after it, so a common test can use an `expect`
+helper that each platform implements with `actual`. Running `<name>.fragments` prints the
+derived test fragments. The platforms and the aliases are those of the test, not of the
+library: they may be fewer, and the test may declare aliases of its own.
+
+The test of a platform is a `kt_jvm_test`, a `kt_android_local_test` or a `kt_native_test`
+whose `associates` are the library of that platform, `<library>_jvm`, `<library>_android` or
+`<library>_native`: every test fragment sees the `internal` declarations of the whole library
+of the platform, and the library is a dep of the test. The other deps of the tests are their
+own lists: a test does not inherit the deps of the library that the library does not export.
+A platform of the test that the library does not list is a missing `<library>_<platform>`
+target, or, for a konan target, a native test that is skipped as incompatible.
+
+The tests of the JVM and of Android use JUnit 4, e.g. through `kotlin-test-junit`, and run
+every public class of their own jar that has a method annotated with `@Test` (or is annotated
+with `@RunWith`); a jar without any fails the test. Setting `test_class` in `jvm` or `android`,
+or a `main_class` other than the test runner of Bazel, runs that instead. The native test runs
+like any `kt_native_test`: `bazel test` runs it for the konan target of the exec host, and it
+is incompatible with the platforms of the konan targets that `platforms` does not list.
+`bazel test <name>` runs the tests of every platform that the build's platform is compatible
+with.
+
+The macro checks the declaration when it is called and fails with what to change, as
+`kt_multiplatform_library` does, and also for a platform that no list gives test sources.
+
+
+**PARAMETERS**
+
+
+| Name  | Description | Default Value |
+| :------------- | :------------- | :------------- |
+| <a id="kt_multiplatform_test-name"></a>name |  the name of the test_suite, and the prefix of the names of the other targets.   |  none |
+| <a id="kt_multiplatform_test-library"></a>library |  the label of the `kt_multiplatform_library` under test, the one of its alias.   |  none |
+| <a id="kt_multiplatform_test-platforms"></a>platforms |  the platforms to test, in any order, among those of the library, e.g. `["jvm", "macos_arm64", "linux_x64"]`. The macro declares `<name>_jvm` for `jvm`, `<name>_android` for `android` and `<name>_native` for the konan targets.   |  `None` |
+| <a id="kt_multiplatform_test-aliases"></a>aliases |  the sets of platforms that the hierarchy has no group for, a dict of the name of each to its platforms, as in `kt_multiplatform_library`.   |  `{}` |
+| <a id="kt_multiplatform_test-srcs"></a>srcs |  the test sources of every platform, a list of labels, e.g. those of Gradle's `commonTest`. Those of only some platforms are the srcs of a group, a platform or an alias, e.g. `srcs_jvm` for `jvmTest`.   |  `[]` |
+| <a id="kt_multiplatform_test-deps"></a>deps |  the deps of the test of every platform, a list of labels, each of which resolves for every platform. Those of only some platforms are the deps of a group, a platform or an alias, e.g. `deps_jvm` for `kotlin-test-junit`.   |  `[]` |
+| <a id="kt_multiplatform_test-plugins"></a>plugins |  the Kotlin compiler plugins of every platform, a list of kt_compiler_plugin targets.   |  `[]` |
+| <a id="kt_multiplatform_test-jvm"></a>jvm |  the other attributes of the kt_jvm_test `<name>_jvm`, e.g. `dict(jvm_flags = [...])`; its srcs, deps and plugins are `srcs_jvm`, `deps_jvm` and `plugins_jvm`.   |  `None` |
+| <a id="kt_multiplatform_test-android"></a>android |  the other attributes of the kt_android_local_test `<name>_android`, e.g. `dict(manifest = "AndroidManifest.xml")`.   |  `None` |
+| <a id="kt_multiplatform_test-native"></a>native |  the other attributes of the kt_native_test `<name>_native`, e.g. `dict(opts = ["-opt-in=kotlin.ExperimentalStdlibApi"])`, for each of its konan targets.   |  `None` |
+| <a id="kt_multiplatform_test-visibility"></a>visibility |  the visibility of the tests, of `<name>.fragments` and of the test_suite; the fragments are private.   |  `None` |
+| <a id="kt_multiplatform_test-tags"></a>tags |  the tags of the targets.   |  `[]` |
+| <a id="kt_multiplatform_test-kwargs"></a>kwargs |  the lists of the groups, the platforms and the aliases, `<attr>_<qualifier>`: `<attr>` is `srcs`, `deps` or `plugins`. Each is a list of labels; the deps and plugins of `jvm` and `android` may also be or end with a select(). The other keyword arguments are attributes of every test, e.g. `size`, `timeout` or `target_compatible_with`.   |  none |
 
 

@@ -1,11 +1,12 @@
 """The K2 fragments of a Kotlin Multiplatform compilation.
 
 kt_jvm_library, kt_android_library and kt_native_library compile the sources a
-kt_multiplatform_library shares (see derive.bzl) as the Kotlin Gradle plugin compiles a platform:
-the fragments of their `kmp_fragments` (see fragment.bzl), which their srcs refine, and the
-fragments those refine, transitively, are fragments of the compilation, most shared first, and the
-rule's own `srcs` are the leaf fragment, named after its platform: `jvm`, `android` or the konan
-target. The leaf may be empty. konanc and kotlinc take the fragments with:
+kt_multiplatform_library shares (see derive.bzl), and kt_jvm_test, kt_android_local_test and
+kt_native_test the test sources a kt_multiplatform_test shares, as the Kotlin Gradle plugin
+compiles a platform: the fragments of their `kmp_fragments` (see fragment.bzl), which their srcs
+refine, and the fragments those refine, transitively, are fragments of the compilation, most
+shared first, and the rule's own `srcs` are the leaf fragment, named after its platform: `jvm`,
+`android` or the konan target. The leaf may be empty. konanc and kotlinc take the fragments with:
 
     -Xmulti-platform
     -Xexpect-actual-classes
@@ -76,7 +77,7 @@ def plan_fragments(fragments, leaf_name, leaf_srcs):
                 continue
             if owner != None:
                 return _error(("the source %s is in both fragment '%s' and '%s': a source is in one fragment, and two " +
-                               "lists of kt_multiplatform_library name it through different labels; list it once") %
+                               "lists of the macro name it through different labels; list it once") %
                               (_path(src), owner, name))
             fragment_of[src] = name
             own.append(src)

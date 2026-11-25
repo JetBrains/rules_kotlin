@@ -1,0 +1,18 @@
+load("//kotlin:jvm.bzl", "kt_jvm_import")
+load("//src/main/kotlin:bootstrap.bzl", "kt_bootstrap_library")
+
+# The runner jar kt_jvm_test and kt_android_local_test add to the runtime classpath of every test,
+# which bundles JUnit 4: the suite compiles against it and brings no JUnit of its own.
+kt_jvm_import(
+    name = "bazel_test_runner",
+    jars = ["@bazel_tools//tools/jdk:TestRunner_deploy.jar"],
+)
+
+# The default test class of the JVM and Android tests of kt_multiplatform_test (see
+# //kotlin/internal/kmp:test.bzl), on their runtime classpath.
+kt_bootstrap_library(
+    name = "kmp_test_suite",
+    srcs = ["MultiplatformTestSuite.kt"],
+    neverlink_deps = [":bazel_test_runner"],
+    visibility = ["//src:__subpackages__"],
+)

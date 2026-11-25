@@ -491,6 +491,8 @@ kt_multiplatform_library(
 
 `//shared` is then the JVM library for a JVM consumer, the Android library for an Android one and the
 klib of the konan target for the Kotlin/Native rules, e.g. the `kt_native_framework` an iOS app links.
+`kt_multiplatform_test` declares the tests of such a module the same way: common tests, written
+once, run on each platform as a friend of its library.
 
 Kotlin/Native is pinned apart from the Kotlin compiler of the JVM toolchain, to a dev build of the next
 Kotlin release, whose klibs compile through the Kotlin Build Tools API: see

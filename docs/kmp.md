@@ -305,7 +305,9 @@ them out of its Objective-C header that way: `kt_native_framework(name = "shared
 ## `kt_multiplatform_library`
 
 `@rules_kotlin//kotlin:kmp.bzl` has the multiplatform rules:
-[`kt_multiplatform_library`](kotlin.md#kt_multiplatform_library), and the rules of
+[`kt_multiplatform_library`](kotlin.md#kt_multiplatform_library),
+[`kt_multiplatform_test`](kotlin.md#kt_multiplatform_test) for its tests (see
+[Tests, binaries and frameworks](#tests-binaries-and-frameworks)), and the rules of
 [KSP for a multiplatform library](#ksp-for-a-multiplatform-library).
 
 `kt_multiplatform_library` declares a Kotlin Multiplatform module as the Kotlin Gradle plugin builds
@@ -454,7 +456,7 @@ The declaration maps that of a module of the Kotlin Toolchain:
 | Lists appended from common to specific        | The same, per attribute                              |
 | `aliases:` with `nonAndroid: [jvm, iosArm64]` | `aliases = {"non_android": ["jvm", "ios_arm64"]}`    |
 | `src@nonAndroid/`, `dependencies@nonAndroid:` | `srcs_non_android`, `deps_non_android`, likewise `exports` and `plugins` |
-| `test/`, `test@ios/`, `test-dependencies:`    | Not provided: a test target per platform (see [Tests, binaries and frameworks](#tests-binaries-and-frameworks)) |
+| `test/`, `test@ios/`, `test-dependencies:`    | The `srcs`, `srcs_ios` and `deps` of a `kt_multiplatform_test` (see [Tests, binaries and frameworks](#tests-binaries-and-frameworks)) |
 | `settings: kotlin: linkerOptions`             | `link_opts = ["-linker-option", ...]` of the rule that links |
 | `settings: native: entryPoint`                | `link_opts = ["-e", ...]` of `kt_native_binary`      |
 
@@ -602,12 +604,83 @@ rule sets, which follow `deps`, `exports` and `runtime_deps`, e.g. the dexing as
 
 ### Tests, binaries and frameworks
 
-`kt_jvm_test`, `kt_android_local_test`, `kt_jvm_binary`, `kt_native_binary`, `kt_native_test` and
-`kt_native_framework` compile only their own `srcs`. They get the shared code from the library of
-their platform, as the test compilation of a Gradle module compiles against its main one: a test of
-the common code depends on `//shared`, which is `shared_jvm` for a `kt_jvm_test` and `shared_native`
-for a `kt_native_test`, and a framework exports it (see [The iOS app](#the-ios-app)). As in
+[`kt_multiplatform_test`](kotlin.md#kt_multiplatform_test) declares the tests of a
+`kt_multiplatform_library` the way the library declares its sources, as the `test/` and
+`test@<platform>/` of a Kotlin Toolchain module or the `commonTest` and `jvmTest` of a Gradle build:
+tests written once run on every platform, with the helpers each platform implements. As in
 `examples/kmp`:
+
+```starlark
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_test")
+
+kt_multiplatform_test(
+    name = "shared_test",
+    srcs = ["common/SharedTest.kt"],                       # commonTest: kotlin.test, an `expect` helper
+    deps_jvm = [
+        "@maven//:junit_junit",
+        "@rules_kotlin//kotlin/compiler:kotlin-test",
+        "@rules_kotlin//kotlin/compiler:kotlin-test-junit",
+    ],
+    library = "//shared",
+    platforms = ["jvm", "linux_x64", "macos_arm64"],
+    srcs_jvm = ["jvm/PlatformOfTheTest.jvm.kt"],           # jvmTest: its `actual`
+    srcs_native = ["native/PlatformOfTheTest.native.kt"],  # nativeTest: its `actual`
+)
+```
+
+- **Declaration.** `platforms`, `aliases`, and the `srcs`, `deps` and `plugins` of the macro and of
+  a group, a platform or an alias (`srcs_jvm`, `deps_native`, `srcs_non_android`) are those of
+  [`kt_multiplatform_library`](#kt_multiplatform_library), for the test: its platforms may be some
+  of those of the library, and its aliases are its own. A test has no `exports`. `jvm`, `android`
+  and `native` are dicts of the other attributes of the test of that platform, e.g.
+  `jvm = dict(jvm_flags = ["-Xmx1g"])`, and the other keyword arguments, e.g. `size`, `timeout` or
+  `tags`, go to every test. The [checks](#checks) are those of the library, with messages that
+  start with `kt_multiplatform_test <name>:`; a platform that no list gives test sources fails too,
+  with the lists to add them to.
+- **Fragments.** The test sources of a group or an alias are a [fragment](#fragments) of the tests
+  of its platforms, named after it, and those of a platform are the leaf of its test: a common test
+  calls an `expect` helper that `srcs_jvm` and `srcs_native` implement with `actual`.
+  `bazel run //<pkg>:<name>.fragments` prints the test fragments.
+- **Friends.** The test of a platform compiles the test fragments only, with the library of its
+  platform as `associates`: `<library>_jvm`, `<library>_android` or `<library>_native`, the
+  targets next to the alias `library` names. So every test fragment sees the `internal`
+  declarations of every fragment of the library of that platform, as the test compilation of a
+  Gradle module sees those of its main one. The library is a dep of the test; the other deps are
+  the lists of the test. A dep of the library that the library does not export is not one of the
+  test: a test that uses it lists it too, and the library itself is not listed in `deps`.
+- **What runs.** The JVM and Android tests use JUnit 4: `kotlin.test` with `kotlin-test-junit`, or
+  JUnit itself. The sources of a test are those of several fragments, so no single class names
+  its tests: by default the test runs every public class of its own jar that has a method
+  annotated with `@Test`, or is annotated with `@RunWith`, and fails when the jar has none. Setting
+  `test_class` in `jvm` or `android`, or a `main_class` other than the test runner of Bazel, runs
+  that instead. The native test generates its runner, as any `kt_native_test` does.
+
+With the name `shared_test`, the macro declares:
+
+| Target                            | Rule                                | Content                                                                                                                                                                              |
+|-----------------------------------|-------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `shared_test_fragment_<fragment>` | `kt_kmp_fragment` (internal)        | A private, testonly target per test fragment.                                                                                                                                        |
+| `shared_test_jvm`                 | `kt_jvm_test`                       | When `platforms` lists `jvm`: the attributes of `jvm`, the test fragments of the JVM and its leaf, with `<library>_jvm` as associate.                                                |
+| `shared_test_android`             | `kt_android_local_test`             | When `platforms` lists `android`: the attributes of `android`, e.g. its `manifest`, the test fragments of Android and its leaf, with `<library>_android` as associate.               |
+| `shared_test_native`              | `kt_native_test`                    | When `platforms` lists konan targets: for the konan target of the build's platform, its test fragments and its leaf, with `<library>_native` as associate. It is incompatible with the other platforms. |
+| `shared_test.fragments`           | `kt_kmp_fragments_graph` (internal) | An executable target that prints the derived test fragments.                                                                                                                         |
+| `shared_test`                     | `test_suite`                        | The tests above.                                                                                                                                                                     |
+
+`bazel test //tests:shared_test` runs the tests the build's platform is compatible with: on a macOS
+arm64 host, `shared_test_jvm` and `shared_test_native` for `macos_arm64`, and on a Linux x86_64 host
+the same two for `linux_x64`. The native test runs as a `kt_native_test` does, for the konan target
+of the exec host only (see [Options, data and inputs](#options-data-and-inputs)): for a konan target
+of `platforms` that the host does not run, e.g. `ios_simulator_arm64`, it links with `--platforms`
+but does not run, and for a konan target that `platforms` does not list it is skipped. The test
+cannot read the declaration of the library: a platform of the test that the library does not list is
+a missing `<library>_jvm` or `<library>_android`, or a native test that is skipped as incompatible.
+
+The other rules, `kt_jvm_binary`, `kt_native_binary` and `kt_native_framework`, and a test of a
+single platform, a `kt_jvm_test`, a `kt_android_local_test` or a `kt_native_test`, compile only
+their own `srcs`. They get the shared code from the library of their platform: they depend on
+`//shared`, which is `shared_jvm` for a `kt_jvm_test` and `shared_native` for a `kt_native_test`,
+and a framework exports it (see [The iOS app](#the-ios-app)). `examples/kmp` has both tests next to
+its `kt_multiplatform_test`:
 
 ```starlark
 kt_jvm_test(
@@ -623,11 +696,6 @@ kt_native_test(
     deps = ["//shared"],
 )
 ```
-
-There is no multiplatform test macro, the `test/` and `test@<platform>/` of a Kotlin Toolchain
-module: a test that several platforms should run is a test target per platform. A `kt_native_test`
-runs for the konan target of the exec host only (see
-[Options, data and inputs](#options-data-and-inputs)).
 
 ### KSP for a multiplatform library
 
@@ -726,9 +794,11 @@ the libraries of a `kt_multiplatform_library`, and no generated `.srcjar` is sup
 | The Xcode build phase that embeds the framework (`embedAndSignAppleFrameworkForXcode`)               | `filegroup(output_group = "framework_files")`, `apple_static_framework_import` and `ios_application`; or a build phase of the Xcode project that runs `bazel build` (see [The iOS app](#the-ios-app)) |
 | The `androidApp` module                                                                              | `kt_android_library` and `android_binary`, with `--android_platforms`                                                                                            |
 | The Android SDK of `local.properties` (`sdk.dir`) or `ANDROID_HOME`                                  | `android.sdk` and `android.ndk` of `hermetic_android_toolchains` in `MODULE.bazel`, their licenses accepted with `--repo_env` in `.bazelrc`                      |
-| `./gradlew :shared:jvmTest`                                                                          | A `kt_jvm_test` that depends on `//shared`                                                                                                                       |
-| `./gradlew :shared:macosArm64Test`, `:shared:linuxX64Test`                                           | A `kt_native_test` that depends on `//shared`, on a host of that konan target                                                                                    |
-| `./gradlew :shared:iosSimulatorArm64Test`                                                            | No equivalent yet: a `kt_native_test` built for `ios_simulator_arm64` links, but nothing runs it in the simulator                                                |
+| The test source sets: `commonTest`, `jvmTest`, `nativeTest`, and `commonTest.dependencies { implementation(kotlin("test")) }` | `kt_multiplatform_test(library = "//shared", ...)` with `srcs`, `srcs_jvm`, `srcs_native`, and `kotlin-test`, `kotlin-test-junit` and JUnit in `deps_jvm`; the Kotlin/Native standard library has `kotlin.test` (see [Tests, binaries and frameworks](#tests-binaries-and-frameworks)) |
+| `./gradlew :shared:allTests`                                                                         | `bazel test //shared:shared_test`, the `test_suite` of the macro: the tests of the platforms the host runs                                                      |
+| `./gradlew :shared:jvmTest`                                                                          | `bazel test //shared:shared_test_jvm`; or a `kt_jvm_test` that depends on `//shared`                                                                             |
+| `./gradlew :shared:macosArm64Test`, `:shared:linuxX64Test`                                           | `bazel test //shared:shared_test_native` on a host of that konan target; or a `kt_native_test` that depends on `//shared`                                        |
+| `./gradlew :shared:iosSimulatorArm64Test`                                                            | No equivalent yet: a native test built for `ios_simulator_arm64` links, but nothing runs it in the simulator                                                     |
 
 ### Limitations of the fragments
 
@@ -956,7 +1026,10 @@ that library: its dependents compile against its klib.
 - `bazel test` runs a `kt_native_test` for the konan target of the exec host only (`linux_x64` or
   `macos_arm64`). For another target the test runner links, but nothing runs it: not the iOS
   simulator, nor an emulator.
-- No multiplatform test macro: a test is a target per platform (see
+- A `kt_multiplatform_test` lists its own deps: it gets the library of each platform and what that
+  library exports, not its other deps. It takes no `resources` or options per group or alias, only
+  the dicts of `jvm`, `android` and `native`, and no KSP of its test sources. Its native test is a
+  `kt_native_test`, with the limit above: nothing runs it in the iOS simulator (see
   [Tests, binaries and frameworks](#tests-binaries-and-frameworks)).
 - konanc, not the analysis, finds two klibs with the same `unique_name` among the deps of a target
   (see [Options, data and inputs](#options-data-and-inputs)).
@@ -964,11 +1037,12 @@ that library: its dependents compile against its klib.
   their fragments included; the Kotlin/Native rules do not instrument theirs. An `ios_application`
   does not link the profile runtime of instrumented Swift code, so `examples/kmp_app` leaves its
   Swift app out of `--instrumentation_filter`.
-- The JVM and Android libraries of a `kt_multiplatform_library` cannot have `.srcjar` sources, kapt
-  or the KSP compiler plugin; [KSP for a multiplatform library](#ksp-for-a-multiplatform-library) is
-  a separate action with declared plain `.kt` outputs, which they compile. KSP of a native target is
-  that action too; there is no inline KSP plugin for Kotlin/Native. Generated Java sources, classes
-  and resources of that action are not supported.
+- The JVM and Android libraries of a `kt_multiplatform_library`, and the JVM and Android tests of a
+  `kt_multiplatform_test`, cannot have `.srcjar` sources, kapt or the KSP compiler plugin;
+  [KSP for a multiplatform library](#ksp-for-a-multiplatform-library) is a separate action with
+  declared plain `.kt` outputs, which the libraries compile. KSP of a native target is that action
+  too; there is no inline KSP plugin for Kotlin/Native. Generated Java sources, classes and
+  resources of that action are not supported.
 - The fragments follow from the lists of the groups, the aliases and the platforms, with limits of
   their own: see [Limitations of the fragments](#limitations-of-the-fragments).
 - The JVM and Android variants of Maven libraries bring the `kotlin-stdlib` jar of the manifest next
@@ -987,7 +1061,7 @@ that library: its dependents compile against its klib.
 | Example                                   | Shows                                                                                                                                                                                       | Hosts                                                                         |
 |-------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
 | [`examples/native`](../examples/native)   | klibs for the host and for every konan target, an executable run end to end, tests, one of them reading a file of its `data`, Linux executables linked for both Linux targets, and a framework and its `framework_files` per Apple target. | Linux x86_64 and macOS arm64, the Apple targets on macOS only.             |
-| [`examples/kmp`](../examples/kmp)         | A `kt_multiplatform_library` for the JVM, Android, the Apple and the Linux targets, with sources of the groups `apple` and `linux` and Gradle's `nonAndroidMain` as the alias `non_android`; JVM and native tests that depend on `//shared`, `kotlinx-coroutines-core` from `kmp_maven`, and kotlin-inject components generated by KSP for the JVM, Android and Apple sources. | Linux x86_64 and macOS arm64, the Apple klibs on macOS only; Bazel 8.4.2 or newer. |
+| [`examples/kmp`](../examples/kmp)         | A `kt_multiplatform_library` for the JVM, Android, the Apple and the Linux targets, with sources of the groups `apple` and `linux` and Gradle's `nonAndroidMain` as the alias `non_android`; a `kt_multiplatform_test` whose common test runs on the JVM and on the konan target of the host, JVM and native tests that depend on `//shared`, `kotlinx-coroutines-core` from `kmp_maven`, and kotlin-inject components generated by KSP for the JVM, Android and Apple sources. | Linux x86_64 and macOS arm64, the Apple klibs on macOS only; Bazel 8.4.2 or newer. |
 | [`examples/kmp_app`](../examples/kmp_app) | An Android app and an iOS app that share one `kt_multiplatform_library`, laid out like the project of the Kotlin Multiplatform wizard.                                                      | macOS arm64 builds both apps, Linux x86_64 the Android app; Bazel 8.4.2 or newer. |
 
 Each builds and tests with `bazel build //...` and `bazel test //...` in its directory.

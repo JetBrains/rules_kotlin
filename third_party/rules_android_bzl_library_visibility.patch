@@ -34,3 +34,14 @@ index d9f6a5d..11463a1 100644
      deps = [
          "//rules:common_bzl",
          "//rules/flags:bzl",
+diff --git a/rules/android_local_test/BUILD b/rules/android_local_test/BUILD
+--- a/rules/android_local_test/BUILD
++++ b/rules/android_local_test/BUILD
+@@ -20,6 +20,7 @@ filegroup(
+ bzl_library(
+     name = "bzl",
+     srcs = glob(["*.bzl"]),
++    visibility = ["//visibility:public"],
+     deps = [
+         "//rules:add_constraints_bzl",
+         "//rules:android_host_hybrid_mode_transition_bzl",

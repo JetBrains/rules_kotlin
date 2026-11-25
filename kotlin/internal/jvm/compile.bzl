@@ -125,8 +125,8 @@ def _fragment_srcs(ctx, srcs, fragments):
     )
 
 def _kmp_platform(rule_kind):
-    """The platform of a JVM or Android library of a kt_multiplatform_library: the name of its leaf fragment."""
-    return "android" if rule_kind == "kt_android_library" else "jvm"
+    """The platform of a JVM or Android library of a kt_multiplatform_library, or test of a kt_multiplatform_test: the name of its leaf fragment."""
+    return "android" if rule_kind in ["kt_android_library", "kt_android_local_test"] else "jvm"
 
 def _compiler_toolchains(ctx):
     """Creates a struct of the relevant compilation toolchains"""

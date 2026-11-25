@@ -45,7 +45,7 @@ load(
     _processing_pipeline = "processing_pipeline",
 )
 
-_ATTRS = _utils.add_dicts(_attrs.runnable_common_attr, {
+_ATTRS = _utils.add_dicts(_attrs.runnable_common_attr, _attrs.test_kmp_fragments_attr, {
     "env": attr.string_dict(
         doc = "Specifies additional environment variables to set when the target is executed by bazel test. Subject to $(location) and \"Make variable\" substitution.",
         default = {},

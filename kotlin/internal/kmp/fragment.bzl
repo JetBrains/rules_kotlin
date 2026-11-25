@@ -1,15 +1,15 @@
-"""kt_kmp_fragment and kt_kmp_fragments_graph: K2 fragment targets of a kt_multiplatform_library.
+"""kt_kmp_fragment and kt_kmp_fragments_graph: K2 fragment targets of a kt_multiplatform_library or a kt_multiplatform_test.
 
-kt_multiplatform_library declares one kt_kmp_fragment per fragment it derives (see derive.bzl), and
+Each of the two macros declares one kt_kmp_fragment per fragment it derives (see derive.bzl), and
 one kt_kmp_fragments_graph, `<name>.fragments`, printing the derived fragment graph. A fragment
-compiles nothing by itself and has no deps: the libraries listing it in `kmp_fragments` compile its
-sources with their srcs, against their own deps (see fragments.bzl).
+compiles nothing by itself and has no deps: the libraries or the tests listing it in
+`kmp_fragments` compile its sources with their srcs, against their own deps (see fragments.bzl).
 
-Internal: kt_multiplatform_library is their only user.
+Internal: the two macros are their only users.
 """
 
 KtFragmentInfo = provider(
-    doc = "A K2 fragment of a kt_multiplatform_library: the sources of a group of its hierarchy, or of one of its aliases.",
+    doc = "A K2 fragment of a kt_multiplatform_library or a kt_multiplatform_test: the sources of a group of its hierarchy, or of one of its aliases.",
     fields = {
         "name": "string: the name of the fragment, e.g. `common`, `ios` or `non_android`.",
         "platforms": "tuple of string: the platforms compiling the sources, sorted.",
@@ -23,7 +23,7 @@ KtFragmentInfo = provider(
 )
 
 KtFragmentsGraphInfo = provider(
-    doc = "The formatted K2 fragment refinement graph of a kt_multiplatform_library.",
+    doc = "The formatted K2 fragment refinement graph of a kt_multiplatform_library or a kt_multiplatform_test.",
     fields = {
         "graph": "string: the formatted fragment graph.",
     },
@@ -86,10 +86,10 @@ def _kt_kmp_fragment_impl(ctx):
     ]
 
 kt_kmp_fragment = rule(
-    doc = """Sources that some platforms of a kt_multiplatform_library compile: a K2 fragment of their compilations.
+    doc = """Sources that some platforms of a kt_multiplatform_library or a kt_multiplatform_test compile: a K2 fragment of their compilations.
 
-    Internal: kt_multiplatform_library declares one per group of its hierarchy and per alias with
-    sources. It compiles nothing by itself: the libraries of its platforms list it, or a fragment
+    Internal: the macro declares one per group of its hierarchy and per alias with sources. It
+    compiles nothing by itself: the libraries or the tests of its platforms list it, or a fragment
     refining it, in `kmp_fragments`.""",
     implementation = _kt_kmp_fragment_impl,
     attrs = {
@@ -149,9 +149,9 @@ def _kt_kmp_fragments_graph_impl(ctx):
     ]
 
 kt_kmp_fragments_graph = rule(
-    doc = """Prints the derived K2 fragment refinement graph of a kt_multiplatform_library.
+    doc = """Prints the derived K2 fragment refinement graph of a kt_multiplatform_library or a kt_multiplatform_test.
 
-    Internal: kt_multiplatform_library declares `<name>.fragments` with the formatted graph.""",
+    Internal: the macro declares `<name>.fragments` with the formatted graph.""",
     implementation = _kt_kmp_fragments_graph_impl,
     attrs = {
         "graph": attr.string(

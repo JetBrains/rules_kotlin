@@ -1,0 +1,58 @@
+load("//kotlin:jvm.bzl", "kt_jvm_library", "kt_jvm_test")
+load("//kotlin:lint.bzl", "ktlint_fix", "ktlint_test")
+
+# Stand-ins for the jar of a test of kt_multiplatform_test: one with test classes and classes the
+# suite leaves out, one without any test class.
+kt_jvm_library(
+    name = "fixture_tests",
+    testonly = True,
+    srcs = ["fixture/Tests.kt"],
+    deps = ["@kotlin_rules_maven_test//:junit_junit"],
+)
+
+kt_jvm_library(
+    name = "fixture_no_tests",
+    testonly = True,
+    srcs = ["fixture/NoTests.kt"],
+)
+
+kt_jvm_test(
+    name = "MultiplatformTestSuiteTest",
+    srcs = ["MultiplatformTestSuiteTest.kt"],
+    data = [
+        ":fixture_no_tests.jar",
+        ":fixture_tests.jar",
+    ],
+    jvm_flags = [
+        "-Dfixture_no_tests_jar=$(rootpath :fixture_no_tests.jar)",
+        "-Dfixture_tests_jar=$(rootpath :fixture_tests.jar)",
+    ],
+    test_class = "io.bazel.kotlin.kmp.MultiplatformTestSuiteTest",
+    deps = [
+        ":fixture_no_tests",
+        ":fixture_tests",
+        "//src/main/kotlin/io/bazel/kotlin/kmp:kmp_test_suite",
+        "@kotlin_rules_maven_test//:com_google_truth_truth",
+        "@kotlin_rules_maven_test//:junit_junit",
+    ],
+)
+
+ktlint_test(
+    name = "kmp_tests_ktlint_test",
+    srcs = glob(["**/*.kt"]),
+    config = "//:ktlint_editorconfig",
+    tags = [
+        "ktlint",
+        "no-ide",
+    ],
+)
+
+ktlint_fix(
+    name = "kmp_tests_ktlint_fix",
+    srcs = glob(["**/*.kt"]),
+    config = "//:ktlint_editorconfig",
+    tags = [
+        "ktlint",
+        "no-ide",
+    ],
+)

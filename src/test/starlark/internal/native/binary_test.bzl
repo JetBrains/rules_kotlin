@@ -7,6 +7,9 @@ load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@rules_java//java:defs.bzl", "java_library")
 load("//kotlin:core.bzl", "kt_compiler_plugin")
 load("//kotlin:native.bzl", "kt_native_binary", "kt_native_library", "kt_native_test")
+
+# buildifier: disable=bzl-visibility
+load("//kotlin/internal/kmp:fragment.bzl", "kt_kmp_fragment")
 load(
     ":common.bzl",
     "AIRPLANE_MODE",
@@ -198,6 +201,51 @@ def _test_link_test_impl(ctx):
     asserts.equals(env, "app_test_linux_arm64.kexe", binary.basename)
     asserts.equals(env, binary, analysistest.target_under_test(env)[DefaultInfo].files_to_run.executable)
 
+    # A test without kmp_fragments compiles no fragments.
+    asserts.false(env, "-Xmulti-platform" in compile_tool, str(compile_tool))
+    asserts.equals(env, [], prefixed(compile_tool, "-Xfragment"))
+
+    return analysistest.end(env)
+
+def _test_fragments_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The sources of the fragments compile into the private klib with the srcs, the leaf, named
+    # after the konan target, which may be empty: the fragments, each after those it refines, the
+    # leaf last.
+    compile = single_action(env, "KotlinNativeKlibCompile")
+    compile_tool = tool_arguments(compile.argv)
+    fragment_sources = [
+        (fragment, PACKAGE + "/testdata/" + source)
+        for fragment in ctx.attr.fragments
+        for source in ctx.attr.fragment_sources.get(fragment, [])
+    ]
+    asserts.equals(env, [source for _, source in fragment_sources], launcher_values(compile.argv, "--source"))
+    asserts.true(env, "-Xmulti-platform" in compile_tool, str(compile_tool))
+    asserts.equals(env, [",".join(ctx.attr.fragments)], prefixed(compile_tool, "-Xfragments="))
+    asserts.equals(
+        env,
+        ["%s:%s" % (fragment, source) for fragment, source in fragment_sources],
+        prefixed(compile_tool, "-Xfragment-sources="),
+    )
+    asserts.equals(env, ctx.attr.refines, prefixed(compile_tool, "-Xfragment-refines="))
+    inputs = [f.path for f in compile.inputs.to_list()]
+    for _, source in fragment_sources:
+        asserts.true(env, source in inputs, "%s should be an input" % source)
+
+    # The fragments see the internals of the associate, as the srcs do.
+    associate = [path for path in libraries(compile_tool) if path.endswith("/link_app_linux_arm64.klib")]
+    asserts.equals(env, associate, [argument_after(compile_tool, "-friend-modules")])
+
+    # The link includes the private klib, whose tests the generated runner runs, and gets no
+    # fragment flag.
+    main_klib = compile.outputs.to_list()[0]
+    link_tool = tool_arguments(single_action(env, "KotlinNativeLink").argv)
+    asserts.equals(env, ["__EXECROOT__/" + main_klib.path], prefixed(link_tool, "-Xinclude="))
+    asserts.true(env, "-generate-test-runner" in link_tool, str(link_tool))
+    asserts.false(env, "-Xmulti-platform" in link_tool, str(link_tool))
+    asserts.equals(env, [], prefixed(link_tool, "-Xfragment"))
+
     return analysistest.end(env)
 
 def _test_for_another_target_test_impl(ctx):
@@ -234,7 +282,7 @@ def _data_test_impl(ctx):
 def _test_without_srcs_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    asserts.expect_failure(env, "kt_native_test has no srcs; its test runner only runs the tests of its srcs")
+    asserts.expect_failure(env, "kt_native_test has no sources, in its srcs or its kmp_fragments; its test runner only runs the tests of its own sources")
 
     return analysistest.end(env)
 
@@ -256,6 +304,18 @@ test_link_header_klibs_test = analysistest.make(
     _test_link_test_impl,
     attrs = HEADER_KLIBS_ATTRS,
     config_settings = with_header_klibs(for_target("linux_arm64")),
+)
+test_fragments_test = analysistest.make(
+    _test_fragments_test_impl,
+    attrs = {
+        # The basenames of the sources of each fragment, in testdata.
+        "fragment_sources": attr.string_list_dict(),
+        # The fragment names, each after those it refines, the leaf last.
+        "fragments": attr.string_list(),
+        # The refinements, <fragment>:<refined fragment>, in the order of the flags.
+        "refines": attr.string_list(),
+    },
+    config_settings = for_target("linux_arm64"),
 )
 test_for_another_target_test = analysistest.make(
     _test_for_another_target_test_impl,
@@ -369,6 +429,55 @@ def native_binary_test_suite(name):
         tags = ["manual"],
     )
 
+    # Tests of app whose test sources are fragments: one with srcs of its own, one whose leaf is
+    # empty, and one whose fragments have no source either.
+    kt_kmp_fragment(
+        name = "test_common_fragment",
+        testonly = True,
+        srcs = ["testdata/common.kt"],
+        fragment_name = "common",
+        platforms = [
+            "jvm",
+            "linux_arm64",
+        ],
+        tags = ["manual"],
+    )
+    kt_kmp_fragment(
+        name = "test_native_fragment",
+        testonly = True,
+        srcs = ["testdata/actual.kt"],
+        fragment_name = "native",
+        platforms = ["linux_arm64"],
+        refines = [":test_common_fragment"],
+        tags = ["manual"],
+    )
+    kt_kmp_fragment(
+        name = "test_empty_fragment",
+        testonly = True,
+        fragment_name = "common",
+        platforms = ["linux_arm64"],
+        tags = ["manual"],
+    )
+    kt_native_test(
+        name = "fragments_test_linux_arm64",
+        srcs = ["testdata/actual.kt"],
+        associates = [":link_app_linux_arm64"],
+        kmp_fragments = [":test_common_fragment"],
+        tags = ["manual"],
+    )
+    kt_native_test(
+        name = "fragments_only_test_linux_arm64",
+        associates = [":link_app_linux_arm64"],
+        kmp_fragments = [":test_native_fragment"],
+        tags = ["manual"],
+    )
+    kt_native_test(
+        name = "empty_fragments_test_linux_arm64",
+        associates = [":link_app_linux_arm64"],
+        kmp_fragments = [":test_empty_fragment"],
+        tags = ["manual"],
+    )
+
     link_test(
         name = "link_inputs_test",
         target_under_test = ":hello_linux_arm64",
@@ -430,6 +539,43 @@ def native_binary_test_suite(name):
         target_under_test = ":no_srcs_test_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
+    test_without_srcs_test(
+        name = "test_without_fragment_sources_fails_test",
+        target_under_test = ":empty_fragments_test_linux_arm64",
+        target_compatible_with = not_on_windows(),
+    )
+    test_fragments_test(
+        name = "test_fragments_test",
+        target_under_test = ":fragments_test_linux_arm64",
+        fragment_sources = {
+            "common": ["common.kt"],
+            "linux_arm64": ["actual.kt"],
+        },
+        fragments = [
+            "common",
+            "linux_arm64",
+        ],
+        refines = ["linux_arm64:common"],
+        target_compatible_with = not_on_windows(),
+    )
+    test_fragments_test(
+        name = "test_fragments_only_test",
+        target_under_test = ":fragments_only_test_linux_arm64",
+        fragment_sources = {
+            "common": ["common.kt"],
+            "native": ["actual.kt"],
+        },
+        fragments = [
+            "common",
+            "native",
+            "linux_arm64",
+        ],
+        refines = [
+            "native:common",
+            "linux_arm64:native",
+        ],
+        target_compatible_with = not_on_windows(),
+    )
 
     native.test_suite(
         name = name,
@@ -442,7 +588,10 @@ def native_binary_test_suite(name):
             ":test_link_header_klibs_test",
             ":test_data_test",
             ":test_for_another_target_links_test",
+            ":test_fragments_only_test",
+            ":test_fragments_test",
             ":test_link_test",
+            ":test_without_fragment_sources_fails_test",
             ":test_without_srcs_fails_test",
             ":unstaged_link_fails_test",
         ],

@@ -1,11 +1,12 @@
-"""The declaration of a kt_multiplatform_library: its platforms, its aliases, and the lists of each qualifier.
+"""The declaration of a kt_multiplatform_library or a kt_multiplatform_test: its platforms, its aliases, and the lists of each qualifier.
 
 The macro takes the lists of a node of the hierarchy (see hierarchy.bzl) or of an alias (see
 qualifiers.bzl) as `<attr>_<qualifier>`, e.g. `srcs_ios`, `deps_ios_arm64` or `deps_non_android`,
 and each platform receives, per attribute, the lists of the qualifiers that cover it, from `common`
 down to itself. A source is in one list, as it is in one fragment (see derive.bzl): the sources of
 platforms that no group gathers are those of an alias. `parse_declaration` checks a call when the
-macro is called, before any select() is resolved, and names what to change.
+macro is called, before any select() is resolved, and names what to change. The test macro
+declares a test per platform where the library macro declares a library, and takes no `exports`.
 """
 
 load("//kotlin/internal/native:targets.bzl", "KONAN_TARGETS")
@@ -15,10 +16,14 @@ load(":qualifiers.bzl", "resolve_qualifiers")
 # The list attributes of the libraries that a group, a platform or an alias qualifies.
 QUALIFIED_ATTRS = ["srcs", "deps", "exports", "plugins"]
 
-# The nodes of the hierarchy that have a library, which builds the platforms at or below the node.
+# Those of the tests, which export nothing.
+TEST_QUALIFIED_ATTRS = ["srcs", "deps", "plugins"]
+
+# The nodes of the hierarchy that have a library or a test, which builds the platforms at or below
+# the node.
 LIBRARY_NODES = ["jvm", "android", "native"]
 
-# How the messages call the library of each of LIBRARY_NODES.
+# How the messages call the library or the test of each of LIBRARY_NODES.
 _LIBRARY_NAMES = {
     "android": "Android",
     "jvm": "JVM",
@@ -33,20 +38,23 @@ _ENTRIES = {
     "srcs": "sources",
 }
 
-# The attribute of the libraries that the macro derives, besides QUALIFIED_ATTRS.
+# The attribute of the libraries and the tests that the macro derives, besides the qualified ones.
 _DERIVED_ATTR = "kmp_fragments"
 
-# The attributes common to every rule that end with `_<word>`: an alias named after the word, e.g.
-# `with`, does not make them a list of the alias.
+# The attributes common to every rule, and those common to every test rule, that end with
+# `_<word>`: an alias named after the word, e.g. `with` or `count`, does not make them a list of
+# the alias.
 _COMMON_ATTRS = [
     "applicable_licenses",
     "aspect_hints",
     "compatible_with",
+    "env_inherit",
     "exec_compatible_with",
     "exec_group_compatible_with",
     "exec_properties",
     "package_metadata",
     "restricted_to",
+    "shard_count",
     "target_compatible_with",
 ]
 
@@ -101,14 +109,16 @@ def _untargeted_error(hierarchy, unsupported, node, subject, does, remove):
         return message + "none of them is supported yet, so remove %s" % remove
     return message + "add %s, or remove %s" % (_alternatives(supported), remove)
 
-def _settings_error(hierarchy, unsupported, targeted, node, attrs):
-    """The error of the dict of attributes of the library of a node, or None."""
-    library = _LIBRARY_NAMES[node]
+def _settings_error(hierarchy, unsupported, targeted, node, attrs, qualified_attrs, kind):
+    """The error of the dict of attributes of the library or the test of a node, or None."""
+    library = "%s %s" % (_LIBRARY_NAMES[node], kind)
     if type(attrs) != "dict":
-        return "%s must be a dict of attributes of the %s library, not a %s" % (node, library, type(attrs))
+        return "%s must be a dict of attributes of the %s, not a %s" % (node, library, type(attrs))
     for key in sorted(attrs):
-        if key in QUALIFIED_ATTRS:
+        if key in qualified_attrs:
             return "%s sets %s: pass %s to the macro" % (node, key, _qualified(key, node))
+        if key in QUALIFIED_ATTRS:
+            return "%s sets %s: a %s has no %s" % (node, key, kind, key)
         if key == _DERIVED_ATTR:
             return "%s sets %s, which the macro derives from the sources" % (node, key)
     if attrs and node not in targeted:
@@ -117,14 +127,14 @@ def _settings_error(hierarchy, unsupported, targeted, node, attrs):
             unsupported,
             node,
             node,
-            "sets attributes of the %s library" % library,
+            "sets attributes of the %s" % library,
             node,
         )
     return None
 
-def _split_qualified(key):
+def _split_qualified(key, qualified_attrs):
     """The attribute and the qualifier of a key `<attr>_<qualifier>`, or None for another key."""
-    for attr in QUALIFIED_ATTRS:
+    for attr in qualified_attrs:
         if key.startswith(attr + "_"):
             return attr, key[len(attr) + 1:]
     return None
@@ -202,13 +212,15 @@ def parse_declaration(
         aliases = None,
         normalize = str,
         hierarchy = HIERARCHY,
-        unsupported = None):
-    """The declaration of a kt_multiplatform_library from the arguments of the macro, or its error.
+        unsupported = None,
+        attrs = QUALIFIED_ATTRS,
+        kind = "library"):
+    """The declaration of a kt_multiplatform_library or a kt_multiplatform_test from the arguments of the macro, or its error.
 
     Args:
       platforms: the `platforms` of the macro.
-      common: the `srcs`, `deps`, `exports` and `plugins` of the macro by attribute, the lists of
-        `common`; a missing one is empty.
+      common: the lists of the macro for each of `attrs`, e.g. its `srcs`, by attribute: the lists
+        of `common`; a missing one is empty.
       settings: the `jvm`, `android` and `native` of the macro by name, each None or a dict.
       kwargs: the other keyword arguments of the macro: the `<attr>_<qualifier>` lists, and the
         attributes common to every rule.
@@ -219,6 +231,10 @@ def parse_declaration(
       hierarchy: a struct returned by `make_hierarchy`.
       unsupported: the platforms of the hierarchy that no rule builds yet, as `unsupported_platforms`
         returns them; by default those of `hierarchy`.
+      attrs: the list attributes that a group, a platform or an alias qualifies: QUALIFIED_ATTRS
+        for the libraries, TEST_QUALIFIED_ATTRS for the tests.
+      kind: how the messages call what the macro declares for each of LIBRARY_NODES: `library` or
+        `test`.
 
     Returns:
       `struct(error = message)` for the first error: of the platforms, of the aliases, of the
@@ -231,10 +247,10 @@ def parse_declaration(
         below it, in tree order;
       - `qualifiers`: the targeted nodes, the aliases and their order, as `resolve_qualifiers`
         returns them;
-      - `lists`: a dict of each of QUALIFIED_ATTRS to a dict of each qualifier with a non-empty
-        list to that list, as written, `common` holding the list of the macro: the nodes in tree
-        order, then the aliases by name;
-      - `settings`: a dict of each of LIBRARY_NODES to the attributes of its library;
+      - `lists`: a dict of each of `attrs` to a dict of each qualifier with a non-empty list to
+        that list, as written, `common` holding the list of the macro: the nodes in tree order,
+        then the aliases by name;
+      - `settings`: a dict of each of LIBRARY_NODES to the attributes of its library or test;
       - `rule_attrs`: the other keyword arguments;
       - `normalize`: the function given.
     """
@@ -248,10 +264,10 @@ def parse_declaration(
     if qualifiers.error:
         return qualifiers
 
-    given = {attr: {hierarchy.root: common.get(attr, [])} for attr in QUALIFIED_ATTRS}
+    given = {attr: {hierarchy.root: common.get(attr, [])} for attr in attrs}
     rule_attrs = {}
     for key in sorted(kwargs):
-        qualified = _split_qualified(key)
+        qualified = _split_qualified(key, attrs)
         if qualified:
             attr, qualifier = qualified
             if qualifier == hierarchy.root:
@@ -260,32 +276,35 @@ def parse_declaration(
                 return _error(_unknown_qualifier_error(hierarchy, qualifiers.aliases, key, qualifier))
             given[attr][qualifier] = kwargs[key]
             continue
+        for attr in QUALIFIED_ATTRS:
+            if attr not in attrs and (key == attr or key.startswith(attr + "_")):
+                return _error("%s: a %s has no %s; its lists are %s" % (key, kind, attr, _enumeration(attrs)))
         if key in hierarchy.lineage or key in qualifiers.aliases:
-            return _error("%s: only %s take a dict of attributes of their library" % (key, _enumeration(LIBRARY_NODES)))
+            return _error("%s: only %s take a dict of attributes of their %s" % (key, _enumeration(LIBRARY_NODES), kind))
         suffix = _suffix(key, hierarchy.nodes + list(qualifiers.aliases))
         if suffix in hierarchy.lineage:
-            return _error("%s: only %s take a group or a platform" % (key, _enumeration(QUALIFIED_ATTRS)))
+            return _error("%s: only %s take a group or a platform" % (key, _enumeration(attrs)))
         if suffix != None and key not in _COMMON_ATTRS:
-            return _error("%s: only %s take an alias" % (key, _enumeration(QUALIFIED_ATTRS)))
+            return _error("%s: only %s take an alias" % (key, _enumeration(attrs)))
         if key == _DERIVED_ATTR:
             return _error("%s: the macro derives it from the sources" % key)
         rule_attrs[key] = kwargs[key]
 
     for node in LIBRARY_NODES:
         if settings.get(node) != None:
-            error = _settings_error(hierarchy, unsupported, targeted, node, settings[node])
+            error = _settings_error(hierarchy, unsupported, targeted, node, settings[node], attrs, kind)
             if error:
                 return _error(error)
 
-    # The lists of a library built for a single platform are passed to it as they are, so they may
-    # be a select(); the macro concatenates the others into a select() of each konan target.
+    # The lists of a library or a test built for a single platform are passed to it as they are, so
+    # they may be a select(); the macro concatenates the others into a select() of each konan target.
     selectable = [node for node in LIBRARY_NODES if node in hierarchy.platforms]
 
     # A list is checked after those of the qualifiers it refines; a node that is not targeted
     # refines none of them.
     ordered = qualifiers.names + [node for node in hierarchy.nodes if node not in targeted]
-    found = {attr: {} for attr in QUALIFIED_ATTRS}
-    for attr in QUALIFIED_ATTRS:
+    found = {attr: {} for attr in attrs}
+    for attr in attrs:
         # The labels of the plain lists, normalized, to find those a list repeats from one above it.
         listed = {}
         for qualifier in ordered:
@@ -332,19 +351,37 @@ def parse_declaration(
         qualifiers = qualifiers,
         lists = {
             attr: {qualifier: found[attr][qualifier] for qualifier in in_tree_order if qualifier in found[attr]}
-            for attr in QUALIFIED_ATTRS
+            for attr in attrs
         },
         settings = {node: dict(settings.get(node) or {}) for node in LIBRARY_NODES},
         rule_attrs = rule_attrs,
         normalize = normalize,
     )
 
-def platform_list(declaration, attr, platform):
-    """The list of an attribute that the library of a platform receives: the lists of the qualifiers covering it, from `common` down.
+def sourceless_error(declaration, platform):
+    """The error of a listed platform that compiles no source, for a macro whose platforms each need some.
 
     Args:
       declaration: a struct returned by `parse_declaration`, without error.
-      attr: one of QUALIFIED_ATTRS.
+      platform: a platform the declaration lists, none of whose qualifiers lists sources.
+
+    Returns:
+      The message, which names the lists of the qualifiers covering the platform, from `common`
+      down to itself: `srcs_native`, `srcs_linux` and `srcs_linux_x64` below the srcs of the macro
+      for `linux_x64`.
+    """
+    lists = [
+        _subject(declaration.hierarchy, "srcs", qualifier)[0]
+        for qualifier in declaration.qualifiers.of_platform[platform]
+    ]
+    return "%s has no sources: list some in %s, or remove %s from platforms" % (platform, _alternatives(lists), platform)
+
+def platform_list(declaration, attr, platform):
+    """The list of an attribute that the library or the test of a platform receives: the lists of the qualifiers covering it, from `common` down.
+
+    Args:
+      declaration: a struct returned by `parse_declaration`, without error.
+      attr: one of the qualified attributes of the declaration.
       platform: a platform the declaration lists.
 
     Returns:

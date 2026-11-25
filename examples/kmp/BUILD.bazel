@@ -3,5 +3,6 @@
 #   //shared    kt_multiplatform_library: its platforms, the common sources and deps, listed once,
 #               and the sources of the groups and platforms of the hierarchy, from which the macro
 #               derives a fragment per group, a library per platform and an alias
-#   //tests     tests on the JVM and on the native target of the host, and checks of the klibs
+#   //tests     kt_multiplatform_test: common tests of //shared, run on the JVM and on the native
+#               target of the host; tests of one platform each, and checks of the klibs
 exports_files(["validate_klib.sh"])

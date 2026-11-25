@@ -276,7 +276,23 @@ Subject to $(location) and "Make variable" substitution.""",
     ),
 })
 
+_test_kmp_fragments_attr = {
+    "kmp_fragments": attr.label_list(
+        doc = """The K2 fragments of a `kt_multiplatform_test` that the srcs refine: the test sources of the groups above
+        the platform in its hierarchy, e.g. `common`, and those the platform shares with other groups or platforms.
+        `kt_multiplatform_test` sets it from the sources of each group and platform; it is not set by hand. The Kotlin
+        sources of the fragments, and of the fragments they refine, compile with the srcs in one compilation
+        (`-Xmulti-platform`), against the deps and the associates of the target, so the `actual` declarations of the srcs
+        implement the `expect` ones of the fragments; the srcs are the leaf fragment, `jvm` or `android`. A target with
+        fragments cannot have .srcjar sources, kapt or KSP, whose sources would belong to no fragment. Expect/actual
+        classes are Beta in Kotlin: the rule passes `-Xexpect-actual-classes`, which acknowledges it.""",
+        default = [],
+        providers = [KtFragmentInfo],
+    ),
+}
+
 attrs = struct(
     lib_common_attr = _lib_common_attr,
     runnable_common_attr = _runnable_common_attr,
+    test_kmp_fragments_attr = _test_kmp_fragments_attr,
 )

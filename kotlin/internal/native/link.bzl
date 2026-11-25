@@ -77,7 +77,8 @@ def link_native(
         extra_deps = [],
         friends = [],
         export_klibs = depset(),
-        extra_args = []):
+        extra_args = [],
+        fragments = None):
     """Registers the actions of a linking rule: the compilation of its srcs, if any, and the link.
 
     Args:
@@ -91,9 +92,13 @@ def link_native(
         srcs see.
       export_klibs: a depset of klib Files of the deps that a framework exports.
       extra_args: the konanc options of the rule for the link.
+      fragments: the K2 fragments the srcs refine, from collect_fragments of
+        //kotlin/internal/kmp:fragments.bzl, or None. Their sources compile into the private klib
+        with the srcs, which may then be empty.
 
     Returns:
-      The private klib the srcs compile into, or None when the rule has no srcs.
+      The private klib the srcs compile into, or None when the rule has no srcs and no sources
+      of fragments.
     """
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
     if not tc.konan_deps.staged:
@@ -103,7 +108,7 @@ def link_native(
 
     klib_deps = collect_klib_deps(tc.konan_target, ctx.attr.deps + extra_deps)
     main_klib = None
-    if ctx.files.srcs:
+    if fragments.srcs if fragments else ctx.files.srcs:
         main_klib = ctx.actions.declare_file("_kt_native/%s.klib" % ctx.label.name)
         kt_native_compile(
             ctx,
@@ -114,6 +119,7 @@ def link_native(
             plugins = ctx.attr.plugins,
             opts = ctx.attr.opts,
             friends = friends,
+            fragments = fragments,
             progress_message = "Compiling Kotlin/Native sources of %{label} (" + tc.konan_target + ")",
         )
     kt_native_link(

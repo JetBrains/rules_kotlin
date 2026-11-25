@@ -64,6 +64,46 @@ def konan_targets_compatibility(konan_targets):
     compatible[_DEFAULT] = [str(Label("@platforms//:incompatible"))]
     return compatible
 
+def konan_targets_compatible_with(konan_targets, given):
+    """The target_compatible_with of the target of some konan targets, which may have constraints of its own.
+
+    Args:
+      konan_targets: the konan targets, e.g. `["ios_arm64", "ios_simulator_arm64"]`.
+      given: dicts of attributes of the target, each of which may set `target_compatible_with`.
+
+    Returns:
+      The select() of `konan_targets_compatibility`, followed by the `target_compatible_with` of
+      each of `given`, in their order.
+    """
+    target_compatible_with = select(konan_targets_compatibility(konan_targets))
+    for attrs in given:
+        if "target_compatible_with" in attrs:
+            target_compatible_with = target_compatible_with + attrs["target_compatible_with"]
+    return target_compatible_with
+
+def konan_target_selects(konan_targets, lists_of):
+    """The list attributes of the target of some konan targets, each a select() of the list of the konan target of the build's platform.
+
+    Args:
+      konan_targets: the konan targets, e.g. `["ios_arm64", "ios_simulator_arm64"]`.
+      lists_of: a function of a konan target returning a dict of each list attribute to the list
+        of that target; the dicts of every target have the same attributes.
+
+    Returns:
+      A dict of each attribute to a select() on `is_<konan target>` of each target, empty by
+      default: the target is incompatible with other platforms.
+    """
+    branches = {}
+    for target in konan_targets:
+        condition = _is_konan_target(target)
+        for attr, labels in lists_of(target).items():
+            branches.setdefault(attr, {})[condition] = labels
+    selects = {}
+    for attr, attr_branches in branches.items():
+        attr_branches[_DEFAULT] = []
+        selects[attr] = select(attr_branches)
+    return selects
+
 def alias_branches(name, targeted):
     """The branches of the alias of a library: the library of each kind of consumer.
 
@@ -116,8 +156,15 @@ def display_label(label, pkg):
         return label.name
     return "//%s:%s" % (label.package, label.name)
 
-def _label_formatter():
-    """Returns `(normalize, label_of)` for source labels in the package of the macro."""
+# buildifier: disable=unnamed-macro
+def label_formatter():
+    """The functions resolving and displaying the source labels of a macro, in its package.
+
+    Returns:
+      `(normalize, label_of)`: `normalize` turns a label, as written in the package of the macro,
+      into a string equal for equal labels, and `label_of` turns that string into the label to
+      display (see `display_label`).
+    """
     pkg = native.package_relative_label(":__pkg__")
     displayed = {}
 
@@ -135,6 +182,38 @@ def _label_formatter():
 
 def _fragment_target(name, fragment):
     return "%s_fragment_%s" % (name, fragment)
+
+def declare_fragments(name, derived, **kwargs):
+    """Declares the kt_kmp_fragment target of each derived fragment, `<name>_fragment_<fragment>`.
+
+    Args:
+      name: the name of the macro.
+      derived: a struct returned by `derive_fragments`.
+      **kwargs: the other attributes of the targets, e.g. `tags`.
+    """
+    for fragment in derived.fragments:
+        kt_kmp_fragment(
+            name = _fragment_target(name, fragment.name),
+            srcs = fragment.srcs,
+            fragment_name = fragment.name,
+            platforms = fragment.platforms,
+            refines = [":" + _fragment_target(name, refined) for refined in fragment.refines],
+            **kwargs
+        )
+
+def leaf_fragments(name, derived, platform):
+    """The kmp_fragments of the target of a platform: the fragment targets its leaf refines.
+
+    Args:
+      name: the name of the macro.
+      derived: a struct returned by `derive_fragments`.
+      platform: a listed platform.
+
+    Returns:
+      The labels of the targets `declare_fragments` declares for the fragments directly above the
+      platform.
+    """
+    return [":" + _fragment_target(name, fragment) for fragment in derived.leaf_refines[platform]]
 
 def kt_multiplatform_library(
         name,
@@ -233,7 +312,7 @@ def kt_multiplatform_library(
         libraries build a single platform, may also be or end with a select(). The other keyword
         arguments are attributes common to every rule, e.g. `features`, of every target.
     """
-    normalize, label_of = _label_formatter()
+    normalize, label_of = label_formatter()
     declaration = parse_declaration(
         platforms,
         {"deps": deps, "exports": exports, "plugins": plugins, "srcs": srcs},
@@ -253,20 +332,12 @@ def kt_multiplatform_library(
     rule_attrs = dict(declaration.rule_attrs, tags = tags, testonly = testonly, visibility = visibility)
 
     def _fragments(platform):
-        return [":" + _fragment_target(name, fragment) for fragment in derived.leaf_refines[platform]]
+        return leaf_fragments(name, derived, platform)
 
     def _platform_lists(platform):
         return {attr: platform_list(declaration, attr, platform) for attr in _CONCATENATED_ATTRS}
 
-    for fragment in derived.fragments:
-        kt_kmp_fragment(
-            name = _fragment_target(name, fragment.name),
-            srcs = fragment.srcs,
-            fragment_name = fragment.name,
-            platforms = fragment.platforms,
-            refines = [":" + _fragment_target(name, refined) for refined in fragment.refines],
-            **dict(rule_attrs, visibility = ["//visibility:private"])
-        )
+    declare_fragments(name, derived, **dict(rule_attrs, visibility = ["//visibility:private"]))
 
     if "jvm" in declaration.targeted:
         jvm_attrs = dict(declaration.settings["jvm"], **_platform_lists("jvm"))
@@ -292,26 +363,19 @@ def kt_multiplatform_library(
 
     konan_targets = declaration.targeted.get("native", [])
     if konan_targets:
-        branches = {attr: {} for attr in ["srcs", "kmp_fragments"] + _CONCATENATED_ATTRS}
-        for target in konan_targets:
-            condition = _is_konan_target(target)
-            branches["srcs"][condition] = derived.leaf_srcs[target]
-            branches["kmp_fragments"][condition] = _fragments(target)
-            for attr, labels in _platform_lists(target).items():
-                branches[attr][condition] = labels
+        def _native_lists(target):
+            return dict(
+                _platform_lists(target),
+                kmp_fragments = _fragments(target),
+                srcs = derived.leaf_srcs[target],
+            )
 
         native_attrs = declaration.settings["native"]
         attrs = dict(rule_attrs, **native_attrs)
 
         # The compatibility with the konan targets comes first, then that of the macro and of native.
-        target_compatible_with = select(konan_targets_compatibility(konan_targets))
-        for given in [rule_attrs, native_attrs]:
-            if "target_compatible_with" in given:
-                target_compatible_with = target_compatible_with + given["target_compatible_with"]
-        attrs["target_compatible_with"] = target_compatible_with
-        for attr, attr_branches in branches.items():
-            attr_branches[_DEFAULT] = []
-            attrs[attr] = select(attr_branches)
+        attrs["target_compatible_with"] = konan_targets_compatible_with(konan_targets, [rule_attrs, native_attrs])
+        attrs.update(konan_target_selects(konan_targets, _native_lists))
         kt_native_library(
             name = name + "_native",
             **attrs

@@ -1,10 +1,10 @@
-"""Analysis tests for the kmp_fragments of kt_jvm_library: the K2 fragments of the KotlinCompile action."""
+"""Analysis tests for the kmp_fragments of kt_jvm_library and kt_jvm_test: the K2 fragments of the KotlinCompile action."""
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_java//java:defs.bzl", "java_library", "java_plugin")
 load("//kotlin:core.bzl", "define_kt_toolchain", "kt_ksp_plugin")
-load("//kotlin:jvm.bzl", "kt_jvm_library")
+load("//kotlin:jvm.bzl", "kt_jvm_library", "kt_jvm_test")
 
 # buildifier: disable=bzl-visibility
 load("//kotlin/internal/kmp:fragment.bzl", "kt_kmp_fragment")
@@ -74,6 +74,9 @@ def _fragments_test_impl(ctx):
         for jar in ctx.attr.dep_jars:
             asserts.true(env, jar in jars, "the dep %s of the library should be in %s" % (jar, flag))
 
+    # The fragments see the internal declarations of the associates, as the srcs do.
+    asserts.equals(env, ctx.attr.friend_jars, [_basename(path) for path in _values(argv, "--kotlin_friend_paths")])
+
     return analysistest.end(env)
 
 def _no_fragments_test_impl(ctx):
@@ -130,6 +133,8 @@ _fragments_test = analysistest.make(
         "fragment_sources": attr.string_list_dict(),
         # The fragment names, most shared first, then by name, the leaf last.
         "fragments": attr.string_list(),
+        # The basenames of the compile jars of the associates.
+        "friend_jars": attr.string_list(),
         # The refinements, <fragment>:<refined fragment>, in the order of the flags.
         "refines": attr.string_list(),
     },
@@ -180,6 +185,8 @@ def _kmp_fragments_contents():
         ("kf_greeting_kt", "Greeting.kt", ["package kf", "", "fun greeting(): String = \"Hello from \" + platformName()"]),
         ("kf_jvm_platform_kt", "Platform.jvm.kt", ["package kf", "", "actual fun platformName(): String = \"JVM\""]),
         ("kf_associating_kt", "Associating.kt", ["package kf", "", "fun associating(): String = greeting()"]),
+        ("kf_greeting_test_kt", "GreetingTest.kt", ["package kf", "", "expect fun expected(): String"]),
+        ("kf_jvm_greeting_test_kt", "GreetingTest.jvm.kt", ["package kf", "", "actual fun expected(): String = greeting()"]),
         ("kf_dep_java", "Dep.java", ["package kf;", "", "public class Dep {}"]),
         ("kf_processor_java", "Processor.java", ["package kf;", "", "public class Processor {}"]),
         ("kf_srcjar", "Gen.srcjar", [""]),
@@ -282,6 +289,52 @@ def _kmp_fragments_contents():
         srcs = [":kf_associating_kt"],
         associates = [":kf_library"],
         tags = ["manual"],
+    )
+
+    # Tests of kf_library, whose test sources are fragments of their own: the test of the JVM alone,
+    # and one without srcs, which compiles the fragments only. A test without fragments compiles as
+    # before.
+    kt_kmp_fragment(
+        name = "kf_test_common",
+        testonly = True,
+        srcs = [":kf_greeting_test_kt"],
+        fragment_name = "common",
+        platforms = [
+            "jvm",
+            "linux_x64",
+        ],
+        tags = ["manual"],
+    )
+    kt_kmp_fragment(
+        name = "kf_test_jvm_android",
+        testonly = True,
+        srcs = [":kf_jvm_greeting_test_kt"],
+        fragment_name = "jvm_android",
+        platforms = ["jvm"],
+        refines = [":kf_test_common"],
+        tags = ["manual"],
+    )
+    kt_jvm_test(
+        name = "kf_test",
+        srcs = [":kf_jvm_greeting_test_kt"],
+        associates = [":kf_library"],
+        kmp_fragments = [":kf_test_common"],
+        tags = ["manual"],
+        test_class = "kf.GreetingTest",
+    )
+    kt_jvm_test(
+        name = "kf_sourceless_test",
+        associates = [":kf_library"],
+        kmp_fragments = [":kf_test_jvm_android"],
+        tags = ["manual"],
+        test_class = "kf.GreetingTest",
+    )
+    kt_jvm_test(
+        name = "kf_free_test",
+        srcs = [":kf_associating_kt"],
+        associates = [":kf_library"],
+        tags = ["manual"],
+        test_class = "kf.GreetingTest",
     )
 
     # What a compilation with kmp_fragments rejects.
@@ -404,6 +457,32 @@ def _kmp_fragments_contents():
         name = "kmp_fragments_none_test",
         target_under_test = ":kf_free_library",
     )
+    _fragments_test(
+        name = "kmp_fragments_jvm_test_test",
+        target_under_test = ":kf_test",
+        fragment_sources = {
+            "common": ["GreetingTest.kt"],
+            "jvm": ["GreetingTest.jvm.kt"],
+        },
+        fragments = ["common", "jvm"],
+        friend_jars = ["kf_library.abi.jar"],
+        refines = ["jvm:common"],
+    )
+    _fragments_test(
+        name = "kmp_fragments_sourceless_jvm_test_test",
+        target_under_test = ":kf_sourceless_test",
+        fragment_sources = {
+            "common": ["GreetingTest.kt"],
+            "jvm_android": ["GreetingTest.jvm.kt"],
+        },
+        fragments = ["common", "jvm_android", "jvm"],
+        friend_jars = ["kf_library.abi.jar"],
+        refines = ["jvm_android:common", "jvm:jvm_android"],
+    )
+    _no_fragments_test(
+        name = "kmp_fragments_none_jvm_test_test",
+        target_under_test = ":kf_free_test",
+    )
     _abi_jar_test(
         name = "kmp_fragments_default_no_abi_jar_test",
         target_under_test = ":kf_library",
@@ -475,15 +554,18 @@ def kmp_fragments_test_suite(name):
             ":kmp_fragments_abi_jar_test",
             ":kmp_fragments_default_no_abi_jar_test",
             ":kmp_fragments_duplicate_fragment_fails_test",
+            ":kmp_fragments_jvm_test_test",
             ":kmp_fragments_kapt_fails_test",
             ":kmp_fragments_ksp_fails_test",
             ":kmp_fragments_library_test",
             ":kmp_fragments_none_abi_jar_test",
+            ":kmp_fragments_none_jvm_test_test",
             ":kmp_fragments_none_test",
             ":kmp_fragments_not_superset_fails_test",
             ":kmp_fragments_public_only_associate_test",
             ":kmp_fragments_source_in_two_fragments_fails_test",
             ":kmp_fragments_sourceless_abi_jar_test",
+            ":kmp_fragments_sourceless_jvm_test_test",
             ":kmp_fragments_sourceless_library_test",
             ":kmp_fragments_srcjar_fails_test",
         ],

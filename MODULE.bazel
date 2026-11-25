@@ -195,9 +195,10 @@ bazel_dep(name = "stardoc", version = "0.8.1", dev_dependency = True, repo_name 
 bazel_dep(name = "rules_testing", version = "0.9.0", dev_dependency = True)
 bazel_dep(name = "rules_bazel_integration_test", version = "0.37.1", dev_dependency = True)
 
-# The API docs of kmp.bzl (docs/) load kt_android_library, whose rules_android files are in a
-# bzl_library that rules_android keeps to itself: the patch makes it public. Only the overrides of
-# the root module apply, so the patch applies to the development of rules_kotlin, not to its users.
+# The API docs of kmp.bzl (docs/) load kt_android_library and kt_android_local_test, whose
+# rules_android files are in bzl_libraries that rules_android keeps to itself: the patch makes them
+# public. Only the overrides of the root module apply, so the patch applies to the development of
+# rules_kotlin, not to its users.
 single_version_override(
     module_name = "rules_android",
     patch_strip = 1,

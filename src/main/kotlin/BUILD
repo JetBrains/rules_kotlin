@@ -53,6 +53,14 @@ alias(
     visibility = ["//visibility:public"],
 )
 
+# The default test class of the JVM and Android tests of kt_multiplatform_test (see
+# kotlin/internal/kmp/test.bzl).
+alias(
+    name = "kmp_test_suite",
+    actual = "//src/main/kotlin/io/bazel/kotlin/kmp:kmp_test_suite",
+    visibility = ["//visibility:public"],
+)
+
 release_archive(
     name = "pkg",
     srcs = [
@@ -64,6 +72,7 @@ release_archive(
         "//src/main/kotlin/io/bazel/kotlin/builder/cmd:build_deploy.jar": "kotlin_worker.jar",
         "//src/main/kotlin/io/bazel/kotlin/builder/cmd:ksp2_deploy.jar": "ksp2_worker.jar",
         "//src/main/kotlin/io/bazel/kotlin/builder/cmd:merge_jdeps_deploy.jar": "jdeps_merger_worker.jar",
+        "//src/main/kotlin/io/bazel/kotlin/kmp:kmp_test_suite.jar": "kmp_test_suite.jar",
         "//src/main/kotlin/io/bazel/kotlin/ksp2:ksp2.jar": "ksp2_invoker.jar",
         "//src/main/kotlin/io/bazel/kotlin/native:konan_launcher_deploy.jar": "konan_launcher_lib.jar",
         "BUILD.release.bazel": "BUILD.bazel",

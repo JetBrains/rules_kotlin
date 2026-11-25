@@ -9,6 +9,7 @@ load(":multiplatform_common_test.bzl", "multiplatform_common_test_suite")
 load(":multiplatform_test.bzl", "multiplatform_test_suite")
 load(":platform_type_test.bzl", "platform_type_test_suite")
 load(":qualifiers_test.bzl", "qualifiers_test_suite")
+load(":test_macro_test.bzl", "test_macro_test_suite")
 
 aspect_deps_test_suite(name = "aspect_deps_tests")
 
@@ -29,6 +30,8 @@ multiplatform_test_suite(name = "multiplatform_tests")
 platform_type_test_suite(name = "platform_type_tests")
 
 qualifiers_test_suite(name = "qualifiers_tests")
+
+test_macro_test_suite(name = "test_macro_tests")
 
 sh_test(
     name = "ksp_run_test",

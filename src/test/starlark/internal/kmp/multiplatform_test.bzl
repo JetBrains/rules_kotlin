@@ -14,7 +14,14 @@ load("//kotlin:native.bzl", "KtKlibInfo")
 load("//kotlin/internal/kmp:fragment.bzl", "KtFragmentInfo", "KtFragmentsGraphInfo", "kt_kmp_fragments_graph")
 
 # buildifier: disable=bzl-visibility
-load("//kotlin/internal/kmp:multiplatform.bzl", "alias_branches", "display_label", "konan_targets_compatibility")
+load(
+    "//kotlin/internal/kmp:multiplatform.bzl",
+    "alias_branches",
+    "display_label",
+    "konan_target_selects",
+    "konan_targets_compatibility",
+    "konan_targets_compatible_with",
+)
 load(
     "//src/test/starlark/internal/native:common.bzl",
     "for_target",
@@ -254,6 +261,45 @@ def _konan_targets_compatibility_test(ctx):
         konan_targets_compatibility([]),
     )
 
+    # The constraints the macro and its `native` give follow that compatibility, in their order.
+    compatibility = select(konan_targets_compatibility(["ios_arm64"]))
+    asserts.equals(env, repr(compatibility), repr(konan_targets_compatible_with(["ios_arm64"], [{}, {"opts": []}])))
+    asserts.equals(
+        env,
+        repr(compatibility + ["@platforms//os:macos"] + [":constraint"]),
+        repr(konan_targets_compatible_with(
+            ["ios_arm64"],
+            [{"target_compatible_with": ["@platforms//os:macos"]}, {"target_compatible_with": [":constraint"]}],
+        )),
+    )
+
+    return unittest.end(env)
+
+def _konan_target_selects_test(ctx):
+    env = unittest.begin(ctx)
+
+    # Each list of the native target is the one of the konan target of the build's platform, and
+    # empty for another platform, which the target is incompatible with.
+    lists = {
+        "ios_arm64": {"deps": [":ios"], "srcs": ["Device.kt"]},
+        "macos_arm64": {"deps": [], "srcs": ["Mac.kt"]},
+    }
+    selects = konan_target_selects(["ios_arm64", "macos_arm64"], lambda target: lists[target])
+    ios = str(Label("//kotlin/native/platforms:is_ios_arm64"))
+    macos = str(Label("//kotlin/native/platforms:is_macos_arm64"))
+    asserts.equals(env, ["deps", "srcs"], sorted(selects))
+    asserts.equals(
+        env,
+        repr(select({ios: [":ios"], macos: [], "//conditions:default": []})),
+        repr(selects["deps"]),
+    )
+    asserts.equals(
+        env,
+        repr(select({ios: ["Device.kt"], macos: ["Mac.kt"], "//conditions:default": []})),
+        repr(selects["srcs"]),
+    )
+    asserts.equals(env, {}, konan_target_selects([], lambda target: lists[target]))
+
     return unittest.end(env)
 
 def _alias_branches_test(ctx):
@@ -308,6 +354,7 @@ def _display_label_test(ctx):
     return unittest.end(env)
 
 konan_targets_compatibility_test = unittest.make(_konan_targets_compatibility_test)
+konan_target_selects_test = unittest.make(_konan_target_selects_test)
 alias_branches_test = unittest.make(_alias_branches_test)
 display_label_test = unittest.make(_display_label_test)
 
@@ -900,6 +947,7 @@ leaf ios_simulator_arm64
     unittest.suite(
         "multiplatform_helpers",
         konan_targets_compatibility_test,
+        konan_target_selects_test,
         alias_branches_test,
         display_label_test,
     )

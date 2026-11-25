@@ -1,14 +1,40 @@
 load("@bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
 load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_test")
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 # The alias of kotlinx.coroutines, which the common code of //shared uses and the tests call.
 COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 
-# A test compiles its own sources only, against the library of its platform, which it gets through
-# the alias //shared, as the test compilation of a Gradle module compiles against the main one.
+# --- every platform: common tests, declared as the sources of //shared are ---
+# Gradle's commonTest, jvmTest and nativeTest: the common test runs on the JVM and on the konan
+# target of the host, with the `actual` helper of each, as a friend of the library of the platform,
+# whose `internal` declarations it calls. shared_test runs the tests of the platforms the host is
+# compatible with: shared_test_jvm and shared_test_native.
+
+kt_multiplatform_test(
+    name = "shared_test",
+    srcs = ["common/SharedTest.kt"],
+    deps_jvm = [
+        "@maven_rules_kotlin_example//:junit_junit",
+        "@rules_kotlin//kotlin/compiler:kotlin-test",
+        "@rules_kotlin//kotlin/compiler:kotlin-test-junit",
+    ],
+    library = "//shared",
+    platforms = [
+        "jvm",
+        "linux_x64",
+        "macos_arm64",
+    ],
+    srcs_jvm = ["jvm/PlatformOfTheTest.jvm.kt"],
+    srcs_native = ["native/PlatformOfTheTest.native.kt"],
+)
+
+# The tests below are of one platform each: a test compiles its own sources only, against the
+# library of its platform, which it gets through the alias //shared, as the test compilation of a
+# Gradle module compiles against the main one.
 
 # --- JVM: the common code with the JVM actuals, through the alias ---
 # The aliases //shared and COROUTINES select a klib for the Kotlin/Native rules only, which set the
