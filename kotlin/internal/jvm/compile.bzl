@@ -20,6 +20,7 @@ load(
 load(
     "@rules_java//java:defs.bzl",
     "JavaInfo",
+    "JavaPluginInfo",
     "java_common",
 )
 load("//kotlin/internal:btapi_runtime.bzl", "btapi_runtime_classpath")
@@ -46,6 +47,10 @@ load(
 load(
     "//kotlin/internal/jvm:jvm_deps.bzl",
     _jvm_deps_utils = "jvm_deps_utils",
+)
+load(
+    "//kotlin/internal/jvm:kover.bzl",
+    _is_kover_enabled = "is_kover_enabled",
 )
 load(
     "//kotlin/internal/jvm:plugins.bzl",
@@ -76,13 +81,10 @@ def _java_info(target):
     return target[JavaInfo] if JavaInfo in target else None
 
 def _deps_artifacts(toolchains, targets):
-    """Collect Jdeps artifacts if required."""
-    if not toolchains.kt.experimental_report_unused_deps == "off":
-        deps_artifacts = [t[JavaInfo].outputs.jdeps for t in targets if JavaInfo in t and t[JavaInfo].outputs.jdeps]
-    else:
-        deps_artifacts = []
-
-    return depset(deps_artifacts)
+    """Collect the deps' jdeps for the builder's KOTLINBUILDER_REDUCED classpath mode, the only consumer."""
+    if toolchains.kt.experimental_reduce_classpath_mode != "KOTLINBUILDER_REDUCED" or toolchains.kt.experimental_report_unused_deps == "off":
+        return depset()
+    return depset([t[JavaInfo].outputs.jdeps for t in targets if JavaInfo in t and t[JavaInfo].outputs.jdeps])
 
 def _partitioned_srcs(srcs):
     """Creates a struct of srcs sorted by extension. Fails if there are no sources."""
@@ -229,6 +231,9 @@ def _new_plugins_from(targets):
     for p in all_plugins.values():
         plugin_classpath = [p.classpath]
         plugin_options = list(p.options)
+        plugin_data = getattr(p, "data", None)
+        if plugin_data:
+            data.append(plugin_data)
         if p.id in all_plugin_cfgs:
             cfg = p.merge_cfgs(p, all_plugin_cfgs[p.id])
             plugin_classpath.append(cfg.classpath)
@@ -749,7 +754,7 @@ def _run_kt_builder_action(
     args.add_all("--source_jars", srcs.src_jars + generated_src_jars, omit_if_empty = True)
     args.add_all("--deps_artifacts", deps_artifacts, omit_if_empty = True)
     args.add_all("--kotlin_friend_paths", compile_deps.associate_jars, omit_if_empty = True)
-    args.add("--instrument_coverage", ctx.coverage_instrumented())
+    args.add("--instrument_coverage", ctx.coverage_instrumented() and not _is_kover_enabled(ctx))
 
     # Collect and prepare plugin descriptor for the worker.
     args.add_all(
@@ -801,6 +806,7 @@ def _run_kt_builder_action(
                 transitive_runtime_jars,
                 deps_artifacts,
                 plugins.classpath,
+                plugins.data,
             ],
         ),
         tools = [
@@ -1184,7 +1190,7 @@ def _run_kt_java_builder_actions(
             output = ctx.actions.declare_file(ctx.label.name + "-java.jar"),
             deps = compile_deps.java_deps + kt_stubs_for_java + [p[JavaInfo] for p in ctx.attr.plugins if JavaInfo in p],
             java_toolchain = toolchains.java,
-            plugins = _plugin_mappers.targets_to_annotation_processors_java_plugin_info(ctx.attr.plugins),
+            plugins = _plugin_mappers.targets_to_annotation_processors_java_plugin_info(ctx.attr.plugins) + [ctx.attr._java_plugins[JavaPluginInfo]],
             javac_opts = javac_opts,
             neverlink = getattr(ctx.attr, "neverlink", False),
             strict_deps = toolchains.kt.experimental_strict_kotlin_deps,

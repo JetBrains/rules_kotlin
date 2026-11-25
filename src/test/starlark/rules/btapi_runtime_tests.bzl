@@ -34,6 +34,7 @@ def _default_runtime_assertion(env, target):
         "kotlin-stdlib.jar",
         "kotlin-reflect.jar",
         "kotlin-script-runtime.jar",
+        "kotlin-tooling-core.jar",
         "kotlinx-coroutines-core-jvm.jar",
         "kotlinx-serialization-core-jvm.jar",
     ])
@@ -41,7 +42,7 @@ def _default_runtime_assertion(env, target):
 
     # The record's own libraries: not the CLI distribution's copies.
     for f in info.libraries:
-        if f.basename in ["kotlin-stdlib.jar", "kotlin-reflect.jar", "kotlin-daemon-client.jar", "kotlin-script-runtime.jar"]:
+        if f.basename in ["kotlin-stdlib.jar", "kotlin-reflect.jar", "kotlin-daemon-client.jar", "kotlin-script-runtime.jar", "kotlin-tooling-core.jar"]:
             env.expect.that_str(f.owner.workspace_name).contains("btapi_impl")
 
 def _inherited_runtime_assertion(env, target):

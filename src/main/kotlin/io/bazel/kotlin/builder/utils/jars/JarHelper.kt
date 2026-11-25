@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-@file:Suppress("MemberVisibilityCanBePrivate")
-
 package io.bazel.kotlin.builder.utils.jars
 
 import java.io.FileNotFoundException
@@ -42,25 +40,11 @@ open class JarHelper internal constructor(
   // The properties to describe how to create the Jar
   protected val normalize: Boolean = true,
   protected val verbose: Boolean = false,
-  compression: Boolean = true,
 ) {
   private var storageMethod: Int = JarEntry.DEFLATED
 
   // The state needed to create the Jar
   private val names: MutableSet<String> = HashSet()
-
-  init {
-    setCompression(compression)
-  }
-
-  /**
-   * Enables or disables compression for the Jar file entries.
-   *
-   * @param compression if true enables compressions for the Jar file entries.
-   */
-  private fun setCompression(compression: Boolean) {
-    storageMethod = if (compression) JarEntry.DEFLATED else JarEntry.STORED
-  }
 
   /**
    * Returns the normalized timestamp for a jar entry based on its name. This is necessary since
@@ -188,22 +172,9 @@ open class JarHelper internal constructor(
           outEntry.crc = 0
           putNextEntry(outEntry)
         } else {
-          outEntry.method = storageMethod
-          if (storageMethod == JarEntry.STORED) {
-            // ZipFile requires us to calculate the CRC-32 for any STORED entry.
-            // It would be nicer to do this via DigestInputStream, but
-            // the architecture of ZipOutputStream requires us to know the CRC-32
-            // before we write the data to the stream.
-            val bytes = Files.readAllBytes(path)
-            val crc = CRC32()
-            crc.update(bytes)
-            outEntry.crc = crc.value
-            putNextEntry(outEntry)
-            write(bytes)
-          } else {
-            putNextEntry(outEntry)
-            Files.copy(path, this)
-          }
+          outEntry.method = JarEntry.DEFLATED
+          putNextEntry(outEntry)
+          Files.copy(path, this)
         }
         closeEntry()
       }

@@ -44,7 +44,7 @@ import io.bazel.kotlin.compiler.CompilerConfiguration
 import io.bazel.kotlin.compiler.CompilerPluginSpec
 import io.bazel.kotlin.compiler.KotlinBtapiCompiler
 import io.bazel.kotlin.model.JvmCompilationTask
-import io.bazel.kotlin.model.JvmCompilationTask.Inputs.PluginPhase
+import io.bazel.kotlin.model.PluginPhase
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.PrintStream
@@ -99,13 +99,12 @@ class BtapiTaskExecutor(
     context: CompilationTaskContext,
     task: JvmCompilationTask,
   ) {
-    require(task.info.toolchainInfo.hasBtapi()) {
-      "the Build Tools API compilation requires the toolchain-supplied runtime " +
-        "(the --btapi_* and --internal_* worker flags)"
-    }
-    val btapiRuntime =
-      task.info.toolchainInfo.btapi
-        .toRuntime()
+    val btapi =
+      requireNotNull(task.info.toolchainInfo.btapi) {
+        "the Build Tools API compilation requires the toolchain-supplied runtime " +
+          "(the --btapi_* and --internal_* worker flags)"
+      }
+    val btapiRuntime = btapi.toRuntime()
     val compiler =
       getCompilerInvoker(btapiRuntime.apiImplClasspath, btapiRuntime.classpathFingerprint)
     val preprocessedTask =
@@ -216,13 +215,12 @@ class BtapiTaskExecutor(
       context
         .executeCompilerTask(
           { out ->
-            // Like the legacy pre-pass, this compiles with the toolchain's base arguments only:
-            // the user's pass-through flags and the friend paths belong to the main compile.
+            // The pre-pass takes the pass-through flags and the friend paths of the main compile.
             invokeCompiler(
               context,
               compiler,
-              arguments = emptyList(),
-              friendPaths = emptyList(),
+              arguments = info.passthroughFlagsList,
+              friendPaths = info.friendPathsList,
               sources = inputs.kotlinSourcesList + inputs.javaSourcesList,
               descriptors = descriptors,
               destination = directories.generatedClasses,

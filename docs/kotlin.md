@@ -379,13 +379,13 @@ kt_jvm_library(
 | Name  | Description | Type | Mandatory | Default |
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="kt_compiler_plugin-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
-| <a id="kt_compiler_plugin-deps"></a>deps |  The list of libraries to be added to the compiler's plugin classpath   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_compiler_plugin-data"></a>data |  The list of data files to be used by compiler's plugin   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_compiler_plugin-deps"></a>deps |  The list of libraries to be added to the compiler's plugin classpath. The plugin classpath is the transitive runtime classpath of these libraries. A neverlink library therefore contributes nothing to it, and neither does a library reachable only through a neverlink library.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_compiler_plugin-data"></a>data |  The files the plugin reads at compile time. An option value names one of them as `$(location <file>)`. The files and the runfiles of each listed target are inputs of the compilation.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_compiler_plugin-compile_phase"></a>compile_phase |  Runs the compiler plugin during kotlin compilation. Known examples: `allopen`, `sam_with_reciever`   | Boolean | optional |  `True`  |
 | <a id="kt_compiler_plugin-id"></a>id |  The ID of the plugin   | String | required |  |
 | <a id="kt_compiler_plugin-options"></a>options |  Dictionary of options to be passed to the plugin. Each option key can have multiple values. Supports the following template values:<br><br>- `{generatedClasses}`: directory for generated class output - `{temp}`: temporary directory, discarded between invocations - `{generatedSources}`:  directory for generated source output - `{classpath}` : replaced with a list of jars separated by the filesystem appropriate separator.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> List of strings</a> | optional |  `{}`  |
 | <a id="kt_compiler_plugin-stubs_phase"></a>stubs_phase |  Runs the compiler plugin in kapt stub generation.   | Boolean | optional |  `True`  |
-| <a id="kt_compiler_plugin-target_embedded_compiler"></a>target_embedded_compiler |  Plugin was compiled against the embeddable kotlin compiler. The plugin classpath is reshaded when this dialect differs from the dialect of the compiler that the toolchain runs.   | Boolean | optional |  `False`  |
+| <a id="kt_compiler_plugin-target_embedded_compiler"></a>target_embedded_compiler |  Plugin was compiled against the embeddable kotlin compiler. The plugin classpath is reshaded when this dialect differs from the dialect of the compiler that the toolchain runs. The aspect declares the reshaded copies for the libraries that deps, runtime_deps, exports or associates reach. A jar without a copy stays as it is.   | Boolean | optional |  `False`  |
 
 
 <a id="kt_javac_options"></a>
@@ -535,11 +535,11 @@ kt_jvm_library(
 | Name  | Description | Type | Mandatory | Default |
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="kt_ksp_plugin-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
-| <a id="kt_ksp_plugin-deps"></a>deps |  The list of libraries to be added to the compiler's plugin classpath   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_ksp_plugin-deps"></a>deps |  The list of libraries to be added to the compiler's plugin classpath. The plugin classpath is the transitive runtime classpath of these libraries. A neverlink library therefore contributes nothing to it, and neither does a library reachable only through a neverlink library.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_ksp_plugin-generates_java"></a>generates_java |  Runs Java compilation action for plugin generating Java output.   | Boolean | optional |  `False`  |
 | <a id="kt_ksp_plugin-options"></a>options |  Processor options passed to the KSP processor via SymbolProcessorEnvironment.options. Each entry is a key-value pair available to the processor at processing time.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> String</a> | optional |  `{}`  |
 | <a id="kt_ksp_plugin-processor_class"></a>processor_class |  The fully qualified class name that the Java compiler uses as an entry point to the annotation processor.   | String | required |  |
-| <a id="kt_ksp_plugin-target_embedded_compiler"></a>target_embedded_compiler |  Plugin was compiled against the embeddable kotlin compiler. These plugins expect shaded kotlinc dependencies, and will fail when running against a non-embeddable compiler.   | Boolean | optional |  `False`  |
+| <a id="kt_ksp_plugin-target_embedded_compiler"></a>target_embedded_compiler |  Plugin was compiled against the embeddable kotlin compiler. The rule reshades the plugin classpath into the CLI-distribution dialect, which it assumes runs the plugin. The aspect declares the reshaded copies for the libraries that deps, runtime_deps, exports or associates reach. A jar without a copy stays as it is.   | Boolean | optional |  `False`  |
 
 
 <a id="kt_plugin_cfg"></a>
@@ -563,7 +563,7 @@ This allows setting options and dependencies independently from the initial plug
 | :------------- | :------------- | :------------- | :------------- | :------------- |
 | <a id="kt_plugin_cfg-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
 | <a id="kt_plugin_cfg-deps"></a>deps |  Dependencies for this configuration.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
-| <a id="kt_plugin_cfg-data"></a>data |  The list of data files to be used by compiler's plugin   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_plugin_cfg-data"></a>data |  The files the plugin reads at compile time. An option value names one of them as `$(location <file>)`. The files and the runfiles of each listed target are inputs of the compilation.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 | <a id="kt_plugin_cfg-options"></a>options |  A dictionary of flag to values to be used as plugin configuration options.   | <a href="https://bazel.build/rules/lib/core/dict">Dictionary: String -> List of strings</a> | optional |  `{}`  |
 | <a id="kt_plugin_cfg-plugin"></a>plugin |  The plugin to associate with this configuration   | <a href="https://bazel.build/concepts/labels">Label</a> | required |  |
 
@@ -609,9 +609,11 @@ define_kt_toolchain(<a href="#define_kt_toolchain-name">name</a>, <a href="#defi
                     <a href="#define_kt_toolchain-experimental_strict_kotlin_deps">experimental_strict_kotlin_deps</a>, <a href="#define_kt_toolchain-experimental_report_unused_deps">experimental_report_unused_deps</a>,
                     <a href="#define_kt_toolchain-experimental_reduce_classpath_mode">experimental_reduce_classpath_mode</a>, <a href="#define_kt_toolchain-experimental_multiplex_workers">experimental_multiplex_workers</a>,
                     <a href="#define_kt_toolchain-experimental_multiplex_sandboxing">experimental_multiplex_sandboxing</a>, <a href="#define_kt_toolchain-supports_path_mapping">supports_path_mapping</a>,
-                    <a href="#define_kt_toolchain-experimental_build_tools_api">experimental_build_tools_api</a>, <a href="#define_kt_toolchain-btapi_runtime">btapi_runtime</a>, <a href="#define_kt_toolchain-javac_options">javac_options</a>, <a href="#define_kt_toolchain-kotlinc_options">kotlinc_options</a>,
-                    <a href="#define_kt_toolchain-jvm_stdlibs">jvm_stdlibs</a>, <a href="#define_kt_toolchain-jvm_runtime">jvm_runtime</a>, <a href="#define_kt_toolchain-jacocorunner">jacocorunner</a>, <a href="#define_kt_toolchain-exec_compatible_with">exec_compatible_with</a>,
-                    <a href="#define_kt_toolchain-target_compatible_with">target_compatible_with</a>, <a href="#define_kt_toolchain-target_settings">target_settings</a>)
+                    <a href="#define_kt_toolchain-experimental_build_tools_api">experimental_build_tools_api</a>, <a href="#define_kt_toolchain-btapi_runtime">btapi_runtime</a>, <a href="#define_kt_toolchain-experimental_kover_enabled">experimental_kover_enabled</a>,
+                    <a href="#define_kt_toolchain-experimental_kover_agent">experimental_kover_agent</a>, <a href="#define_kt_toolchain-experimental_kover_exclude">experimental_kover_exclude</a>,
+                    <a href="#define_kt_toolchain-experimental_kover_exclude_annotation">experimental_kover_exclude_annotation</a>, <a href="#define_kt_toolchain-experimental_kover_exclude_inherited_from">experimental_kover_exclude_inherited_from</a>,
+                    <a href="#define_kt_toolchain-javac_options">javac_options</a>, <a href="#define_kt_toolchain-kotlinc_options">kotlinc_options</a>, <a href="#define_kt_toolchain-jvm_stdlibs">jvm_stdlibs</a>, <a href="#define_kt_toolchain-jvm_runtime">jvm_runtime</a>, <a href="#define_kt_toolchain-jacocorunner">jacocorunner</a>,
+                    <a href="#define_kt_toolchain-exec_compatible_with">exec_compatible_with</a>, <a href="#define_kt_toolchain-target_compatible_with">target_compatible_with</a>, <a href="#define_kt_toolchain-target_settings">target_settings</a>)
 </pre>
 
 Define the Kotlin toolchain.
@@ -646,6 +648,11 @@ libraries they need, and the internal compiler plugins in the embeddable dialect
 | <a id="define_kt_toolchain-supports_path_mapping"></a>supports_path_mapping |  <p align="center"> - </p>   |  `None` |
 | <a id="define_kt_toolchain-experimental_build_tools_api"></a>experimental_build_tools_api |  `True` enables the Build Tools API compilation for the toolchain. Unset, it is `True` when `btapi_runtime` is set and `False` otherwise. `False` keeps the legacy invocation until the build setting turns the Build Tools API on; a `btapi_runtime` then applies to that build only.   |  `None` |
 | <a id="define_kt_toolchain-btapi_runtime"></a>btapi_runtime |  a `kt_btapi_runtime` that replaces the default Build Tools API runtime, `//kotlin/compiler:btapi_runtime`, the runtime of the current Kotlin release. The runtime of another release is `@<name>//:runtime` of a repository the module extension tag `btapi_impl_version` declares. A runtime built on either with `base` replaces single artifacts. A runtime is an explicit choice of the Build Tools API compilation, see `experimental_build_tools_api`.   |  `None` |
+| <a id="define_kt_toolchain-experimental_kover_enabled"></a>experimental_kover_enabled |  <p align="center"> - </p>   |  `False` |
+| <a id="define_kt_toolchain-experimental_kover_agent"></a>experimental_kover_agent |  <p align="center"> - </p>   |  `None` |
+| <a id="define_kt_toolchain-experimental_kover_exclude"></a>experimental_kover_exclude |  <p align="center"> - </p>   |  `None` |
+| <a id="define_kt_toolchain-experimental_kover_exclude_annotation"></a>experimental_kover_exclude_annotation |  <p align="center"> - </p>   |  `None` |
+| <a id="define_kt_toolchain-experimental_kover_exclude_inherited_from"></a>experimental_kover_exclude_inherited_from |  <p align="center"> - </p>   |  `None` |
 | <a id="define_kt_toolchain-javac_options"></a>javac_options |  <p align="center"> - </p>   |  `Label("@rules_kotlin//kotlin/internal:default_javac_options")` |
 | <a id="define_kt_toolchain-kotlinc_options"></a>kotlinc_options |  <p align="center"> - </p>   |  `Label("@rules_kotlin//kotlin/internal:default_kotlinc_options")` |
 | <a id="define_kt_toolchain-jvm_stdlibs"></a>jvm_stdlibs |  <p align="center"> - </p>   |  `None` |

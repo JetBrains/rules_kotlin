@@ -11,7 +11,8 @@ local_path_override(
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "rules_jvm_external", version = "6.10")
 bazel_dep(name = "rules_shell", version = "0.4.1")
-bazel_dep(name = "rules_android", version = "0.7.3")
+bazel_dep(name = "rules_android", version = "0.8.1")
+bazel_dep(name = "protobuf", version = "33.4")
 
 register_toolchains(
     "@rules_android//toolchains/android:android_default_toolchain",
@@ -47,7 +48,7 @@ maven.install(
     name = "maven_rules_kotlin_example",
     aar_import_bzl_label = "@rules_android//rules:rules.bzl",
     artifacts = [
-        "org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.4.20",
+        "org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.4.21",
         "androidx.core:core-ktx:1.15.0",
         "androidx.appcompat:appcompat:1.7.0",
         "androidx.activity:activity-compose:1.7.0",

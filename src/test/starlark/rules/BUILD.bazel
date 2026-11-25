@@ -4,9 +4,13 @@ load("//kotlin:jvm.bzl", "kt_jvm_import")
 load(":associates_tests.bzl", "associates_tests")
 load(":btapi_runtime_args_tests.bzl", "btapi_runtime_args_tests")
 load(":btapi_runtime_tests.bzl", "btapi_runtime_tests")
+load(":deps_artifacts_tests.bzl", "deps_artifacts_tests")
 load(":experimental_prune_transitive_deps_tests.bzl", "experimental_prune_transitive_deps_tests")
+load(":java_plugin_flag_tests.bzl", "java_plugin_flag_tests")
 load(":jdeps_merge_inputs_tests.bzl", "jdeps_merge_inputs_tests")
+load(":jdeps_validation_tests.bzl", "jdeps_validation_tests")
 load(":mixed_mode_tests.bzl", "mixed_mode_tests")
+load(":plugin_classpath_tests.bzl", "plugin_classpath_tests")
 load(":plugin_dialect_tests.bzl", "plugin_dialect_tests")
 load(":stdlib_provider_tests.bzl", "stdlib_provider_tests")
 
@@ -107,8 +111,20 @@ jdeps_merge_inputs_tests(
     name = "jdeps_merge_inputs_tests",
 )
 
+jdeps_validation_tests(
+    name = "jdeps_validation_tests",
+)
+
+deps_artifacts_tests(
+    name = "deps_artifacts_tests",
+)
+
 mixed_mode_tests(
     name = "mixed_mode_tests",
+)
+
+plugin_classpath_tests(
+    name = "plugin_classpath_tests",
 )
 
 plugin_dialect_tests(
@@ -119,4 +135,20 @@ plugin_dialect_tests(
 define_kt_toolchain(
     name = "report_unused_deps_toolchain",
     experimental_report_unused_deps = "warn",
+)
+
+# Only used by jdeps_validation_tests, which pulls it in with --extra_toolchains.
+define_kt_toolchain(
+    name = "report_unused_deps_error_toolchain",
+    experimental_report_unused_deps = "error",
+)
+
+define_kt_toolchain(
+    name = "reduced_classpath_toolchain",
+    experimental_reduce_classpath_mode = "KOTLINBUILDER_REDUCED",
+    experimental_report_unused_deps = "warn",
+)
+
+java_plugin_flag_tests(
+    name = "java_plugin_flag_tests",
 )
