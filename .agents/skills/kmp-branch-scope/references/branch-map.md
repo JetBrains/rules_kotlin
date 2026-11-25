@@ -1,7 +1,7 @@
 # Branch map: Kotlin/Native and Kotlin Multiplatform in rules_kotlin
 
-Snapshot: `262e0f73` (2026-11-25). It covers 28 commits, from `09145518` to `262e0f73`, on top of upstream master `239007ef`
-("Add Kover code coverage support (#1831)"). Together they touch 252 files: 205 added and 47 upstream files modified.
+Snapshot: `a926cb0e` (2026-11-25). It covers 31 commits, from `09145518` to `a926cb0e`, on top of upstream master `239007ef`
+("Add Kover code coverage support (#1831)"). Together they touch 275 files: 225 added and 50 upstream files modified.
 `scripts/scope.sh` marks with `*` every commit of the range that this map does not list yet. Facts
 below are as of the snapshot, and commit messages can be stale. Check a detail against the code before relying on it.
 
@@ -130,13 +130,40 @@ upgrade script.
     - A source in two lists, neither above the other, fails with the list or the alias to move it to.
     - `derive.bzl` moved to the `:multiplatform` `bzl_library`, and `fragment.bzl` has its own default name.
     - `examples/kmp` declares `non_android` as an alias. It is the first step of porting Kotlin Toolchain features.
+29. `44996cf1` exclude .junie dir from git
+    - `.gitignore` ignores `.junie`, where the plans are: they stay local.
+30. `42b1225c` add skill for contributing to `kmp` branch
+    - Tracks this skill on the branch, under `.agents/skills/kmp-branch-scope`: `SKILL.md`, this map, `delivery.md` and
+      `scripts/scope.sh`.
+31. `a926cb0e` Add kt_multiplatform_test, which declares the tests of a multiplatform library along its hierarchy
+    - `kotlin/internal/kmp/test.bzl`: `kt_multiplatform_test(library, platforms, aliases, srcs, deps, plugins, jvm, android,
+      native)`, declared as the library is. It declares `<name>_jvm` (`kt_jvm_test`), `<name>_android`
+      (`kt_android_local_test`), `<name>_native` (`kt_native_test`), the private, testonly `<name>_fragment_<f>`,
+      `<name>.fragments` and a `test_suite` `<name>`.
+    - The test of a platform compiles test fragments only, named after their qualifiers, with `associates` set to
+      `<library>_<platform>`, the target next to the alias. `derive_fragments` is used as it was.
+    - `kmp_fragments` on `kt_jvm_test`, `kt_android_local_test` (`attrs.test_kmp_fragments_attr`; the leaf is `android`) and
+      `kt_native_test`. `link_native(fragments = ...)` compiles the private klib when the srcs or the fragments have
+      sources, and `kt_native_test` fails only when neither has one.
+    - `MultiplatformTestSuite` (`//src/main/kotlin:kmp_test_suite`): the default `test_class` of the JVM and Android tests,
+      a JUnit 4 suite of the test classes of the jar that `-Drules_kotlin.kmp.test_jar` names. It compiles against the
+      `TestRunner_deploy.jar` of Bazel, and fails without the property, the jar or a test class. A `test_class`, or another
+      `main_class`, turns it off.
+    - `parse_declaration(attrs = ..., kind = ...)`, `TEST_QUALIFIED_ATTRS` and `sourceless_error`. `exports` fails for a test,
+      and so do `associates` in a dict and a listed platform without sources (`tests_error`).
+    - `multiplatform.bzl` exports `label_formatter`, `declare_fragments`, `leaf_fragments`, `konan_target_selects` and
+      `konan_targets_compatible_with`. The library macro declares what it declared.
+    - First touch of `kt_jvm_test.bzl` and `kt_android_local_test.bzl`. The rules_android patch also makes the `bzl_library`
+      of `android_local_test` public, for the docs.
+    - `examples/kmp` has `//tests:shared_test`, and `greetingFrom` of `//shared` is `internal`. It is the second step of
+      porting Kotlin Toolchain features.
 
 ## Current public surface
 
 - `//kotlin:native.bzl`: `kt_native_library`, `kt_native_binary`, `kt_native_test`, `kt_native_framework`, `kt_klib_import`,
   `KtKlibInfo`.
 - `//kotlin:kmp.bzl` (excluded from the release `kotlin` filegroup, as it loads the Android rules): `kt_multiplatform_library`,
-  `kt_jvm_ksp_sources`, `kt_native_ksp_sources`.
+  `kt_multiplatform_test`, `kt_jvm_ksp_sources`, `kt_native_ksp_sources`.
 - Module extensions:
   - `@rules_kotlin//src/main/starlark/core/repositories:native.bzl` `kotlin_native`, with the root-only tags
     `version(version, sha256, btapi_sha256)` and `targets(targets)`.
@@ -145,7 +172,13 @@ upgrade script.
   when `platforms` lists the platform). It also declares the private `<name>_fragment_<f>`, `<name>_srcs` and
   `<name>.fragments`. Its `aliases` name sets of listed platforms outside the hierarchy, which take `srcs`, `deps`,
   `exports` and `plugins` like a group.
-- `kmp_fragments`: an attribute of `kt_jvm_library`, `kt_android_library` and `kt_native_library` that the macro sets.
+- `kt_multiplatform_test` takes the `library` and declares `<name>` (a `test_suite`), and `<name>_jvm`, `<name>_android` and
+  `<name>_native` (each when its own `platforms` lists the platform), whose `associates` are `<library>_jvm`,
+  `<library>_android` and `<library>_native`. It also declares the private `<name>_fragment_<f>` and `<name>.fragments`.
+  It takes `srcs`, `deps` and `plugins` per qualifier, and no `exports`. Its JVM and Android tests run
+  `//src/main/kotlin:kmp_test_suite` unless they name a `test_class`.
+- `kmp_fragments`: an attribute that the macros set, of `kt_jvm_library`, `kt_android_library` and `kt_native_library`, and
+  of `kt_jvm_test`, `kt_android_local_test` and `kt_native_test`.
 - Platforms: `//kotlin/native/platforms:<konan target>`, plus the config_settings `is_<t>`, `native` and `native_<t>`.
 - Build settings in `//kotlin/settings`:
   - `kotlin_platform_type` (`jvm`|`native`, scope `target`)
@@ -169,23 +202,26 @@ upgrade script.
 | Area | Files |
 |---|---|
 | Native rules | `kotlin/internal/native/`: `library.bzl`, `binary.bzl`, `test.bzl`, `framework.bzl`, `import.bzl`, `link.bzl`, `klib.bzl` (compile and link actions), `providers.bzl`, `toolchains.bzl`, `targets.bzl`, `transition.bzl` |
-| KMP | `kotlin/internal/kmp/`: `multiplatform.bzl` (macro), `declaration.bzl`, `hierarchy.bzl`, `qualifiers.bzl`, `derive.bzl`, `fragment.bzl`, `fragments.bzl`, `ksp.bzl`, `ksp_run.sh` |
+| KMP | `kotlin/internal/kmp/`: `multiplatform.bzl` (library macro), `test.bzl` (test macro), `declaration.bzl`, `hierarchy.bzl`, `qualifiers.bzl`, `derive.bzl`, `fragment.bzl`, `fragments.bzl`, `ksp.bzl`, `ksp_run.sh` |
 | Public entry points | `kotlin/native.bzl`, `kotlin/kmp.bzl`, `kotlin/native/platforms/` |
 | Repositories | `src/main/starlark/core/repositories/`: `native.bzl` (extension), `native_compiler.bzl` (pins, bundle, cross-check), `kmp_maven.bzl`, `kmp_maven_impl.bzl`, `language_level.bzl` |
 | Launcher | `src/main/kotlin/io/bazel/kotlin/native/`: `KonanLauncher.kt`, `BtapiKlibCompiler.kt` |
+| Test suite | `src/main/kotlin/io/bazel/kotlin/kmp/`: `MultiplatformTestSuite.kt` |
 | Upgrade tool | `src/main/kotlin/io/bazel/kotlin/upgrade/`, `scripts/upgrade_kotlin.sh` |
-| Tests | `src/test/starlark/internal/{native,kmp}/`, `src/test/starlark/internal/jvm/{kmp_fragments_test,toolchain_language_level_test}.bzl`, `src/test/starlark/{native_repositories_test,native_konan_properties,kmp_maven_test,kmp_maven_manifest}.bzl`, `src/test/starlark/rules/import_exports_tests.bzl`, `src/test/kotlin/io/bazel/kotlin/{native,upgrade}/`, `src/test/kotlin/io/bazel/kotlin/builder/tasks/AbsoluteFragmentSourcesTest.kt`, `src/test/integration/{CompileAvoidanceTest,NativeCompilationModesTest}.kt` |
+| Tests | `src/test/starlark/internal/{native,kmp}/`, `src/test/starlark/internal/jvm/{kmp_fragments_test,toolchain_language_level_test}.bzl`, `src/test/starlark/{native_repositories_test,native_konan_properties,kmp_maven_test,kmp_maven_manifest}.bzl`, `src/test/starlark/rules/import_exports_tests.bzl`, `src/test/kotlin/io/bazel/kotlin/{native,upgrade,kmp}/`, `src/test/kotlin/io/bazel/kotlin/builder/tasks/AbsoluteFragmentSourcesTest.kt`, `src/test/integration/{CompileAvoidanceTest,NativeCompilationModesTest}.kt` |
 | Examples | `examples/native`, `examples/kmp`, `examples/kmp_app` |
-| Other | `docs/kmp.md`, `docs/kmp_dependencies.md`, `docs/upgrading_kotlin.md`, `third_party/rules_android_bzl_library_visibility.patch` |
+| Other | `docs/kmp.md`, `docs/kmp_dependencies.md`, `docs/upgrading_kotlin.md`, `third_party/rules_android_bzl_library_visibility.patch`, `.agents/skills/kmp-branch-scope/` (this skill) |
 
 ## Upstream files the branch modifies, and why
 
 Keep every hunk in these files traceable to one of these reasons. `scope.sh files` lists the commits of each file.
 
 - **JVM and Android rules**: `kotlin/internal/jvm/`
-  - `attrs.bzl`: `kmp_fragments`.
-  - `compile.bzl`: fragment flags through `--kotlin_passthrough_flags`, and srcjar/kapt/KSP rejected with fragments.
+  - `attrs.bzl`: `kmp_fragments` of the libraries, and `test_kmp_fragments_attr`, that of the two test rules.
+  - `compile.bzl`: fragment flags through `--kotlin_passthrough_flags`, and srcjar/kapt/KSP rejected with fragments. The
+    leaf of a `kt_android_library` or a `kt_android_local_test` is `android`.
   - `kt_jvm_library.bzl`: a library of fragments only still makes a jar.
+  - `kt_jvm_test.bzl`, `kt_android_local_test.bzl`: `kmp_fragments`, one line each.
   - `kt_android_library_impl.bzl`: fragments and the coverage fix.
   - `kt_jvm_import.bzl`: `exports` of any JavaInfo.
   - `compiler_plugins.bzl`: `embeddable_classpath`, `kt_jvm_tool_transition`.
@@ -205,12 +241,14 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
 - **Packaging**:
   - `kotlin/BUILD`, `kotlin/BUILD.release.bazel` (keeps `kmp.bzl` out of the release filegroup).
   - `kotlin/internal/BUILD` and `BUILD.release.bazel`.
-  - `src/main/kotlin/BUILD` and `BUILD.release.bazel`: the launcher (a `java_binary` in the release).
+  - `src/main/kotlin/BUILD` and `BUILD.release.bazel`: the launcher (a `java_binary` in the release), and the jar of
+    `MultiplatformTestSuite` (`kmp_test_suite`, a `java_import` in the release).
   - `src/main/starlark/core/repositories/BUILD`.
   - `MODULE.bazel` and `MODULE.release.bazel`: the `kotlin_native` extension and its repositories, the 7 native
     toolchains and apple_support. The release also adds rules_shell, which the root module already had.
   - `MODULE.bazel` alone also uses `kotlin_native_build_tools_api`, the API jar the launcher bundles. It also has the
-    rules_android `single_version_override` with its patch, for the docs.
+    rules_android `single_version_override` with its patch, for the docs: the `bzl_library` targets of `android_library`
+    and `android_local_test` are public.
 - **CI and tests**:
   - `.bazelci/tests.yml`: no native on Windows, plus a macOS native task.
   - `.bazelrc`: `--deleted_packages` of the example packages.
@@ -222,6 +260,7 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
   - `CompileAvoidance.md`: the KMP section.
   - `docs/BUILD.bazel`: stardoc.
   - `docs/kotlin.md`: generated.
+- **Local files**: `.gitignore` ignores `.junie`.
 
 ## Superseded designs: do not reintroduce
 
@@ -256,6 +295,15 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
   error where the Kotlin Toolchain warns. A dep may be in two lists that are not above each other; a source may not
   (`262e0f73`).
 - `examples/native` is a user-facing sample: matrix and flag tests go to `src/test/integration`, not into the example.
+- `kt_multiplatform_test` (`a926cb0e`):
+  - It stands alone, with its own `platforms` and `aliases`: a macro cannot read the declaration of the library.
+  - The associate of each test is the library of its platform, not the alias, which gives a `kt_android_local_test` the
+    JVM library.
+  - Test fragments have the names of their qualifiers, without a suffix.
+  - `kmp_fragments` is not in the attributes common to runnable rules, which would give it to `kt_jvm_binary`.
+  - The suite ships with the rules and compiles against the test runner jar of Bazel, so the release has no JUnit
+    dependency. A test that finds no test class fails.
+  - The `test_suite` stays: Bazel skips an incompatible test that it reaches through a suite.
 
 ## Open ends at the snapshot
 
@@ -268,15 +316,28 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
 - On Bazel 7 and 8, the launcher and KSP tool jars of native targets build in a second exec configuration.
 - `bazel run //:buildifier.check` already exited 1 at `074283b0`, with 22 warnings in 16 files, none in the files of the
   latest commits. Check the files you change instead.
-- Header klib limits: sealed hierarchies, inline functions. No multiplatform test macro.
+- Header klib limits: sealed hierarchies, inline functions.
+- `kt_multiplatform_test` (`a926cb0e`):
+  - Its Android test is analysed, not run: no example has one, so the suite never ran under the launcher of
+    `android_local_test`.
+  - It ran on a macOS arm64 host only. The `linux_x64` native test of `examples/kmp` and the Windows launcher of a JVM
+    test were not tried.
+  - The macro did not run on Bazel 7: the root workspace does not load there, and `examples/kmp` excludes 7.x.
+  - A native test runs for the konan target of the exec host only: nothing runs it in the iOS simulator.
+  - A test lists its own deps: it does not inherit those of the library. No KSP of test sources, and no `kmp_fragments`
+    on `kt_jvm_binary`, `kt_native_binary` or `kt_native_framework`.
+  - `examples/kmp_app` and the tests of one platform of `examples/kmp` are not converted.
 - Left for later steps of the Kotlin Toolchain port (`.junie/plans/kotlin-toolchain-features-porting.md`): `opts` and
   `resources` per qualifier, dropping a fragment that only one other refines, `.java` in a fragment of the JVM and
   Android, and deps per fragment.
+- The skill is tracked since `42b1225c`, but `SKILL.md` and `delivery.md` still call it local, `SKILL.md` says never to
+  commit it, and `scope.sh delivery` only flags files under `.junie/`. A commit that updates this map cannot list itself
+  in the ledger, so `scope.sh` marks it with `*`.
 
 ## How the branch validates a change
 
-- `bazel test //src/... //docs/...` runs the analysis and unit tests, `KonanLauncherTest`, the upgrade tests,
-  `compile_avoidance_test` and `native_compilation_modes_test`.
+- `bazel test //src/... //docs/...` runs the analysis and unit tests, `KonanLauncherTest`, `MultiplatformTestSuiteTest`, the
+  upgrade tests, `compile_avoidance_test` and `native_compilation_modes_test`.
 - `bazel run //docs:write_docs` runs after any rule or attr doc change.
 - `bazel test //examples:native //examples:kmp //examples:kmp_app` runs the nested Bazel tests against the release archive.
   Inside an example, `bazel test //...` runs with the network off and path mapping on.
