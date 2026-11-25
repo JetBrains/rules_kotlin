@@ -8,12 +8,10 @@ sources with their srcs, against their own deps (see fragments.bzl).
 Internal: kt_multiplatform_library is their only user.
 """
 
-load(":derive.bzl", "fragment_name")
-
 KtFragmentInfo = provider(
-    doc = "A K2 fragment of a kt_multiplatform_library: the sources of a group of its hierarchy, or of the groups and platforms sharing them.",
+    doc = "A K2 fragment of a kt_multiplatform_library: the sources of a group of its hierarchy, or of one of its aliases.",
     fields = {
-        "name": "string: the name of the fragment, e.g. `common`, `ios` or `jvm-native`.",
+        "name": "string: the name of the fragment, e.g. `common`, `ios` or `non_android`.",
         "platforms": "tuple of string: the platforms compiling the sources, sorted.",
         "rank": """int: 0 for a fragment that refines nothing, and otherwise one more than the highest rank of the
         fragments it refines, so that a fragment comes after those it refines among fragments of as many platforms.""",
@@ -31,11 +29,15 @@ KtFragmentsGraphInfo = provider(
     },
 )
 
+def _default_name(platforms):
+    """The name of a fragment that is given none: its platforms, sorted and joined with `-`, e.g. `ios_arm64-jvm`."""
+    return "-".join(sorted(platforms))
+
 def _kt_kmp_fragment_impl(ctx):
     platforms = tuple(sorted(ctx.attr.platforms))
     if not platforms or len({platform: True for platform in platforms}) != len(platforms):
         fail("%s: a fragment is compiled by one or more distinct platforms, not %s" % (ctx.label, list(platforms)))
-    name = ctx.attr.fragment_name or fragment_name(platforms)
+    name = ctx.attr.fragment_name or _default_name(platforms)
     refined = [fragment[KtFragmentInfo] for fragment in ctx.attr.refines]
     for fragment in refined:
         missing = [platform for platform in platforms if platform not in fragment.platforms]
@@ -86,9 +88,9 @@ def _kt_kmp_fragment_impl(ctx):
 kt_kmp_fragment = rule(
     doc = """Sources that some platforms of a kt_multiplatform_library compile: a K2 fragment of their compilations.
 
-    Internal: kt_multiplatform_library declares one per group of its hierarchy with sources, and per
-    set of groups and platforms sharing sources. It compiles nothing by itself: the libraries of its
-    platforms list it, or a fragment refining it, in `kmp_fragments`.""",
+    Internal: kt_multiplatform_library declares one per group of its hierarchy and per alias with
+    sources. It compiles nothing by itself: the libraries of its platforms list it, or a fragment
+    refining it, in `kmp_fragments`.""",
     implementation = _kt_kmp_fragment_impl,
     attrs = {
         "fragment_name": attr.string(
@@ -100,7 +102,7 @@ kt_kmp_fragment = rule(
         ),
         "refines": attr.label_list(
             doc = """The fragments directly above this one, which every platform of this one compiles, e.g. those of
-            the groups above its group.""",
+            the groups and the aliases above its group.""",
             providers = [KtFragmentInfo],
         ),
         "srcs": attr.label_list(

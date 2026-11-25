@@ -340,41 +340,50 @@ def multiplatform_test_suite(name):
         tags = ["manual"],
     )
 
-    # The JVM and native list the same sources, one label of them written in another form: they are
-    # one fragment, both leaves are empty, and the filegroup of the sources lists each file once.
+    # The JVM and the Linux target compile the sources of an alias, no group of the hierarchy, as
+    # its fragment, which refines common and which their empty leaves refine; the macOS target
+    # compiles the common sources alone.
     kt_multiplatform_library(
-        name = "mpp_collapse",
+        name = "mpp_alias",
+        aliases = {"jvm_linux": [
+            "jvm",
+            "linux_arm64",
+        ]},
         platforms = [
             "jvm",
             "linux_arm64",
+            "macos_arm64",
         ],
-        srcs_jvm = [
+        srcs = ["testdata/Greeting.kt"],
+        srcs_jvm_linux = [
             "testdata/Platform.kt",
             "testdata/Platform.linux.kt",
-        ],
-        srcs_native = [
-            "testdata/Platform.kt",
-            ":testdata/Platform.linux.kt",
         ],
         tags = ["manual"],
     )
 
-    # Two fragments of sets of platforms neither of which includes the other: the JVM leaf refines both.
+    # Two aliases neither of whose platforms include those of the other: the JVM leaf refines both.
     kt_multiplatform_library(
         name = "mpp_incomparable",
+        aliases = {
+            "jvm_linux": [
+                "jvm",
+                "linux_arm64",
+            ],
+            "jvm_macos": [
+                "jvm",
+                "macos_arm64",
+            ],
+        },
         platforms = [
             "jvm",
             "linux_arm64",
             "macos_arm64",
         ],
         srcs = ["testdata/Platform.kt"],
-        srcs_jvm = [
-            "testdata/Description.native.kt",
-            "testdata/Platform.apple.kt",
-            "testdata/Platform.jvm.kt",
-        ],
-        srcs_linux_arm64 = ["testdata/Description.native.kt"],
-        srcs_macos_arm64 = ["testdata/Platform.apple.kt"],
+        srcs_jvm = ["testdata/Platform.jvm.kt"],
+        srcs_jvm_linux = ["testdata/Description.native.kt"],
+        srcs_jvm_macos = ["testdata/Platform.apple.kt"],
         tags = ["manual"],
     )
 
@@ -588,37 +597,80 @@ def multiplatform_test_suite(name):
         ],
     )
     jvm_test(
-        name = "multiplatform_collapse_test",
-        target_under_test = ":mpp_collapse_jvm",
+        name = "multiplatform_aliases_jvm_test",
+        target_under_test = ":mpp_alias_jvm",
         fragments = [
-            "jvm-native",
+            "common",
+            "jvm_linux",
             "jvm",
         ],
-        refines = ["jvm:jvm-native"],
-        sources = [
-            "jvm-native:Platform.kt",
-            "jvm-native:Platform.linux.kt",
+        refines = [
+            "jvm_linux:common",
+            "jvm:jvm_linux",
         ],
+        sources = [
+            "common:Greeting.kt",
+            "jvm_linux:Platform.kt",
+            "jvm_linux:Platform.linux.kt",
+        ],
+    )
+    native_linux_arm64_test(
+        name = "multiplatform_aliases_native_linux_test",
+        target_under_test = ":mpp_alias_native",
+        fragments = [
+            "common",
+            "jvm_linux",
+            "linux_arm64",
+        ],
+        refines = [
+            "jvm_linux:common",
+            "linux_arm64:jvm_linux",
+        ],
+        sources = [
+            "common:Greeting.kt",
+            "jvm_linux:Platform.kt",
+            "jvm_linux:Platform.linux.kt",
+        ],
+        srcs = [
+            "Greeting.kt",
+            "Platform.kt",
+            "Platform.linux.kt",
+        ],
+        target_compatible_with = not_on_windows(),
+    )
+
+    # A platform that the alias does not group compiles nothing of it.
+    native_macos_arm64_test(
+        name = "multiplatform_aliases_native_apple_test",
+        target_under_test = ":mpp_alias_native",
+        fragments = [
+            "common",
+            "macos_arm64",
+        ],
+        refines = ["macos_arm64:common"],
+        sources = ["common:Greeting.kt"],
+        srcs = ["Greeting.kt"],
+        target_compatible_with = not_on_windows(),
     )
     jvm_test(
         name = "multiplatform_incomparable_test",
         target_under_test = ":mpp_incomparable_jvm",
         fragments = [
             "common",
-            "jvm-linux_arm64",
-            "jvm-macos_arm64",
+            "jvm_linux",
+            "jvm_macos",
             "jvm",
         ],
         refines = [
-            "jvm-linux_arm64:common",
-            "jvm-macos_arm64:common",
-            "jvm:jvm-linux_arm64",
-            "jvm:jvm-macos_arm64",
+            "jvm_linux:common",
+            "jvm_macos:common",
+            "jvm:jvm_linux",
+            "jvm:jvm_macos",
         ],
         sources = [
             "common:Platform.kt",
-            "jvm-linux_arm64:Description.native.kt",
-            "jvm-macos_arm64:Platform.apple.kt",
+            "jvm_linux:Description.native.kt",
+            "jvm_macos:Platform.apple.kt",
             "jvm:Platform.jvm.kt",
         ],
     )
@@ -695,9 +747,10 @@ def multiplatform_test_suite(name):
         ],
     )
     files_test(
-        name = "multiplatform_shared_srcs_test",
-        target_under_test = ":mpp_collapse_srcs",
+        name = "multiplatform_aliases_srcs_test",
+        target_under_test = ":mpp_alias_srcs",
         files = [
+            "Greeting.kt",
             "Platform.kt",
             "Platform.linux.kt",
         ],
@@ -741,21 +794,28 @@ leaf macos_arm64
         launcher = "mpp.fragments.sh",
     )
     fragments_graph_unix_test(
-        name = "multiplatform_collapse_fragments_graph_test",
-        target_under_test = ":mpp_collapse.fragments",
+        name = "multiplatform_aliases_fragments_graph_test",
+        target_under_test = ":mpp_alias.fragments",
         graph = """\
-fragment jvm-native
+fragment common
+  platforms: jvm, linux_arm64, macos_arm64
+  srcs:
+    testdata/Greeting.kt
+fragment jvm_linux
+  refines: common
   platforms: jvm, linux_arm64
   srcs:
     testdata/Platform.kt
     testdata/Platform.linux.kt
 leaf jvm
-  refines: jvm-native
+  refines: jvm_linux
 leaf linux_arm64
-  refines: jvm-native
+  refines: jvm_linux
+leaf macos_arm64
+  refines: common
 """,
         header = "#!/usr/bin/env sh\n",
-        launcher = "mpp_collapse.fragments.sh",
+        launcher = "mpp_alias.fragments.sh",
     )
     fragments_graph_unix_test(
         name = "multiplatform_incomparable_fragments_graph_test",
@@ -765,24 +825,24 @@ fragment common
   platforms: jvm, linux_arm64, macos_arm64
   srcs:
     testdata/Platform.kt
-fragment jvm-linux_arm64
+fragment jvm_linux
   refines: common
   platforms: jvm, linux_arm64
   srcs:
     testdata/Description.native.kt
-fragment jvm-macos_arm64
+fragment jvm_macos
   refines: common
   platforms: jvm, macos_arm64
   srcs:
     testdata/Platform.apple.kt
 leaf jvm
-  refines: jvm-linux_arm64, jvm-macos_arm64
+  refines: jvm_linux, jvm_macos
   srcs:
     testdata/Platform.jvm.kt
 leaf linux_arm64
-  refines: jvm-linux_arm64
+  refines: jvm_linux
 leaf macos_arm64
-  refines: jvm-macos_arm64
+  refines: jvm_macos
 """,
         header = "#!/usr/bin/env sh\n",
         launcher = "mpp_incomparable.fragments.sh",
@@ -851,9 +911,12 @@ leaf ios_simulator_arm64
             ":multiplatform_alias_jvm_test",
             ":multiplatform_alias_native_only_test",
             ":multiplatform_alias_native_test",
+            ":multiplatform_aliases_fragments_graph_test",
+            ":multiplatform_aliases_jvm_test",
+            ":multiplatform_aliases_native_apple_test",
+            ":multiplatform_aliases_native_linux_test",
+            ":multiplatform_aliases_srcs_test",
             ":multiplatform_apple_fragment_test",
-            ":multiplatform_collapse_fragments_graph_test",
-            ":multiplatform_collapse_test",
             ":multiplatform_common_fragment_test",
             ":multiplatform_file_in_two_fragments_fails_test",
             ":multiplatform_fragments_graph_test",
@@ -866,7 +929,6 @@ leaf ios_simulator_arm64
             ":multiplatform_native_ios_chain_test",
             ":multiplatform_native_ios_only_test",
             ":multiplatform_native_linux_test",
-            ":multiplatform_shared_srcs_test",
             ":multiplatform_single_fragments_graph_test",
             ":multiplatform_single_platform_test",
             ":multiplatform_srcs_test",

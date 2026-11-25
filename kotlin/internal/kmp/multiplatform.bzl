@@ -1,19 +1,20 @@
 """kt_multiplatform_library: a Kotlin Multiplatform library declared along the default hierarchy of Kotlin Multiplatform.
 
-`platforms` lists the platforms of the library, leaves of the hierarchy (see hierarchy.bzl), and
-`<attr>_<qualifier>` the lists of a group or a platform of it (see declaration.bzl). Each platform
-compiles the lists of its lineage, and the sources of each group as a K2 fragment (see derive.bzl).
-With the name `shared`, the macro declares:
+`platforms` lists the platforms of the library, leaves of the hierarchy (see hierarchy.bzl),
+`aliases` names sets of them that no group of the hierarchy gathers (see qualifiers.bzl), and
+`<attr>_<qualifier>` are the lists of a group, a platform or an alias (see declaration.bzl). Each
+platform compiles the lists of the qualifiers covering it, and the sources of each group and alias
+as a K2 fragment (see derive.bzl). With the name `shared`, the macro declares:
 - shared_fragment_<fragment>: a private kt_kmp_fragment per fragment (see fragment.bzl);
 - shared_jvm: when `platforms` lists `jvm`, a kt_jvm_library of the attributes of `jvm`, whose srcs
   are the sources only the JVM compiles, whose kmp_fragments are the fragments those refine, and
-  whose deps, exports and plugins are the lists of its lineage;
+  whose deps, exports and plugins are the lists of the qualifiers covering `jvm`;
 - shared_android: when `platforms` lists `android`, a kt_android_library of the attributes of
   `android`, the same way;
 - shared_native: when `platforms` lists konan targets, a kt_native_library of the attributes of
   `native` that compiles, for the konan target of the build's platform, the sources only that
-  target compiles and the fragments they refine, against the lists of its lineage; it is
-  incompatible with other platforms;
+  target compiles and the fragments they refine, against the lists of the qualifiers covering it;
+  it is incompatible with other platforms;
 - shared_srcs: a filegroup of the sources of every platform;
 - shared.fragments: an executable target printing the derived fragment graph;
 - shared: an alias of shared_native for a Kotlin/Native consumer, of shared_android for an Android
@@ -34,9 +35,9 @@ load(":declaration.bzl", "parse_declaration", "platform_list")
 load(":derive.bzl", "derive_fragments", "format_fragments")
 load(":fragment.bzl", "kt_kmp_fragment", "kt_kmp_fragments_graph")
 
-# The lists of the library of a platform that the macro concatenates along the lineage of the
-# platform; the srcs are the fragments and the leaf instead.
-_LINEAGE_ATTRS = ["deps", "exports", "plugins"]
+# The lists of the library of a platform that the macro concatenates from the qualifiers covering
+# the platform; the srcs are the fragments and the leaf instead.
+_CONCATENATED_ATTRS = ["deps", "exports", "plugins"]
 
 _DEFAULT = "//conditions:default"
 
@@ -138,6 +139,7 @@ def _fragment_target(name, fragment):
 def kt_multiplatform_library(
         name,
         platforms = None,
+        aliases = {},
         srcs = [],
         deps = [],
         exports = [],
@@ -166,22 +168,28 @@ def kt_multiplatform_library(
     The `srcs`, `deps`, `exports` and `plugins` of the macro are those of every platform, the ones
     of `common`. A group or a platform has its own lists, those of the platforms at or below it, as
     `<attr>_<qualifier>`, e.g. `srcs_ios`, `deps_apple`, `exports_native` or `plugins_linux_x64`.
-    Each platform compiles the lists of its lineage, from `common` down to itself: the deps of
-    `ios_arm64` are `deps + deps_native + deps_apple + deps_ios + deps_ios_arm64`. The sources of a
-    group are a K2 fragment of the compilations of its platforms, named after the group, e.g.
-    `common` for the srcs of the macro or `ios`, and those of a platform are its leaf fragment. A
-    fragment refines those of the groups above it, so the `expect` declarations of a group and the
-    `actual` ones of a group or a platform below it are in one module, even when both cover the
-    same platforms (see derive.bzl). A label that several groups or platforms list, none above
-    another, is a fragment of theirs, e.g. `jvm-native`. Running `<name>.fragments` prints the
-    derived fragments, their `refines` edges, their platforms and their sources. A fragment has no
-    deps: each platform compiles it against the deps of its lineage. Sources are shared by label:
-    a file must be listed by the same label everywhere. A library of a single platform compiles
-    its `srcs` as the fragment `common` too, with the restrictions of `kmp_fragments`.
+    `aliases` names the sets of platforms that no group gathers, e.g. `non_android` for `jvm` and
+    the konan targets, and an alias has its lists as a group has: `srcs_non_android` or
+    `deps_non_android`. A group, a platform or an alias is above another when the hierarchy puts it
+    above, and otherwise when its platforms include those of the other and more.
+
+    Each platform compiles the lists of the groups and aliases above it and its own, from `common`
+    down to itself: the deps of `ios_arm64` are `deps + deps_non_android + deps_native +
+    deps_apple + deps_ios + deps_ios_arm64`. The sources of a group or an alias are a K2 fragment
+    of the compilations of its platforms, named after it, e.g. `common` for the srcs of the macro,
+    `ios` or `non_android`, and those of a platform are its leaf fragment. A fragment refines those
+    of the groups and aliases above it, so the `expect` declarations of one and the `actual` ones
+    of a group, an alias or a platform below it are in one module, even when both cover the same
+    platforms (see derive.bzl). Running `<name>.fragments` prints the derived fragments, their
+    `refines` edges, their platforms and their sources. A fragment has no deps: each platform
+    compiles it against its own deps. A source is in one fragment, so one list names it, by one
+    label. A library of a single platform compiles its `srcs` as the fragment `common` too, with
+    the restrictions of `kmp_fragments`.
 
     The macro checks the declaration when it is called and fails with what to change, e.g. for
     sources of a group none of whose platforms `platforms` lists, a list given as a select() it
-    cannot read, or a label that a list repeats from a list above it in the hierarchy.
+    cannot read, a label that a list repeats from a list above it, or a source that two lists
+    name, neither above the other.
 
     Args:
       name: the name of the alias, and the prefix of the names of the other targets.
@@ -190,14 +198,18 @@ def kt_multiplatform_library(
         targets `ios_arm64`, `ios_simulator_arm64`, `macos_arm64`, `linux_x64` and `linux_arm64`.
         A group, e.g. `ios`, is not a platform. The macro declares `<name>_jvm` for `jvm`,
         `<name>_android` for `android` and `<name>_native` for the konan targets.
+      aliases: the sets of platforms that the hierarchy has no group for, a dict of the name of
+        each to its platforms, e.g. `{"non_android": ["jvm", "ios_arm64", "ios_simulator_arm64"]}`.
+        A name is made of lowercase letters, digits and `_`, and is not the name of a group or a
+        platform. The platforms are two or more of `platforms`, and not those of a group or of
+        another alias.
       srcs: the sources of every platform, a list of labels, e.g. those of Gradle's `commonMain`.
-        Those of only some platforms are the srcs of a group or a platform, e.g. `srcs_ios` for
-        `iosMain`; a label listed by several groups or platforms, none above another, is shared by
-        their platforms, e.g. Gradle's `nonAndroidMain` in `srcs_jvm` and `srcs_native`.
+        Those of only some platforms are the srcs of a group, a platform or an alias, e.g.
+        `srcs_ios` for `iosMain`, or `srcs_non_android` for a `nonAndroidMain`.
       deps: the deps of every platform, a list of labels. Each resolves for every platform: an alias
         selecting the variant of the platform, such as those of `kmp_maven`, or another
-        kt_multiplatform_library. The deps of only some platforms are those of a group or a
-        platform, e.g. `deps_jvm`.
+        kt_multiplatform_library. The deps of only some platforms are those of a group, a platform
+        or an alias, e.g. `deps_jvm`.
       exports: the exports of every platform, a list of labels; like `deps`, each resolves for every
         platform.
       plugins: the Kotlin compiler plugins of every platform, a list of kt_compiler_plugin targets,
@@ -214,12 +226,12 @@ def kt_multiplatform_library(
       visibility: the visibility of the targets; the fragments are private.
       tags: the tags of the targets.
       testonly: whether the targets are testonly.
-      **kwargs: the lists of the groups and the platforms, `<attr>_<qualifier>`: `<attr>` is `srcs`,
-        `deps`, `exports` or `plugins`, and `<qualifier>` a group, `native`, `linux`, `apple`,
-        `macos` or `ios`, or a platform. Each is a list of labels; an empty one is the same as
-        none. The deps, exports and plugins of `jvm` and `android`, whose libraries build a single
-        platform, may also be or end with a select(). The other keyword arguments are attributes
-        common to every rule, e.g. `features`, of every target.
+      **kwargs: the lists of the groups, the platforms and the aliases, `<attr>_<qualifier>`:
+        `<attr>` is `srcs`, `deps`, `exports` or `plugins`, and `<qualifier>` a group, `native`,
+        `linux`, `apple`, `macos` or `ios`, a platform, or an alias. Each is a list of labels; an
+        empty one is the same as none. The deps, exports and plugins of `jvm` and `android`, whose
+        libraries build a single platform, may also be or end with a select(). The other keyword
+        arguments are attributes common to every rule, e.g. `features`, of every target.
     """
     normalize, label_of = _label_formatter()
     declaration = parse_declaration(
@@ -227,23 +239,24 @@ def kt_multiplatform_library(
         {"deps": deps, "exports": exports, "plugins": plugins, "srcs": srcs},
         {"android": android, "jvm": jvm, "native": native},
         kwargs,
+        aliases = aliases,
         normalize = normalize,
     )
     if declaration.error:
         fail("kt_multiplatform_library %s: %s" % (name, declaration.error))
 
-    node_srcs = {
-        node: [normalize(label) for label in labels]
-        for node, labels in declaration.lists["srcs"].items()
+    qualifier_srcs = {
+        qualifier: [normalize(label) for label in labels]
+        for qualifier, labels in declaration.lists["srcs"].items()
     }
-    derived = derive_fragments(node_srcs, declaration.hierarchy.lineage, declaration.targeted)
+    derived = derive_fragments(qualifier_srcs, declaration.qualifiers)
     rule_attrs = dict(declaration.rule_attrs, tags = tags, testonly = testonly, visibility = visibility)
 
     def _fragments(platform):
         return [":" + _fragment_target(name, fragment) for fragment in derived.leaf_refines[platform]]
 
-    def _lineage_lists(platform):
-        return {attr: platform_list(declaration, attr, platform) for attr in _LINEAGE_ATTRS}
+    def _platform_lists(platform):
+        return {attr: platform_list(declaration, attr, platform) for attr in _CONCATENATED_ATTRS}
 
     for fragment in derived.fragments:
         kt_kmp_fragment(
@@ -256,7 +269,7 @@ def kt_multiplatform_library(
         )
 
     if "jvm" in declaration.targeted:
-        jvm_attrs = dict(declaration.settings["jvm"], **_lineage_lists("jvm"))
+        jvm_attrs = dict(declaration.settings["jvm"], **_platform_lists("jvm"))
 
         # kt_jvm_library takes no deps without sources, which only a compilation reads: the library of
         # a JVM that compiles no source keeps them for the runtime classpath of its dependents.
@@ -274,17 +287,17 @@ def kt_multiplatform_library(
             name = name + "_android",
             srcs = derived.leaf_srcs["android"],
             kmp_fragments = _fragments("android"),
-            **dict(rule_attrs, **dict(declaration.settings["android"], **_lineage_lists("android")))
+            **dict(rule_attrs, **dict(declaration.settings["android"], **_platform_lists("android")))
         )
 
     konan_targets = declaration.targeted.get("native", [])
     if konan_targets:
-        branches = {attr: {} for attr in ["srcs", "kmp_fragments"] + _LINEAGE_ATTRS}
+        branches = {attr: {} for attr in ["srcs", "kmp_fragments"] + _CONCATENATED_ATTRS}
         for target in konan_targets:
             condition = _is_konan_target(target)
             branches["srcs"][condition] = derived.leaf_srcs[target]
             branches["kmp_fragments"][condition] = _fragments(target)
-            for attr, labels in _lineage_lists(target).items():
+            for attr, labels in _platform_lists(target).items():
                 branches[attr][condition] = labels
 
         native_attrs = declaration.settings["native"]
@@ -306,7 +319,7 @@ def kt_multiplatform_library(
 
     _filegroup(
         name = name + "_srcs",
-        srcs = {label: None for labels in node_srcs.values() for label in labels}.keys(),
+        srcs = [label for labels in qualifier_srcs.values() for label in labels],
         **rule_attrs
     )
 

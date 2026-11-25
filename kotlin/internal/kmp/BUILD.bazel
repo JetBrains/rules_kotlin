@@ -17,7 +17,6 @@ release_archive(
 bzl_library(
     name = "kmp",
     srcs = [
-        "derive.bzl",
         "fragment.bzl",
         "fragments.bzl",
     ],
@@ -30,9 +29,11 @@ bzl_library(
     name = "multiplatform",
     srcs = [
         "declaration.bzl",
+        "derive.bzl",
         "hierarchy.bzl",
         "ksp.bzl",
         "multiplatform.bzl",
+        "qualifiers.bzl",
     ],
     visibility = ["//kotlin:__subpackages__"],
     deps = [

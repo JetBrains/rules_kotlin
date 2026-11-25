@@ -63,8 +63,8 @@ def plan_fragments(fragments, leaf_name, leaf_srcs):
                       leaf_name)
     ordered = sorted(reached.values(), key = _most_shared_first)
 
-    # A source belongs to one fragment. The platforms share sources by label, so a file that two
-    # labels name is in two fragments.
+    # A source belongs to one fragment. The macro tells the sources of its lists apart by label, so
+    # a file that two labels name is in two fragments.
     planned = []
     srcs = []
     fragment_of = {}
@@ -75,8 +75,8 @@ def plan_fragments(fragments, leaf_name, leaf_srcs):
             if owner == name:
                 continue
             if owner != None:
-                return _error(("the source %s is in both fragment '%s' and '%s': the platforms of kt_multiplatform_library " +
-                               "share sources by label, and they list it through different labels; list it by one label") %
+                return _error(("the source %s is in both fragment '%s' and '%s': a source is in one fragment, and two " +
+                               "lists of kt_multiplatform_library name it through different labels; list it once") %
                               (_path(src), owner, name))
             fragment_of[src] = name
             own.append(src)

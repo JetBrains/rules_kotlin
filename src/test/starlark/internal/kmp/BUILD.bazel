@@ -8,6 +8,7 @@ load(":ksp_test.bzl", "ksp_test_suite")
 load(":multiplatform_common_test.bzl", "multiplatform_common_test_suite")
 load(":multiplatform_test.bzl", "multiplatform_test_suite")
 load(":platform_type_test.bzl", "platform_type_test_suite")
+load(":qualifiers_test.bzl", "qualifiers_test_suite")
 
 aspect_deps_test_suite(name = "aspect_deps_tests")
 
@@ -27,6 +28,8 @@ multiplatform_test_suite(name = "multiplatform_tests")
 
 platform_type_test_suite(name = "platform_type_tests")
 
+qualifiers_test_suite(name = "qualifiers_tests")
+
 sh_test(
     name = "ksp_run_test",
     srcs = ["ksp_run_test.sh"],
@@ -39,14 +42,14 @@ sh_test(
     srcs = ["fragments_graph_test.sh"],
     args = [
         "$(rootpath :mpp.fragments)",
-        "$(rootpath :mpp_collapse.fragments)",
+        "$(rootpath :mpp_alias.fragments)",
         "$(rootpath :mpp_incomparable.fragments)",
         "$(rootpath :mpp_single.fragments)",
         "$(rootpath :mpp_special_chars.fragments)",
     ],
     data = [
         ":mpp.fragments",
-        ":mpp_collapse.fragments",
+        ":mpp_alias.fragments",
         ":mpp_incomparable.fragments",
         ":mpp_single.fragments",
         ":mpp_special_chars.fragments",

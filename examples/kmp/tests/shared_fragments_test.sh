@@ -14,13 +14,13 @@ fragment common
     common/di/Clock.kt
     common/di/GreetingRepository.kt
     common/di/Injected.kt
-fragment jvm-native
+fragment non_android
   refines: common
   platforms: jvm, linux_x64, linux_arm64, macos_arm64, ios_arm64, ios_simulator_arm64
   srcs:
     non_android/Greeting.nonAndroid.kt
 fragment apple
-  refines: jvm-native
+  refines: non_android
   platforms: macos_arm64, ios_arm64, ios_simulator_arm64
   srcs:
     apple/Platform.apple.kt
@@ -28,7 +28,7 @@ fragment apple
     apple/di/Clock.apple.kt
     shared_ksp_apple
 fragment linux
-  refines: jvm-native
+  refines: non_android
   platforms: linux_x64, linux_arm64
   srcs:
     linux/Injected.linux.kt
@@ -46,7 +46,7 @@ leaf ios_arm64
 leaf ios_simulator_arm64
   refines: apple
 leaf jvm
-  refines: jvm-native
+  refines: non_android
   srcs:
     jvm/Platform.jvm.kt
     jvm/di/Clock.jvm.kt

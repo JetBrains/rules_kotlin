@@ -3,7 +3,7 @@
 set -eu
 
 mpp="$1"
-mpp_collapse="$2"
+mpp_alias="$2"
 mpp_incomparable="$3"
 mpp_single="$4"
 mpp_special="$5"
@@ -61,16 +61,23 @@ leaf macos_arm64
   refines: apple
 EOF
 
-assert_graph mpp_collapse "$mpp_collapse" <<'EOF'
-fragment jvm-native
+assert_graph mpp_alias "$mpp_alias" <<'EOF'
+fragment common
+  platforms: jvm, linux_arm64, macos_arm64
+  srcs:
+    testdata/Greeting.kt
+fragment jvm_linux
+  refines: common
   platforms: jvm, linux_arm64
   srcs:
     testdata/Platform.kt
     testdata/Platform.linux.kt
 leaf jvm
-  refines: jvm-native
+  refines: jvm_linux
 leaf linux_arm64
-  refines: jvm-native
+  refines: jvm_linux
+leaf macos_arm64
+  refines: common
 EOF
 
 assert_graph mpp_incomparable "$mpp_incomparable" <<'EOF'
@@ -78,24 +85,24 @@ fragment common
   platforms: jvm, linux_arm64, macos_arm64
   srcs:
     testdata/Platform.kt
-fragment jvm-linux_arm64
+fragment jvm_linux
   refines: common
   platforms: jvm, linux_arm64
   srcs:
     testdata/Description.native.kt
-fragment jvm-macos_arm64
+fragment jvm_macos
   refines: common
   platforms: jvm, macos_arm64
   srcs:
     testdata/Platform.apple.kt
 leaf jvm
-  refines: jvm-linux_arm64, jvm-macos_arm64
+  refines: jvm_linux, jvm_macos
   srcs:
     testdata/Platform.jvm.kt
 leaf linux_arm64
-  refines: jvm-linux_arm64
+  refines: jvm_linux
 leaf macos_arm64
-  refines: jvm-macos_arm64
+  refines: jvm_macos
 EOF
 
 assert_graph mpp_single "$mpp_single" <<'EOF'

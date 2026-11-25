@@ -1,4 +1,4 @@
-"""Unit tests for the declaration of kt_multiplatform_library: its qualified lists, its settings, their checks and the lists of each platform."""
+"""Unit tests for the declaration of kt_multiplatform_library: its qualified lists, its aliases, its settings, their checks and the lists of each platform."""
 
 load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 
@@ -15,6 +15,8 @@ _JVM_SELECTED = [":jvm"] + _SELECTED
 _PARTLY_SELECTED = [":a"] + _SELECTED
 
 _IOS_APP = ["jvm", "android", "ios_arm64", "ios_simulator_arm64"]
+
+_NON_ANDROID = {"non_android": ["jvm", "ios_arm64", "ios_simulator_arm64"]}
 
 _SUPPORTED = "android, ios_arm64, ios_simulator_arm64, jvm, linux_arm64, linux_x64, macos_arm64"
 
@@ -37,8 +39,8 @@ def _relative(label):
     """Normalizes the labels of the package as package_relative_label does for the unit tests: `:a.kt` is `a.kt`."""
     return label[1:] if label.startswith(":") else label
 
-def _parse(platforms = _IOS_APP, common = {}, settings = {}, **kwargs):
-    return parse_declaration(platforms, common, settings, kwargs, normalize = _relative)
+def _parse(platforms = _IOS_APP, common = {}, settings = {}, aliases = None, **kwargs):
+    return parse_declaration(platforms, common, settings, kwargs, aliases = aliases, normalize = _relative)
 
 def _declaration_test(ctx):
     """A declaration of every kind of list parses into its lists, its settings and the attributes common to every rule."""
@@ -128,6 +130,198 @@ def _platform_list_test(ctx):
 
     return unittest.end(env)
 
+def _aliases_test(ctx):
+    """An alias qualifies lists as a group does, and a platform receives them between those above and below the alias."""
+    env = unittest.begin(ctx)
+
+    declaration = _parse(
+        platforms = ["jvm", "android", "linux_x64", "ios_arm64"],
+        aliases = {"non_android": ["ios_arm64", "jvm", "linux_x64"]},
+        common = {"deps": [":common"], "srcs": ["Common.kt"]},
+        deps_ios = [":ios"],
+        deps_jvm = [":jvm"],
+        deps_native = [":native"],
+        deps_non_android = [":non_android"],
+        exports_non_android = [":non_android_api"],
+        plugins_non_android = [":non_android_plugin"],
+        srcs_non_android = ["NonAndroid.kt"],
+    )
+
+    asserts.equals(env, None, declaration.error)
+    asserts.equals(env, {"non_android": ["jvm", "linux_x64", "ios_arm64"]}, declaration.qualifiers.aliases)
+    asserts.false(env, "non_android" in declaration.targeted)
+    asserts.equals(
+        env,
+        {
+            "deps": {
+                "common": [":common"],
+                "ios": [":ios"],
+                "jvm": [":jvm"],
+                "native": [":native"],
+                "non_android": [":non_android"],
+            },
+            "exports": {"non_android": [":non_android_api"]},
+            "plugins": {"non_android": [":non_android_plugin"]},
+            "srcs": {"common": ["Common.kt"], "non_android": ["NonAndroid.kt"]},
+        },
+        declaration.lists,
+    )
+
+    # The nodes keep the order of the tree, and the aliases follow them.
+    asserts.equals(env, ["common", "jvm", "native", "ios", "non_android"], list(declaration.lists["deps"]))
+
+    asserts.equals(env, [":common", ":non_android", ":jvm"], platform_list(declaration, "deps", "jvm"))
+    asserts.equals(env, [":common"], platform_list(declaration, "deps", "android"))
+    asserts.equals(env, [":common", ":non_android", ":native"], platform_list(declaration, "deps", "linux_x64"))
+    asserts.equals(env, [":common", ":non_android", ":native", ":ios"], platform_list(declaration, "deps", "ios_arm64"))
+    asserts.equals(env, [":non_android_api"], platform_list(declaration, "exports", "jvm"))
+    asserts.equals(env, [], platform_list(declaration, "exports", "android"))
+    asserts.equals(env, [":non_android_plugin"], platform_list(declaration, "plugins", "ios_arm64"))
+    asserts.equals(env, ["Common.kt", "NonAndroid.kt"], platform_list(declaration, "srcs", "linux_x64"))
+
+    # An alias and a group that share a platform refine neither each other: both may list a label,
+    # which the platform they share receives once, where it comes first.
+    overlapping = _parse(
+        platforms = ["jvm", "android", "linux_x64", "ios_arm64"],
+        aliases = {"jvm_ios": ["jvm", "ios_arm64"]},
+        deps_jvm_ios = [":lib", ":jvm_ios"],
+        deps_native = [":native", "lib"],
+    )
+    asserts.equals(env, None, overlapping.error)
+    asserts.equals(env, [":native", "lib", ":jvm_ios"], platform_list(overlapping, "deps", "ios_arm64"))
+    asserts.equals(env, [":native", "lib"], platform_list(overlapping, "deps", "linux_x64"))
+    asserts.equals(env, [":lib", ":jvm_ios"], platform_list(overlapping, "deps", "jvm"))
+
+    # The select() of jvm stays last, after the list of the alias.
+    selected = _parse(
+        platforms = ["jvm", "android", "linux_x64"],
+        aliases = {"jvm_linux": ["jvm", "linux_x64"]},
+        deps_jvm = _JVM_SELECTED,
+        deps_jvm_linux = [":jvm_linux"],
+    )
+    asserts.equals(env, None, selected.error)
+    asserts.equals(env, repr([":jvm_linux"] + _JVM_SELECTED), repr(platform_list(selected, "deps", "jvm")))
+
+    # An alias without lists, an empty list of an alias, and an alias named as the end of an
+    # attribute common to every rule are accepted.
+    unused = _parse(aliases = _NON_ANDROID, srcs_non_android = [])
+    asserts.equals(env, None, unused.error)
+    asserts.equals(env, {"deps": {}, "exports": {}, "plugins": {}, "srcs": {}}, unused.lists)
+    suffix = _parse(aliases = {"with": ["jvm", "ios_arm64"]}, deps_with = [":lib"], target_compatible_with = ["@platforms//os:macos"])
+    asserts.equals(env, None, suffix.error)
+    asserts.equals(env, {"target_compatible_with": ["@platforms//os:macos"]}, suffix.rule_attrs)
+    asserts.equals(env, [":lib"], platform_list(suffix, "deps", "jvm"))
+
+    return unittest.end(env)
+
+def _alias_errors_test(ctx):
+    """The errors of the aliases are those of the declaration, and an alias is checked as the qualifier it is."""
+    env = unittest.begin(ctx)
+
+    for message, aliases, common, kwargs in [
+        ("aliases must be a dict of a name to the platforms it groups, not a list", ["non_android"], {}, {}),
+        (
+            "aliases: 'non_android' lists linux_x64, which platforms does not list",
+            {"non_android": ["jvm", "linux_x64"]},
+            {},
+            {},
+        ),
+        (
+            "aliases: 'ios_only' groups the platforms of native, apple, ios: use one of those qualifiers instead",
+            {"ios_only": ["ios_arm64", "ios_simulator_arm64"]},
+            {},
+            {},
+        ),
+        (
+            "srcs_non_andriod: 'non_andriod' is neither a group, a platform nor an alias; the groups are apple, ios, " +
+            "linux, macos, native, the platforms android, ios_arm64, ios_simulator_arm64, ios_x64, jvm, linux_arm64, " +
+            "linux_x64, macos_arm64 and the aliases jvm_device, non_android",
+            {"non_android": ["jvm", "ios_arm64", "ios_simulator_arm64"], "jvm_device": ["jvm", "ios_arm64"]},
+            {},
+            {"srcs_non_andriod": ["a.kt"]},
+        ),
+        ("opts_non_android: only srcs, deps, exports and plugins take an alias", _NON_ANDROID, {}, {"opts_non_android": ["-opt"]}),
+        ("opts_with: only srcs, deps, exports and plugins take an alias", {"with": ["jvm", "ios_arm64"]}, {}, {"opts_with": []}),
+        # The longest qualifier a keyword argument ends with is the one it means.
+        ("opts_ios: only srcs, deps, exports and plugins take a group or a platform", {"os": ["jvm", "ios_arm64"]}, {}, {"opts_ios": []}),
+        (
+            "non_android: only jvm, android and native take a dict of attributes of their library",
+            _NON_ANDROID,
+            {},
+            {"non_android": dict(opts = [])},
+        ),
+        ("srcs_non_android " + _SELECTED_SRCS, _NON_ANDROID, {}, {"srcs_non_android": _SELECTED}),
+        (
+            "deps_non_android must be a list of labels, not a select: only deps_jvm and deps_android may be a select(), " +
+            "as the macro selects the deps of each konan target itself",
+            _NON_ANDROID,
+            {},
+            {"deps_non_android": _SELECTED},
+        ),
+        ("srcs_non_android must be a list of labels, not a string", _NON_ANDROID, {}, {"srcs_non_android": "a.kt"}),
+        ("srcs_non_android lists a.kt twice", _NON_ANDROID, {}, {"srcs_non_android": ["a.kt", ":a.kt"]}),
+        (
+            "deps_non_android lists :lib, which the deps of the macro already list",
+            _NON_ANDROID,
+            {"deps": [":lib"]},
+            {"deps_non_android": [":lib"]},
+        ),
+        (
+            "deps_jvm lists :lib, which deps_non_android already lists",
+            _NON_ANDROID,
+            {},
+            {"deps_jvm": [":lib"], "deps_non_android": [":lib"]},
+        ),
+        # A group whose platforms are some of those of the alias is below it.
+        (
+            "exports_ios lists :lib, which exports_non_android already lists",
+            _NON_ANDROID,
+            {},
+            {"exports_ios": [":lib"], "exports_non_android": [":other", "lib"]},
+        ),
+        (
+            "srcs_ios_arm64 lists a.kt, which srcs_non_android already lists",
+            _NON_ANDROID,
+            {},
+            {"srcs_ios_arm64": ["a.kt"], "srcs_non_android": [":a.kt"]},
+        ),
+        # A source that the lists of the platforms of an alias name belongs to the alias.
+        (
+            "srcs_ios and srcs_jvm both list a.kt: a source is in one fragment; list it in srcs_non_android alone",
+            _NON_ANDROID,
+            {},
+            {"srcs_ios": ["a.kt"], "srcs_jvm": ["a.kt"]},
+        ),
+        # An alias and a group that share a platform are fragments neither of which sees the other.
+        (
+            "srcs_ios and srcs_jvm_device both list a.kt: a source is in one fragment; declare an alias of their " +
+            "platforms, e.g. aliases = {\"ios_jvm_device\": [\"jvm\", \"ios_arm64\", \"ios_simulator_arm64\"]}, and list " +
+            "it in srcs_ios_jvm_device alone",
+            {"jvm_device": ["jvm", "ios_arm64"]},
+            {},
+            {"srcs_ios": ["a.kt"], "srcs_jvm_device": ["a.kt"]},
+        ),
+    ]:
+        asserts.equals(
+            env,
+            message,
+            parse_declaration(_IOS_APP, common, {}, kwargs, aliases = aliases, normalize = _relative).error,
+        )
+
+    # The platforms are checked before the aliases, and the aliases before the lists.
+    asserts.equals(
+        env,
+        "platforms lists 'jvm' twice",
+        _parse(platforms = ["jvm", "jvm"], aliases = {"Bad": []}, srcs_iso = []).error,
+    )
+    asserts.equals(
+        env,
+        "aliases: 'Bad' is not a name of lowercase letters, digits and _",
+        _parse(aliases = {"Bad": []}, srcs_iso = []).error,
+    )
+
+    return unittest.end(env)
+
 def _lenient_declarations_test(ctx):
     """A single platform, empty lists of nodes that are not targeted, and a select() of the JVM or Android library are accepted."""
     env = unittest.begin(ctx)
@@ -154,9 +348,19 @@ def _lenient_declarations_test(ctx):
     asserts.equals(env, repr([] + _SELECTED), repr(platform_list(selected, "exports", "android")))
     asserts.equals(env, [":common"], platform_list(selected, "deps", "linux_x64"))
 
-    # Labels may repeat between nodes of different lineages, e.g. sources shared by jvm and native.
-    shared = _parse(platforms = ["jvm", "linux_x64"], deps_jvm = [":lib"], deps_native = [":lib"], srcs_jvm = ["a.kt"], srcs_native = [":a.kt"])
+    # The deps, exports and plugins of lists neither of which is above the other may repeat a label.
+    shared = _parse(
+        platforms = ["jvm", "linux_x64"],
+        deps_jvm = [":lib"],
+        deps_native = [":lib"],
+        exports_jvm = [":lib"],
+        exports_linux_x64 = [":lib"],
+        plugins_jvm = [":plugin"],
+        plugins_linux = [":plugin"],
+    )
     asserts.equals(env, None, shared.error)
+    asserts.equals(env, [":lib"], platform_list(shared, "deps", "jvm"))
+    asserts.equals(env, [":lib"], platform_list(shared, "deps", "linux_x64"))
 
     return unittest.end(env)
 
@@ -184,8 +388,8 @@ def _declaration_errors_test(ctx):
         ),
         ("platforms lists 'jvm' twice", ["jvm", "android", "jvm"], {}, {}, {}),
         (
-            "srcs_iso: 'iso' is neither a group nor a platform; the groups are apple, ios, linux, macos, native and the " +
-            "platforms android, ios_arm64, ios_simulator_arm64, ios_x64, jvm, linux_arm64, linux_x64, macos_arm64",
+            "srcs_iso: 'iso' is neither a group, a platform nor an alias; the groups are apple, ios, linux, macos, native " +
+            "and the platforms android, ios_arm64, ios_simulator_arm64, ios_x64, jvm, linux_arm64, linux_x64, macos_arm64",
             _IOS_APP,
             {},
             {},
@@ -267,6 +471,40 @@ def _declaration_errors_test(ctx):
             {},
             {"srcs_ios_arm64": [":a.kt"], "srcs_native": ["a.kt"]},
         ),
+        # A source that two lists name, neither above the other, belongs to the list of the platforms of both.
+        (
+            "srcs_jvm and srcs_native both list :a.kt: a source is in one fragment; list it in the srcs of the macro alone",
+            ["jvm", "linux_x64"],
+            {},
+            {},
+            {"srcs_jvm": ["a.kt"], "srcs_native": [":a.kt"]},
+        ),
+        (
+            "srcs_ios_arm64 and srcs_ios_simulator_arm64 both list a.kt: a source is in one fragment; list it in " +
+            "srcs_ios alone",
+            _IOS_APP,
+            {},
+            {},
+            {"srcs_ios_arm64": ["b.kt", "a.kt"], "srcs_ios_simulator_arm64": ["a.kt"]},
+        ),
+        # Of the groups of the platforms of both, the lowest one.
+        (
+            "srcs_ios_arm64 and srcs_ios_simulator_arm64 both list a.kt: a source is in one fragment; list it in " +
+            "srcs_ios alone",
+            ["ios_arm64", "ios_simulator_arm64"],
+            {},
+            {},
+            {"srcs_ios_arm64": ["a.kt"], "srcs_ios_simulator_arm64": ["a.kt"]},
+        ),
+        (
+            "srcs_jvm and srcs_native both list a.kt: a source is in one fragment; declare an alias of their " +
+            "platforms, e.g. aliases = {\"jvm_native\": [\"jvm\", \"ios_arm64\", \"ios_simulator_arm64\"]}, and list it " +
+            "in srcs_jvm_native alone",
+            _IOS_APP,
+            {},
+            {},
+            {"srcs_jvm": ["a.kt"], "srcs_native": ["a.kt"]},
+        ),
         ("jvm must be a dict of attributes of the JVM library, not a list", ["jvm"], {}, {"jvm": []}, {}),
         (
             "android sets attributes of the Android library, but platforms does not list android",
@@ -297,8 +535,8 @@ def _declaration_errors_test(ctx):
     # The first error is that of the first keyword argument in sorted order.
     asserts.equals(
         env,
-        "deps_iso: 'iso' is neither a group nor a platform; the groups are apple, ios, linux, macos, native and the " +
-        "platforms android, ios_arm64, ios_simulator_arm64, ios_x64, jvm, linux_arm64, linux_x64, macos_arm64",
+        "deps_iso: 'iso' is neither a group, a platform nor an alias; the groups are apple, ios, linux, macos, native " +
+        "and the platforms android, ios_arm64, ios_simulator_arm64, ios_x64, jvm, linux_arm64, linux_x64, macos_arm64",
         _parse(srcs_iso = [], opts_ios = [], deps_iso = []).error,
     )
 
@@ -342,8 +580,8 @@ def _custom_hierarchy_test(ctx):
     )
     asserts.equals(
         env,
-        "srcs_tv: 'tv' is neither a group nor a platform; the groups are apple, ios, linux, macos, native, tvos and the " +
-        "platforms android, ios_arm64, ios_simulator_arm64, ios_x64, jvm, linux_arm64, linux_x64, macos_arm64, " +
+        "srcs_tv: 'tv' is neither a group, a platform nor an alias; the groups are apple, ios, linux, macos, native, tvos " +
+        "and the platforms android, ios_arm64, ios_simulator_arm64, ios_x64, jvm, linux_arm64, linux_x64, macos_arm64, " +
         "tvos_arm64, tvos_simulator_arm64",
         parse_declaration(["ios_arm64"], {}, {}, {"srcs_tv": []}, hierarchy = tvos, unsupported = {}).error,
     )
@@ -359,6 +597,8 @@ def _custom_hierarchy_test(ctx):
 
 declaration_test = unittest.make(_declaration_test)
 platform_list_test = unittest.make(_platform_list_test)
+aliases_test = unittest.make(_aliases_test)
+alias_errors_test = unittest.make(_alias_errors_test)
 lenient_declarations_test = unittest.make(_lenient_declarations_test)
 declaration_errors_test = unittest.make(_declaration_errors_test)
 unsupported_platforms_test = unittest.make(_unsupported_platforms_test)
@@ -369,6 +609,8 @@ def declaration_test_suite(name):
         name,
         declaration_test,
         platform_list_test,
+        aliases_test,
+        alias_errors_test,
         lenient_declarations_test,
         declaration_errors_test,
         unsupported_platforms_test,

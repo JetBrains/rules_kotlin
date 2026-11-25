@@ -1,140 +1,73 @@
-"""The K2 fragments of a kt_multiplatform_library, derived from the sources of the groups and platforms of its hierarchy.
+"""The K2 fragments of a kt_multiplatform_library, derived from the sources of the groups, aliases and platforms of its declaration.
 
-The owners of a source are the groups and platforms (see hierarchy.bzl) whose srcs list it, none
-above another. The sources of the same owners form one fragment: the sources of a group are the
-fragment named after it, e.g. `common` or `ios`, and those of a platform are the leaf of its
-compilation, named after the platform, which may be empty. A source that several groups or
-platforms list is shared by exactly those, in a fragment named after them, sorted and joined with
-`-`, e.g. `jvm-native`. The platforms of a fragment are the targeted platforms at or below its
-owners. A fragment refines the fragments directly above it: `A` refines `B` when every owner of `A`
-is at or below an owner of `B`, and no fragment lies in between. A leaf refines the fragments
-directly above its platform.
+The sources of a group of the hierarchy or of an alias (see qualifiers.bzl) form one fragment, named
+after it, e.g. `common`, `ios` or `non_android`, and those of a platform are the leaf of its
+compilation, named after the platform, which may be empty. A group or an alias without sources has
+no fragment. The platforms of a fragment are the listed platforms its group or alias covers. A
+fragment refines the fragments directly above it: `A` refines `B` when the group of `B` is above
+that of `A` in the hierarchy, and otherwise when the platforms of `A` are some of the platforms of
+`B`, but not all of them, and no fragment lies in between. A leaf refines the fragments directly
+above its platform.
 
 Groups of the same platforms stay apart, e.g. `common`, `native`, `apple` and `ios` in a library of
 iOS targets only, so an `expect` declaration of one and its `actual` in a lower one are in two
 fragments. The compilation of a platform gets every fragment its platform compiles, most shared
-first, each after those it refines, and then its leaf (see fragments.bzl). Sources are told apart
-by label: a file that two labels name is in two fragments, which the analysis of the compilation
-reports.
+first, each after those it refines, and then its leaf (see fragments.bzl). A source is in one
+fragment, and sources are told apart by label: a file that two labels name is in two fragments,
+which the analysis of the compilation reports.
 """
 
-def fragment_name(owners):
-    """The name of the fragment of the sources that some groups or platforms list: their names, sorted and joined with `-`.
-
-    Args:
-      owners: the names of the groups or platforms, e.g. `["native", "jvm"]`.
-
-    Returns:
-      The name, e.g. `jvm-native`, or `ios` for `["ios"]`.
-    """
-    return "-".join(sorted(owners))
-
-def _covers(lower, upper, lineage):
-    """Whether every node of `lower` is at or below a node of `upper`, both lists of nodes."""
-    for node in lower:
-        if not [above for above in upper if above in lineage[node]]:
-            return False
-    return True
-
-def _direct(candidates, lineage):
-    """The candidates, structs with `owners`, that no other candidate is below."""
-    return [
-        candidate
-        for candidate in candidates
-        if not [
-            other
-            for other in candidates
-            if other.name != candidate.name and _covers(other.owners, candidate.owners, lineage)
-        ]
-    ]
+load(":qualifiers.bzl", "direct")
 
 def _most_shared_first(fragment):
     return (-len(fragment.platforms), fragment.rank, fragment.name)
 
-def derive_fragments(node_srcs, lineage, targeted):
-    """The fragments of a kt_multiplatform_library, from the sources of its groups and platforms.
+def derive_fragments(qualifier_srcs, qualifiers):
+    """The fragments of a kt_multiplatform_library, from the sources of its groups, aliases and platforms.
 
     Args:
-      node_srcs: a dict of each group or platform to the labels of its sources, as strings that are
-        equal for equal labels. A node lists a label once, and the nodes listing a label are none
-        above another.
-      lineage: a dict of each node of the hierarchy to the nodes from the root down to it.
-      targeted: a dict of each node at or above a targeted platform to the targeted platforms at or
-        below it, in tree order, as resolve_platforms returns it: the nodes are visited in its
-        order, and the nodes of `node_srcs` it lacks are ignored.
+      qualifier_srcs: a dict of each group, alias or platform to the labels of its sources, as
+        strings that are equal for equal labels. A label is listed once, by one of them. Those that
+        `qualifiers` lacks, the nodes that are not targeted, are ignored.
+      qualifiers: the qualifiers of the library and their order, as `resolve_qualifiers` returns
+        them, without error.
 
     Returns:
       A struct of:
-      - `fragments`: a struct(name, owners, platforms, rank, srcs, refines) per set of owners that
-        is not a single platform, most shared first, each after those it refines, then by name.
-        `owners` are sorted, `platforms` are in tree order, `srcs` are the labels in the order the
-        nodes list them, `rank` is 0 for a fragment that refines nothing and otherwise one more than
-        the highest rank it refines, and `refines` are the names of the fragments directly above it,
-        in the order of `fragments`;
-      - `leaf_srcs`: a dict of each targeted platform to the labels that it alone lists, in its order;
-      - `leaf_refines`: a dict of each targeted platform to the names of the fragments directly
+      - `fragments`: a struct(name, platforms, rank, srcs, refines) per group or alias with sources,
+        most shared first, each after those it refines, then by name. `platforms` are in tree
+        order, `srcs` are the labels in the order they are listed, `rank` is 0 for a fragment that
+        refines nothing and otherwise one more than the highest rank it refines, and `refines` are
+        the names of the fragments directly above it, in the order of `fragments`;
+      - `leaf_srcs`: a dict of each listed platform to the labels of its sources, in their order;
+      - `leaf_refines`: a dict of each listed platform to the names of the fragments directly
         above it, which its leaf refines, in the order of `fragments`.
     """
-    roots = [node for node in targeted if len(lineage[node]) == 1]
-    platforms = targeted[roots[0]] if roots else []
-
-    # The nodes listing each label, and the labels in the order the nodes list them.
-    owners = {}
-    for node in targeted:
-        for label in node_srcs.get(node, []):
-            listing = owners.setdefault(label, [])
-            if node not in listing:
-                listing.append(node)
-
-    leaf_srcs = {platform: [] for platform in platforms}
-    grouped = {}
-    for label, listing in owners.items():
-        if len(listing) == 1 and listing[0] in leaf_srcs:
-            leaf_srcs[listing[0]].append(label)
-        else:
-            grouped.setdefault(fragment_name(listing), struct(owners = sorted(listing), srcs = [])).srcs.append(label)
-
-    found = [
-        struct(
-            name = name,
-            owners = fragment.owners,
-            platforms = [platform for platform in platforms if _covers([platform], fragment.owners, lineage)],
-            srcs = fragment.srcs,
-        )
-        for name, fragment in grouped.items()
-    ]
-
-    # The fragments above a fragment are above every fragment below it too: those with fewer
-    # fragments above them come first, before any fragment refining them.
-    above = {
-        fragment.name: [
-            other
-            for other in found
-            if other.name != fragment.name and _covers(fragment.owners, other.owners, lineage)
-        ]
-        for fragment in found
+    shared = {
+        qualifier: True
+        for qualifier in qualifiers.names
+        if qualifier not in qualifiers.leaves and qualifier_srcs.get(qualifier)
     }
 
-    def _fewest_above_first(fragment):
-        return (len(above[fragment.name]), fragment.name)
+    def _directly_above(qualifier):
+        return direct(qualifiers, [above for above in qualifiers.above[qualifier] if above in shared])
 
+    # `qualifiers.names` lists a qualifier after those it refines, whose ranks are thus known.
     rank = {}
     refines = {}
-    for fragment in sorted(found, key = _fewest_above_first):
-        direct = _direct(above[fragment.name], lineage)
-        refines[fragment.name] = direct
-        rank[fragment.name] = 1 + max([rank[refined.name] for refined in direct]) if direct else 0
+    for qualifier in shared:
+        refines[qualifier] = _directly_above(qualifier)
+        rank[qualifier] = 1 + max([rank[refined] for refined in refines[qualifier]]) if refines[qualifier] else 0
 
     ordered = sorted(
         [
             struct(
-                name = fragment.name,
-                owners = fragment.owners,
-                platforms = fragment.platforms,
-                rank = rank[fragment.name],
-                srcs = fragment.srcs,
+                name = qualifier,
+                platforms = qualifiers.platforms[qualifier],
+                rank = rank[qualifier],
+                srcs = list(qualifier_srcs[qualifier]),
             )
-            for fragment in found
+            for qualifier in shared
         ],
         key = _most_shared_first,
     )
@@ -143,28 +76,21 @@ def derive_fragments(node_srcs, lineage, targeted):
     def _in_order(name):
         return order[name]
 
-    def _names(fragments):
-        return sorted([fragment.name for fragment in fragments], key = _in_order)
-
     return struct(
         fragments = [
             struct(
                 name = fragment.name,
-                owners = fragment.owners,
                 platforms = fragment.platforms,
                 rank = fragment.rank,
                 srcs = fragment.srcs,
-                refines = _names(refines[fragment.name]),
+                refines = sorted(refines[fragment.name], key = _in_order),
             )
             for fragment in ordered
         ],
-        leaf_srcs = leaf_srcs,
+        leaf_srcs = {platform: list(qualifier_srcs.get(platform, [])) for platform in qualifiers.leaves},
         leaf_refines = {
-            platform: _names(_direct(
-                [fragment for fragment in found if _covers([platform], fragment.owners, lineage)],
-                lineage,
-            ))
-            for platform in platforms
+            platform: sorted(_directly_above(platform), key = _in_order)
+            for platform in qualifiers.leaves
         },
     )
 

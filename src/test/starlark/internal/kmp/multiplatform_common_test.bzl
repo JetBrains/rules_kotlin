@@ -1,4 +1,4 @@
-"""Tests for the lists kt_multiplatform_library gives the library of each platform: those of its lineage in the hierarchy.
+"""Tests for the lists kt_multiplatform_library gives the library of each platform: those of the groups and aliases above it, and its own.
 
 The fixtures stand in for each level: an alias with the shape of those of kmp_maven for the lists of
 every platform, and fake klibs of the konan targets of a group for the lists of that group. The
@@ -175,7 +175,9 @@ def multiplatform_common_test_suite(name):
         srcs = ["testdata/PlatformTypeLib.java"],
         tags = ["manual"],
     )
-    for plugin in ["apple", "common", "jvm", "linux", "native"]:
+    _library_of_every_platform(name = "mc_jvm_apple_dep")
+    _library_of_every_platform(name = "mc_jvm_apple_export")
+    for plugin in ["apple", "common", "jvm", "jvm_apple", "linux", "native"]:
         kt_compiler_plugin(
             name = "mc_%s_plugin" % plugin,
             id = "test.%s" % plugin,
@@ -228,6 +230,73 @@ def multiplatform_common_test_suite(name):
         srcs = ["testdata/Platform.kt"],
         native = dict(target_compatible_with = not_on_windows()),
         tags = ["manual"],
+    )
+
+    # The lists of an alias of the JVM and the Apple targets go to those, after the common ones and
+    # before the ones of the groups and platforms below the alias. native shares the Apple targets
+    # with the alias and is not below it: a dep of both reaches an Apple target once.
+    kt_multiplatform_library(
+        name = "mc_alias",
+        aliases = {"jvm_apple": [
+            "jvm",
+            "macos_arm64",
+            "ios_simulator_arm64",
+        ]},
+        platforms = [
+            "jvm",
+            "linux_arm64",
+            "macos_arm64",
+            "ios_simulator_arm64",
+        ],
+        srcs = ["testdata/Platform.kt"],
+        deps = [":mc_common_dep"],
+        deps_apple = [":mc_apple_dep"],
+        deps_jvm = [":mc_jvm_dep"],
+        deps_jvm_apple = [":mc_jvm_apple_dep"],
+        deps_native = [
+            ":mc_native_dep",
+            ":mc_jvm_apple_dep",
+        ],
+        exports_jvm_apple = [":mc_jvm_apple_export"],
+        plugins_jvm_apple = [":mc_jvm_apple_plugin"],
+        tags = ["manual"],
+    )
+
+    attrs_jvm_test(
+        name = "multiplatform_common_alias_jvm_test",
+        target_under_test = ":mc_alias_jvm",
+        exports = ["mc_jvm_apple_export_jvm"],
+        plugins = ["mc_jvm_apple_plugin"],
+        deps = [
+            "mc_common_dep_jvm",
+            "mc_jvm_apple_dep_jvm",
+            "mc_jvm_dep",
+        ],
+    )
+    attrs_macos_arm64_test(
+        name = "multiplatform_common_alias_native_mac_test",
+        target_under_test = ":mc_alias_native",
+        exports = ["mc_jvm_apple_export_native_macos_arm64"],
+        plugins = ["mc_jvm_apple_plugin"],
+        target_compatible_with = not_on_windows(),
+        deps = [
+            "mc_common_dep_native_macos_arm64",
+            "mc_native_dep_macos_arm64",
+            "mc_jvm_apple_dep_native_macos_arm64",
+            "mc_apple_dep_macos_arm64",
+        ],
+    )
+
+    # The Linux target is none of the platforms of the alias.
+    attrs_linux_arm64_test(
+        name = "multiplatform_common_alias_native_linux_test",
+        target_under_test = ":mc_alias_native",
+        target_compatible_with = not_on_windows(),
+        deps = [
+            "mc_common_dep_native_linux_arm64",
+            "mc_native_dep_linux_arm64",
+            "mc_jvm_apple_dep_native_linux_arm64",
+        ],
     )
 
     attrs_jvm_test(
@@ -350,6 +419,9 @@ leaf linux_arm64
     native.test_suite(
         name = name,
         tests = [
+            ":multiplatform_common_alias_jvm_test",
+            ":multiplatform_common_alias_native_linux_test",
+            ":multiplatform_common_alias_native_mac_test",
             ":multiplatform_common_attrs_jvm_test",
             ":multiplatform_common_attrs_native_ios_test",
             ":multiplatform_common_attrs_native_linux_test",

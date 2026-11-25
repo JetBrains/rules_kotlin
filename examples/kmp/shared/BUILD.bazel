@@ -12,7 +12,7 @@ COMMON = [
 ]
 
 # The JVM and the konan targets, not Android: Gradle's nonAndroidMain, an intermediate source set
-# outside the hierarchy, which the JVM and native both list.
+# outside the hierarchy, which the alias `non_android` of the macro names.
 NON_ANDROID = ["non_android/Greeting.nonAndroid.kt"]
 
 JVM = [
@@ -87,18 +87,26 @@ kt_native_ksp_sources(
     deps = COMMON_DEPS,
 )
 
-# The fragments the macro derives, one per group with sources and one of the sources the JVM and
-# native share, each refining the fragments above it in the hierarchy:
+# The fragments the macro derives, one per group and alias with sources, each refining the
+# fragments of the groups and aliases whose platforms include its own:
 #   COMMON       common, the srcs of the macro
-#   NON_ANDROID  jvm-native, which the JVM and native both list, refines common
-#   APPLE        apple, refines jvm-native
-#   LINUX        linux, refines jvm-native
+#   NON_ANDROID  non_android, the alias of every platform but Android, refines common
+#   APPLE        apple, refines non_android
+#   LINUX        linux, refines non_android
 # JVM and ANDROID are the leaves `jvm` and `android`, with their KSP outputs; the leaves of the konan
 # targets are empty. The `actual` declarations are in the leaves of the JVM and Android and in the
 # fragments of the Apple and Linux sources, so every platform compiles one `actual` per `expect`.
 kt_multiplatform_library(
     name = "shared",
     srcs = COMMON,
+    aliases = {"non_android": [
+        "jvm",
+        "ios_arm64",
+        "ios_simulator_arm64",
+        "macos_arm64",
+        "linux_arm64",
+        "linux_x64",
+    ]},
     android = dict(
         custom_package = "examples.kmp.shared",
         manifest = "android/AndroidManifest.xml",
@@ -114,9 +122,9 @@ kt_multiplatform_library(
     ],
     srcs_android = ANDROID + [":shared_ksp_android"],
     srcs_apple = APPLE + [":shared_ksp_apple"],
-    srcs_jvm = NON_ANDROID + JVM + [":shared_ksp_jvm"],
+    srcs_jvm = JVM + [":shared_ksp_jvm"],
     srcs_linux = LINUX,
-    srcs_native = NON_ANDROID,
+    srcs_non_android = NON_ANDROID,
     visibility = ["//visibility:public"],
     deps = COMMON_DEPS,
 )

@@ -30,8 +30,15 @@ _EXAMPLE_PLATFORMS = ["jvm", "android", "ios_arm64"]
 def _quoted(name):
     return "'%s'" % name if type(name) == "string" else repr(name)
 
-def _name_error(name):
-    """The error of the name of a group or a platform, or None when it is valid."""
+def name_error(name):
+    """The error of the name of a group, a platform or an alias.
+
+    Args:
+      name: the name.
+
+    Returns:
+      The message, or None when the name is made of lowercase letters, digits and `_`.
+    """
     message = "%s is not a name of lowercase letters, digits and _" % _quoted(name)
     if type(name) != "string" or not name:
         return message
@@ -60,7 +67,7 @@ def hierarchy_error(groups):
         if type(entry) not in ("tuple", "list") or len(entry) != 2 or type(entry[1]) != "list":
             return "the entry %r of the hierarchy is not a (group, members) pair" % (entry,)
         group, members = entry
-        error = _name_error(group)
+        error = name_error(group)
         if error:
             return error
         if group in listed:
@@ -69,7 +76,7 @@ def hierarchy_error(groups):
         if not members:
             return "the group '%s' has no members, so it would be both a group and a platform" % group
         for member in members:
-            error = _name_error(member)
+            error = name_error(member)
             if error:
                 return error
             if member in parent:

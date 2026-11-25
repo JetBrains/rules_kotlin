@@ -190,7 +190,7 @@ def _leaf_name_of_a_fragment_test(ctx):
     return unittest.end(env)
 
 def _source_in_two_fragments_test(ctx):
-    """A source belongs to one fragment: one file the platforms list through two labels fails."""
+    """A source belongs to one fragment: one file that two lists name through two labels fails."""
     env = unittest.begin(ctx)
 
     common = _fragment(["jvm", "linux_x64"], srcs = ["shared/Platform.kt"])
@@ -198,8 +198,8 @@ def _source_in_two_fragments_test(ctx):
 
     asserts.equals(
         env,
-        "the source shared/Platform.kt is in both fragment 'jvm-linux_x64' and 'jvm': the platforms of " +
-        "kt_multiplatform_library share sources by label, and they list it through different labels; list it by one label",
+        "the source shared/Platform.kt is in both fragment 'jvm-linux_x64' and 'jvm': a source is in one fragment, " +
+        "and two lists of kt_multiplatform_library name it through different labels; list it once",
         plan.error,
     )
 
