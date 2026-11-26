@@ -112,3 +112,77 @@ bazel_integration_test(
     }),
     test_runner = ":native_compilation_modes_test_runner",
 )
+
+kt_jvm_test(
+    name = "native_xctest_test_runner",
+    srcs = ["NativeXctestTest.kt"],
+    # Run through bazel_integration_test, which supplies the Bazel launcher.
+    tags = ["manual"],
+    test_class = "io.bazel.kotlin.integration.NativeXctestTest",
+    deps = [
+        "//src/main/kotlin/io/bazel/kotlin/test:test_base",
+        "@kotlin_rules_maven_test//:junit_junit",
+    ],
+)
+
+# Runs the Kotlin/Native tests of a kt_native_xctest_library in the iOS simulator, through
+# rules_apple's ios_unit_test.
+bazel_integration_test(
+    name = "native_xctest_test",
+    timeout = "eternal",
+    additional_env_inherit = [
+        # allows persistent shared repository cache for bazel-under-test artifacts
+        "RULES_KOTLIN_REPOSITORY_CACHE",
+    ],
+    bazel_binaries = bazel_binaries,
+    bazel_version = bazel_binaries.versions.current,
+    data = ["//:rules_kotlin_release"],
+    env = {
+        "RULES_KOTLIN_RELEASE": "$(rlocationpath //:rules_kotlin_release)",
+    },
+    tags = [
+        "no-remote",
+        "requires-network",
+    ],
+    # The iOS simulator of an arm64 Mac: the only host with a simulator konan target.
+    target_compatible_with = select({
+        "@platforms//os:macos": ["@platforms//cpu:arm64"],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    test_runner = ":native_xctest_test_runner",
+)
+
+kt_jvm_test(
+    name = "android_local_test_coverage_test_runner",
+    srcs = ["AndroidLocalTestCoverageTest.kt"],
+    # Run through bazel_integration_test, which supplies the Bazel launcher.
+    tags = ["manual"],
+    test_class = "io.bazel.kotlin.integration.AndroidLocalTestCoverageTest",
+    deps = [
+        "//src/main/kotlin/io/bazel/kotlin/test:test_base",
+        "@kotlin_rules_maven_test//:junit_junit",
+    ],
+)
+
+# Analyses the Android local test of a kt_multiplatform_test for coverage on Bazel 8, which
+# registers the baseline coverage action of a target in every call of instrumented_files_info: a
+# newer Bazel does not show two calls that disagree.
+bazel_integration_test(
+    name = "android_local_test_coverage_test",
+    timeout = "eternal",
+    additional_env_inherit = [
+        # allows persistent shared repository cache for bazel-under-test artifacts
+        "RULES_KOTLIN_REPOSITORY_CACHE",
+    ],
+    bazel_binaries = bazel_binaries,
+    bazel_version = "8.x",
+    data = ["//:rules_kotlin_release"],
+    env = {
+        "RULES_KOTLIN_RELEASE": "$(rlocationpath //:rules_kotlin_release)",
+    },
+    tags = [
+        "no-remote",
+        "requires-network",
+    ],
+    test_runner = ":android_local_test_coverage_test_runner",
+)

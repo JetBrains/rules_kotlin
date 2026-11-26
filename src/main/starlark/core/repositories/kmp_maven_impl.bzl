@@ -67,7 +67,7 @@ _LOADS = [
 ]
 _BASH_RUNFILES = str(Label("@bazel_tools//tools/bash/runfiles"))
 _NATIVE = str(Label("//kotlin/native/platforms:native"))
-_ANDROID = str(Label("@platforms//os:android"))
+_ANDROID = str(Label("//kotlin/settings:android"))
 _DEFAULT = "//conditions:default"
 
 _ALPHANUMERICS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -653,8 +653,9 @@ def hub_contents(hub, manifest_path, manifest, fetch_sources, extra_dependencies
     - with klib variants, the alias `<lib>.native`, which selects `<lib>.<t>` on
       @rules_kotlin//kotlin/native/platforms:native_<t>;
     - the alias `<lib>`, which selects `<lib>.native` for the Kotlin/Native rules
-      (@rules_kotlin//kotlin/native/platforms:native), `<lib>.android` on @platforms//os:android and
-      `<lib>.jvm` by default; of `<lib>.jvm` alone for a JVM library.
+      (@rules_kotlin//kotlin/native/platforms:native), `<lib>.android` on an Android platform and
+      below an Android local test (@rules_kotlin//kotlin/settings:android) and `<lib>.jvm` by
+      default; of `<lib>.jvm` alone for a JVM library.
 
     A dependency of a variant is the target of the same platform of its library: the exported ones
     are the exports of the import, and also its deps for the JVM and Android imports. The extra

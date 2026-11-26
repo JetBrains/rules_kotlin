@@ -44,6 +44,10 @@ bazel_dep(name = "rules_shell", version = "0.4.1")
 # The Apple platforms in //kotlin/native/platforms use apple_support's constraints.
 bazel_dep(name = "apple_support", version = "2.5.2", repo_name = "build_bazel_apple_support")
 
+# kt_native_xctest_library compiles its XCTest case with cc_common, which Bazel 9 has in rules_cc
+# only. The version is the one apple_support asks for.
+bazel_dep(name = "rules_cc", version = "0.2.15")
+
 kotlin_native = use_extension("//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
 use_repo(
     kotlin_native,

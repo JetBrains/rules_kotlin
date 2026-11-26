@@ -127,7 +127,7 @@ letters and digits replaced by `_`, e.g. `org_jetbrains_kotlinx_kotlinx_coroutin
 
 | Target                      | Content                                                                                                                                                                                  |
 |-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `<lib>`                     | The alias of the library: `<lib>.native` for the Kotlin/Native rules, `<lib>.android` on `@platforms//os:android`, `<lib>.jvm` otherwise; `<lib>.jvm` alone for a JVM library.           |
+| `<lib>`                     | The alias of the library: `<lib>.native` for the Kotlin/Native rules, `<lib>.android` for an Android consumer (`@rules_kotlin//kotlin/settings:android`), `<lib>.jvm` otherwise; `<lib>.jvm` alone for a JVM library. |
 | `<lib>.native`              | The alias of the klibs of the library: `<lib>.<t>` on `@rules_kotlin//kotlin/native/platforms:native_<t>`.                                                                                |
 | `<lib>.<t>`                 | A `kt_klib_import` of the klib of konan target `<t>`, which exports the libraries the library exposes, and depends on its cinterop klibs and its other dependencies of `<t>`.             |
 | `<lib>.<t>.cinterop_<n>`    | A `kt_klib_import` of the cinterop klib at position `<n>` (from 0) of the library for `<t>`, which binds a C library it uses.                                                              |
@@ -174,15 +174,34 @@ the config_settings of `@rules_kotlin//kotlin/native/platforms`:
 | `native_<t>`   | The Kotlin/Native rules building for konan target `<t>`, and their deps.                                   |
 | `is_<t>`       | Any target built for the platform of `<t>`: the OS and CPU of a host of `<t>` included, JVM targets too.   |
 
+Among the JVM and Android rules, `@rules_kotlin//kotlin/settings:android` tells an Android consumer
+from a JVM one. It matches where the platform type is `jvm` and either holds:
+
+- the platform is an Android one (`@platforms//os:android`), as for the deps of an `android_binary`
+  built with `--android_platforms`;
+- the host hybrid mode of rules_android is on
+  (`@rules_android//rules/flags:android_host_hybrid_mode`, rules_android 0.8.0 and newer), which the
+  rules of `android_local_test` and `kt_android_local_test` set for the test and its deps: a local
+  test builds for the host platform.
+
+It never matches together with `native`, so the two can be keys of one `select()`. The tools of a
+compilation, `kt_compiler_plugin`, `kt_plugin_cfg` and `kt_ksp_plugin`, match neither: their rules
+reset the platform type and the hybrid mode for themselves and their deps, so a tool of an Android
+or a Kotlin/Native target gets the JVM variants, in the configuration of a tool of a JVM target.
+On Bazel 7 and 8, which keep both settings in the exec configuration, a tool of another rule, e.g.
+a `java_plugin` annotation processor of an Android local test, still matches the condition of its
+consumer: give it the JVM variant by its own label, e.g. `@kmp_maven//:<lib>.jvm`.
+
 A dependency that differs per platform, written by hand, selects on `native` between its klibs and
-its other variants, and on `native_<t>` among its klibs, as the aliases of `kmp_maven` do:
+its other variants, on `android` for its Android variant, and on `native_<t>` among its klibs, as
+the aliases of `kmp_maven` do:
 
 ```starlark
 alias(
     name = "sqlite",
     actual = select({
         "@rules_kotlin//kotlin/native/platforms:native": ":sqlite_native",
-        "@platforms//os:android": ":sqlite_android",
+        "@rules_kotlin//kotlin/settings:android": ":sqlite_android",
         "//conditions:default": ":sqlite_jvm",
     }),
 )
@@ -205,7 +224,9 @@ consumer of another konan target the JVM library, which fails on its providers. 
 builds for every konan target it lists and is incompatible with the others.
 
 `is_<t>` is no such key: a Linux x86_64 or macOS arm64 host platform matches `is_linux_x64` or
-`is_macos_arm64`, so a JVM target built for the host would get the klib.
+`is_macos_arm64`, so a JVM target built for the host would get the klib. Nor is
+`@platforms//os:android` the key of the Android variant: an Android local test builds for the host
+platform and would get the JVM one.
 
 ## Importing a klib by hand
 

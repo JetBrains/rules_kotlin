@@ -55,7 +55,7 @@ _JVM_BZL = str(Label("//kotlin:jvm.bzl"))
 _NATIVE_BZL = str(Label("//kotlin:native.bzl"))
 _ANDROID_BZL = str(Label("@rules_android//rules:rules.bzl"))
 _NATIVE = str(Label("//kotlin/native/platforms:native"))
-_ANDROID = str(Label("@platforms//os:android"))
+_ANDROID = str(Label("//kotlin/settings:android"))
 
 def _native_setting(konan_target):
     return str(Label("//kotlin/native/platforms:native_" + konan_target))

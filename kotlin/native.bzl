@@ -5,6 +5,8 @@ Experimental:
 - kt_native_binary: link .kt sources + klib deps into a native executable (`bazel run`).
 - kt_native_test: link .kt tests + klib deps into a test runner, which `bazel test` runs on a host
   of its konan target.
+- kt_native_xctest_library: link .kt tests + klib deps into a static library with an XCTest case,
+  which rules_apple's ios_unit_test takes in `deps` and runs in the iOS simulator.
 - kt_native_framework: link .kt sources + klib deps into a static Apple framework. Its output
   group `framework_files` holds the files of the framework, which rules_apple's
   apple_static_framework_import imports.
@@ -24,10 +26,12 @@ load("//kotlin/internal/native:import.bzl", _kt_klib_import = "kt_klib_import")
 load("//kotlin/internal/native:library.bzl", _kt_native_library = "kt_native_library")
 load("//kotlin/internal/native:providers.bzl", _KtKlibInfo = "KtKlibInfo")
 load("//kotlin/internal/native:test.bzl", _kt_native_test = "kt_native_test")
+load("//kotlin/internal/native:xctest.bzl", _kt_native_xctest_library = "kt_native_xctest_library")
 
 kt_native_library = _kt_native_library
 kt_native_binary = _kt_native_binary
 kt_native_test = _kt_native_test
+kt_native_xctest_library = _kt_native_xctest_library
 kt_native_framework = _kt_native_framework
 kt_klib_import = _kt_klib_import
 KtKlibInfo = _KtKlibInfo

@@ -105,7 +105,8 @@ def _konanc_args(ctx, tc, *, output, produce = None, klib_srcs = None, module_na
       ctx: the context of a rule using the Kotlin/Native toolchain type.
       tc: the Kotlin/Native toolchain.
       output: the File konanc produces, a directory for a framework.
-      produce: the konanc output kind of a link: program or framework; None for a klib compilation.
+      produce: the konanc output kind of a link: program, framework or static; None for a klib
+        compilation.
       klib_srcs: the source Files of a klib compilation, which the launcher gets with its output and
         the toolchain's Build Tools API implementation; None for a link.
       module_name: the module name, or None for none.
@@ -243,6 +244,7 @@ def kt_native_link(
         main_klib = None,
         export_klibs = depset(),
         extra_args = [],
+        extra_outputs = [],
         opts = []):
     """Registers the action linking klibs with konanc, for the konan target of the toolchain.
 
@@ -251,8 +253,9 @@ def kt_native_link(
 
     Args:
       ctx: the context of a rule using the Kotlin/Native toolchain type.
-      produce: the konanc output kind: program or framework.
-      output: the File konanc produces: an executable, or the directory of a framework.
+      produce: the konanc output kind: program, framework or static.
+      output: the File konanc produces: an executable, the directory of a framework, or a static
+        library, `lib<name>.a`.
       klib_deps: a depset of the klibs to link (see collect_klib_deps), without `main_klib`.
       progress_message: the progress message of the action.
       main_klib: the klib File whose content the output includes, like the sources of a one-step
@@ -260,6 +263,8 @@ def kt_native_link(
       export_klibs: a depset of klib Files of `klib_deps` a framework exports. konanc matches
         them by the path of their -l argument, so they must be Files of `klib_deps`.
       extra_args: the konanc options of the rule, e.g. -generate-test-runner.
+      extra_outputs: the Files konanc writes next to `output`, e.g. the C header of a static library,
+        `lib<name>_api.h`.
       opts: more konanc options, after the ones of the rules.
     """
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
@@ -287,7 +292,7 @@ def kt_native_link(
             [main_klib] if main_klib else [],
             transitive = [klib_deps, tc.compile_inputs, tc.konan_deps.files],
         ),
-        outputs = [output],
+        outputs = [output] + extra_outputs,
         mnemonic = "KotlinNativeLink",
         progress_message = progress_message,
     )

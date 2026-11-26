@@ -13,7 +13,10 @@ toolchain_type(
 )
 
 exports_files(
-    glob(["*.bzl"]),
+    glob(["*.bzl"]) + [
+        "XCTestLauncher.kt",
+        "XCTestShim.m",
+    ],
     visibility = ["//visibility:public"],
 )
 

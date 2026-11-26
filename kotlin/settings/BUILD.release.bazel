@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+load("@bazel_skylib//lib:selects.bzl", "selects")
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag", "string_list_flag")
 
 # Flag that controls the emission of jdeps files during kotlin jvm compilation.
@@ -92,7 +93,8 @@ bool_flag(
 # on the command line. A select() tells a Kotlin/Native consumer from a JVM one with the
 # config_settings @rules_kotlin//kotlin/native/platforms:native and native_<konan target>.
 # The scope is target: the exec transition resets it, as the tools of a Kotlin/Native target, e.g.
-# its compiler plugins, are JVM code. Bazel 7 and 8 ignore the scope: see kt_jvm_tool_transition.
+# its compiler plugins, are JVM code. Bazel 7 and 8 ignore the scope, so the rules of those tools set
+# it to jvm themselves: see kt_jvm_tool_transition.
 string_flag(
     name = "kotlin_platform_type",
     build_setting_default = "jvm",
@@ -101,5 +103,41 @@ string_flag(
         "jvm",
         "native",
     ],
+    visibility = ["//visibility:public"],
+)
+
+# Matches the JVM and Android rules where Kotlin code is built for Android: on an Android platform
+# (@platforms//os:android), and below an android_local_test or a kt_android_local_test, which build
+# for the host platform in the host hybrid mode of rules_android
+# (@rules_android//rules/flags:android_host_hybrid_mode, rules_android 0.8.0 and newer). The alias of a
+# kt_multiplatform_library and those of kmp_maven select their Android variants on it, and so can a
+# select() of its users, or the target_compatible_with of a library that only builds for Android.
+# It never matches below the Kotlin/Native rules, so it cannot be ambiguous with
+# @rules_kotlin//kotlin/native/platforms:native. The tools of a compilation never match it either:
+# the hybrid mode has the scope target too, and Bazel 7 and 8 ignore it: see kt_jvm_tool_transition.
+selects.config_setting_group(
+    name = "android",
+    match_any = [
+        ":android_platform",
+        ":android_host_hybrid_mode",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# The two conditions of `android`. They are public as a select() on `android` checks the visibility of
+# the one it resolves to: select on `android`.
+config_setting(
+    name = "android_platform",
+    constraint_values = ["@platforms//os:android"],
+    flag_values = {":kotlin_platform_type": "jvm"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "android_host_hybrid_mode",
+    flag_values = {
+        ":kotlin_platform_type": "jvm",
+        "@rules_android//rules/flags:android_host_hybrid_mode": "True",
+    },
     visibility = ["//visibility:public"],
 )

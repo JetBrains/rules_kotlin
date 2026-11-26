@@ -50,7 +50,7 @@ register_toolchains(
     dev_dependency = True,
 )
 
-# JUnit, for the JVM test of the common code.
+# JUnit, for the JVM and Android tests of the common code.
 maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
 maven.install(
     name = "maven_rules_kotlin_example",
@@ -64,9 +64,10 @@ maven.install(
 )
 use_repo(maven, "maven_rules_kotlin_example")
 
-# The iOS app links the framework of //shared for the iOS simulator (--ios_multi_cpus=sim_arm64 in
-# .bazelrc) or, with --ios_multi_cpus=arm64, for a device. The link dependencies of these targets
-# are those of the macOS exec host (LLVM, libffi): the iOS SDK and linker come from Xcode.
+# The iOS app links the framework of //shared, and the test bundle of //shared:shared_test_ios its
+# tests, for the iOS simulator (--ios_multi_cpus=sim_arm64 in .bazelrc) or, with
+# --ios_multi_cpus=arm64, the app for a device. The link dependencies of these targets are those of
+# the macOS exec host (LLVM, libffi): the iOS SDK and linker come from Xcode.
 kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
 kotlin_native.targets(targets = [
     "ios_arm64",

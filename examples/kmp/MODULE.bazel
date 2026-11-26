@@ -37,7 +37,7 @@ register_toolchains(
     dev_dependency = True,
 )
 
-# JUnit, for the JVM tests.
+# JUnit, for the JVM tests and the Android local test.
 maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
 maven.install(
     name = "maven_rules_kotlin_example",

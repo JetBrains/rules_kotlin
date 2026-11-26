@@ -6,7 +6,8 @@ and each platform receives, per attribute, the lists of the qualifiers that cove
 down to itself. A source is in one list, as it is in one fragment (see derive.bzl): the sources of
 platforms that no group gathers are those of an alias. `parse_declaration` checks a call when the
 macro is called, before any select() is resolved, and names what to change. The test macro
-declares a test per platform where the library macro declares a library, and takes no `exports`.
+declares a test per platform where the library macro declares a library, and takes no `exports`;
+its iOS targets have a test of their own, with a dict of attributes of its own, `ios`.
 """
 
 load("//kotlin/internal/native:targets.bzl", "KONAN_TARGETS")
@@ -23,9 +24,14 @@ TEST_QUALIFIED_ATTRS = ["srcs", "deps", "plugins"]
 # the node.
 LIBRARY_NODES = ["jvm", "android", "native"]
 
-# How the messages call the library or the test of each of LIBRARY_NODES.
+# Those that have a test: the iOS targets, below `native`, run in a test bundle of another ruleset,
+# not in the native test.
+TEST_NODES = LIBRARY_NODES + ["ios"]
+
+# How the messages call the library or the test of each of TEST_NODES.
 _LIBRARY_NAMES = {
     "android": "Android",
+    "ios": "iOS",
     "jvm": "JVM",
     "native": "native",
 }
@@ -114,7 +120,10 @@ def _settings_error(hierarchy, unsupported, targeted, node, attrs, qualified_att
     library = "%s %s" % (_LIBRARY_NAMES[node], kind)
     if type(attrs) != "dict":
         return "%s must be a dict of attributes of the %s, not a %s" % (node, library, type(attrs))
-    for key in sorted(attrs):
+
+    # The iOS test is a rule of another ruleset, with lists of its own: the test macro checks its
+    # attributes, once it knows that it declares the test.
+    for key in sorted(attrs) if node in LIBRARY_NODES else []:
         if key in qualified_attrs:
             return "%s sets %s: pass %s to the macro" % (node, key, _qualified(key, node))
         if key in QUALIFIED_ATTRS:
@@ -214,6 +223,7 @@ def parse_declaration(
         hierarchy = HIERARCHY,
         unsupported = None,
         attrs = QUALIFIED_ATTRS,
+        nodes = LIBRARY_NODES,
         kind = "library"):
     """The declaration of a kt_multiplatform_library or a kt_multiplatform_test from the arguments of the macro, or its error.
 
@@ -221,7 +231,8 @@ def parse_declaration(
       platforms: the `platforms` of the macro.
       common: the lists of the macro for each of `attrs`, e.g. its `srcs`, by attribute: the lists
         of `common`; a missing one is empty.
-      settings: the `jvm`, `android` and `native` of the macro by name, each None or a dict.
+      settings: the `jvm`, `android` and `native` of the macro, and the `ios` of a test, by name,
+        each None or a dict.
       kwargs: the other keyword arguments of the macro: the `<attr>_<qualifier>` lists, and the
         attributes common to every rule.
       aliases: the `aliases` of the macro: a dict of the name of each alias to the listed platforms
@@ -233,8 +244,9 @@ def parse_declaration(
         returns them; by default those of `hierarchy`.
       attrs: the list attributes that a group, a platform or an alias qualifies: QUALIFIED_ATTRS
         for the libraries, TEST_QUALIFIED_ATTRS for the tests.
-      kind: how the messages call what the macro declares for each of LIBRARY_NODES: `library` or
-        `test`.
+      nodes: the nodes that have a dict of attributes in `settings`: LIBRARY_NODES for the
+        libraries, TEST_NODES for the tests.
+      kind: how the messages call what the macro declares for each of `nodes`: `library` or `test`.
 
     Returns:
       `struct(error = message)` for the first error: of the platforms, of the aliases, of the
@@ -250,7 +262,7 @@ def parse_declaration(
       - `lists`: a dict of each of `attrs` to a dict of each qualifier with a non-empty list to
         that list, as written, `common` holding the list of the macro: the nodes in tree order,
         then the aliases by name;
-      - `settings`: a dict of each of LIBRARY_NODES to the attributes of its library or test;
+      - `settings`: a dict of each of `nodes` to the attributes of its library or test;
       - `rule_attrs`: the other keyword arguments;
       - `normalize`: the function given.
     """
@@ -280,7 +292,7 @@ def parse_declaration(
             if attr not in attrs and (key == attr or key.startswith(attr + "_")):
                 return _error("%s: a %s has no %s; its lists are %s" % (key, kind, attr, _enumeration(attrs)))
         if key in hierarchy.lineage or key in qualifiers.aliases:
-            return _error("%s: only %s take a dict of attributes of their %s" % (key, _enumeration(LIBRARY_NODES), kind))
+            return _error("%s: only %s take a dict of attributes of their %s" % (key, _enumeration(nodes), kind))
         suffix = _suffix(key, hierarchy.nodes + list(qualifiers.aliases))
         if suffix in hierarchy.lineage:
             return _error("%s: only %s take a group or a platform" % (key, _enumeration(attrs)))
@@ -290,7 +302,7 @@ def parse_declaration(
             return _error("%s: the macro derives it from the sources" % key)
         rule_attrs[key] = kwargs[key]
 
-    for node in LIBRARY_NODES:
+    for node in nodes:
         if settings.get(node) != None:
             error = _settings_error(hierarchy, unsupported, targeted, node, settings[node], attrs, kind)
             if error:
@@ -353,7 +365,7 @@ def parse_declaration(
             attr: {qualifier: found[attr][qualifier] for qualifier in in_tree_order if qualifier in found[attr]}
             for attr in attrs
         },
-        settings = {node: dict(settings.get(node) or {}) for node in LIBRARY_NODES},
+        settings = {node: dict(settings.get(node) or {}) for node in nodes},
         rule_attrs = rule_attrs,
         normalize = normalize,
     )

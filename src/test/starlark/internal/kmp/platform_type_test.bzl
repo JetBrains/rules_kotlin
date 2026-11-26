@@ -14,15 +14,25 @@ of //src/test/starlark/internal/native (see common.bzl there).
 The tools of a Kotlin/Native target, a compiler plugin, a plugin configuration and a KSP processor
 with the alias in their deps, get the JVM library: below a Kotlin/Native consumer, and built
 directly with the platform type native, which checks the rule transition of the tool rules alone.
+
+The alias also has the Android library of `alias_branches`, the branches of the alias of a
+kt_multiplatform_library, which a consumer gets on an Android platform and in the host hybrid mode
+of rules_android: below a kt_android_local_test, and built directly with the mode on. A
+Kotlin/Native consumer built with the mode on still gets the klib, and the tools the JVM library,
+in the configuration they have without the mode.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts")
 load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
 load("@rules_java//java:defs.bzl", "JavaInfo", "java_library")
+load("//kotlin:android.bzl", "kt_android_local_test")
 load("//kotlin:core.bzl", "kt_compiler_plugin", "kt_ksp_plugin", "kt_plugin_cfg")
 load("//kotlin:jvm.bzl", "kt_jvm_library")
 load("//kotlin:kmp.bzl", "kt_multiplatform_library", "kt_native_ksp_sources")
 load("//kotlin:native.bzl", "KtKlibInfo", "kt_klib_import", "kt_native_library")
+
+# buildifier: disable=bzl-visibility
+load("//kotlin/internal/kmp:multiplatform.bzl", "alias_branches")
 load("//src/main/starlark/core/plugin:providers.bzl", "KspPluginInfo", "KtCompilerPluginInfo", "KtPluginConfiguration")
 load(
     "//src/test/starlark/internal/native:common.bzl",
@@ -41,22 +51,75 @@ _RUNTIME_JAR = "libpt_jvm_lib.jar"
 # The copy of the runtime jar in the embeddable compiler dialect, which the Kotlin/Native compiler loads.
 _PLUGIN_JAR = "pt_jvm_lib_embeddable_reshaded_" + _RUNTIME_JAR
 
+# The Android library of the alias.
+_ANDROID_JAR = "libpt_lib_android-hjar.jar"
+_ANDROID_RUNTIME_JAR = "libpt_lib_android.jar"
+
 _PLATFORM_TYPE = Label("//kotlin/settings:kotlin_platform_type")
+_HOST_HYBRID_MODE = Label("@rules_android//rules/flags:android_host_hybrid_mode")
+_ANDROID_PLATFORM = Label("//src/test/starlark/internal/kmp:pt_android_arm64")
 
 _PlatformTypeInfo = provider(
-    doc = "The Kotlin platform type of the configuration of a target.",
-    fields = {"value": "The value of //kotlin/settings:kotlin_platform_type."},
+    doc = "The Kotlin platform type, the Android host hybrid mode and the output root of the configuration of a target.",
+    fields = {
+        "android_host_hybrid_mode": "The value of @rules_android//rules/flags:android_host_hybrid_mode.",
+        "bin_dir": "The path of the output root of the binaries.",
+        "value": "The value of //kotlin/settings:kotlin_platform_type.",
+    },
 )
 
 def _platform_type_aspect_impl(
         target,  # @unused
         ctx):
-    return [_PlatformTypeInfo(value = ctx.attr._platform_type[BuildSettingInfo].value)]
+    return [_PlatformTypeInfo(
+        android_host_hybrid_mode = ctx.attr._android_host_hybrid_mode[BuildSettingInfo].value,
+        bin_dir = ctx.bin_dir.path,
+        value = ctx.attr._platform_type[BuildSettingInfo].value,
+    )]
 
-# Reads the build setting in the configuration of the target under test, after its rule transition.
+# Reads the build settings in the configuration of the target under test, after its rule transition.
 _platform_type_aspect = aspect(
     implementation = _platform_type_aspect_impl,
-    attrs = {"_platform_type": attr.label(default = _PLATFORM_TYPE)},
+    attrs = {
+        "_android_host_hybrid_mode": attr.label(default = _HOST_HYBRID_MODE),
+        "_platform_type": attr.label(default = _PLATFORM_TYPE),
+    },
+)
+
+_InHostHybridModeInfo = provider(
+    doc = "A target built in the host hybrid mode of rules_android.",
+    fields = {"target": "The Target, with the providers of its rule and the _PlatformTypeInfo of its configuration."},
+)
+
+def _host_hybrid_mode_transition_impl(
+        settings,  # @unused
+        attr):  # @unused
+    return {str(_HOST_HYBRID_MODE): True}
+
+_host_hybrid_mode_transition = transition(
+    implementation = _host_hybrid_mode_transition_impl,
+    inputs = [],
+    outputs = [str(_HOST_HYBRID_MODE)],
+)
+
+def _in_host_hybrid_mode_impl(ctx):
+    return [_InHostHybridModeInfo(target = ctx.attr.target[0])]
+
+# Asks for a target with the host hybrid mode on, as kt_android_local_test asks for its deps. Unlike
+# the config_settings of an analysis test, whose configurations Bazel marks as such, it changes the
+# mode alone: a target that turns the mode off again is in the configuration of the test.
+_in_host_hybrid_mode = rule(
+    implementation = _in_host_hybrid_mode_impl,
+    attrs = {
+        "target": attr.label(
+            aspects = [_platform_type_aspect],
+            cfg = _host_hybrid_mode_transition,
+            mandatory = True,
+        ),
+        "_allowlist_function_transition": attr.label(
+            default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
+        ),
+    },
 )
 
 def _basename(path):
@@ -165,6 +228,94 @@ def _native_setting_processor_test_impl(ctx):
     _assert_jvm_tool(env, analysistest.target_under_test(env)[KspPluginInfo].plugins[0].plugins.processor_jars, _RUNTIME_JAR)
     return analysistest.end(env)
 
+def _android_consumer_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The consumer compiles against the Android library of the alias, and neither the JVM one nor a klib.
+    actions = [action for action in analysistest.target_actions(env) if action.mnemonic == "KotlinCompile"]
+    asserts.equals(env, 1, len(actions), "KotlinCompile actions")
+    classpath = [_basename(path) for path in _values(actions[0].argv, "--classpath")]
+    asserts.true(env, _ANDROID_JAR in classpath, "%s should be in --classpath %s" % (_ANDROID_JAR, classpath))
+    asserts.false(env, _JAR in classpath, "%s should not be in --classpath %s" % (_JAR, classpath))
+    inputs = [f.basename for f in actions[0].inputs.to_list()]
+    asserts.false(env, _KLIB in inputs, "%s should not be an input" % _KLIB)
+
+    # Its tools are JVM code, whatever the compilation they serve targets: its compiler plugin, with
+    # and without a configuration, and its KSP processor get the JVM library of the alias, the very
+    # file the tools of a JVM target get, so they build once for both.
+    if ctx.attr.tools:
+        payload = json.decode(_values(actions[0].argv, "--plugins_payload")[0])
+        asserts.equals(env, [[_RUNTIME_JAR]], [[_basename(path) for path in plugin["classpath"]] for plugin in payload["plugins"]])
+        ksp = single_action(env, "KotlinKsp2")
+        processor_classpath = [_basename(path) for path in _values(ksp.argv, "--processor_classpath")]
+        asserts.true(env, _RUNTIME_JAR in processor_classpath, "%s should be in --processor_classpath %s" % (_RUNTIME_JAR, processor_classpath))
+        tool_jar = [jar.path for jar in ctx.attr._tool_library[JavaInfo].runtime_output_jars]
+        for action in [actions[0], ksp]:
+            asserts.equals(
+                env,
+                tool_jar,
+                [f.path for f in action.inputs.to_list() if f.basename == _RUNTIME_JAR],
+                "the JVM library among the inputs of %s" % action.mnemonic,
+            )
+            tool_inputs = [f.basename for f in action.inputs.to_list()]
+            asserts.false(env, _ANDROID_RUNTIME_JAR in tool_inputs, "%s should not be an input of %s" % (_ANDROID_RUNTIME_JAR, action.mnemonic))
+
+    return analysistest.end(env)
+
+def _host_hybrid_mode_alias_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The control of the tool tests below: where they are asked for, the host hybrid mode is on and the
+    # alias is the Android library, as below a kt_android_local_test, in a configuration of its own.
+    target = analysistest.target_under_test(env)[_InHostHybridModeInfo].target
+    asserts.equals(env, "jvm", target[_PlatformTypeInfo].value, "the Kotlin platform type of the alias")
+    asserts.equals(env, True, target[_PlatformTypeInfo].android_host_hybrid_mode, "the host hybrid mode of the alias")
+    asserts.equals(env, [_ANDROID_RUNTIME_JAR], [jar.basename for jar in target[JavaInfo].runtime_output_jars])
+    asserts.true(
+        env,
+        ctx.bin_dir.path != target[_PlatformTypeInfo].bin_dir,
+        "the host hybrid mode should give the alias an output root of its own, not %s" % ctx.bin_dir.path,
+    )
+
+    return analysistest.end(env)
+
+def _host_tool(env):
+    """The tool under test, asked for in the configuration of the test or, through _in_host_hybrid_mode, with the host hybrid mode on."""
+    target = analysistest.target_under_test(env)
+    return target[_InHostHybridModeInfo].target if _InHostHybridModeInfo in target else target
+
+def _assert_host_tool(env, classpath, jar):
+    """A tool asked for with the host hybrid mode on builds with it off, in the configuration of a tool of a JVM target.
+
+    The exec configuration of a kt_android_local_test keeps the mode on a Bazel that ignores the
+    scope of the build setting (7 and 8), which _in_host_hybrid_mode stands for on any Bazel: the
+    rule of the tool turns it off, so its classpath is the JVM library of the alias and never the
+    Android one. A build setting at its default is no part of a configuration, so the tool builds
+    where it does without the mode, in the output root of the test: the rule transition adds no
+    configuration to a build, also not to one without Android, where the tool is asked for in the
+    configuration of the test.
+    """
+    info = _host_tool(env)[_PlatformTypeInfo]
+    asserts.equals(env, "jvm", info.value, "the Kotlin platform type of the tool")
+    asserts.equals(env, False, info.android_host_hybrid_mode, "the host hybrid mode of the tool")
+    asserts.equals(env, [jar], [f.basename for f in classpath.to_list()])
+    asserts.equals(env, env.ctx.bin_dir.path, info.bin_dir, "the output root of the tool")
+
+def _host_plugin_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    _assert_host_tool(env, _host_tool(env)[KtCompilerPluginInfo].embeddable_classpath, _PLUGIN_JAR)
+    return analysistest.end(env)
+
+def _host_plugin_cfg_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    _assert_host_tool(env, _host_tool(env)[KtPluginConfiguration].classpath, _RUNTIME_JAR)
+    return analysistest.end(env)
+
+def _host_processor_test_impl(ctx):
+    env = analysistest.begin(ctx)
+    _assert_host_tool(env, _host_tool(env)[KspPluginInfo].plugins[0].plugins.processor_jars, _RUNTIME_JAR)
+    return analysistest.end(env)
+
 def _jvm_without_sources_test_impl(ctx):
     env = analysistest.begin(ctx)
 
@@ -210,6 +361,48 @@ native_setting_processor_test = analysistest.make(
     extra_target_under_test_aspects = [_platform_type_aspect],
 )
 
+# The tools of a consumer: a compiler plugin, a plugin configuration and a KSP processor.
+_TOOLS = [
+    ":pt_plugin",
+    ":pt_plugin_cfg",
+    ":pt_processor",
+]
+
+# The configuration of a target below a kt_android_local_test, asked for directly.
+_HOST_HYBRID_SETTING = {str(_HOST_HYBRID_MODE): True}
+
+_CONSUMER_ATTRS = {
+    "tools": attr.bool(doc = "whether the consumer has the plugin, the plugin configuration and the KSP processor"),
+    # The JVM library of the alias as the tools of a target of the configuration of the test get it.
+    "_tool_library": attr.label(default = Label("//src/test/starlark/internal/kmp:pt_jvm_lib"), cfg = "exec"),
+}
+
+# The rule transition of kt_android_local_test turns the host hybrid mode on.
+android_local_test_consumer_test = analysistest.make(_android_consumer_test_impl, attrs = _CONSUMER_ATTRS)
+android_setting_consumer_test = analysistest.make(
+    _android_consumer_test_impl,
+    attrs = _CONSUMER_ATTRS,
+    config_settings = _HOST_HYBRID_SETTING,
+)
+android_platform_consumer_test = analysistest.make(
+    _android_consumer_test_impl,
+    attrs = _CONSUMER_ATTRS,
+    config_settings = {"//command_line_option:platforms": [str(_ANDROID_PLATFORM)]},
+)
+
+# A Kotlin/Native target below a kt_android_local_test: both the mode and the platform type are set.
+android_setting_native_consumer_test = analysistest.make(
+    _native_consumer_test_impl,
+    config_settings = dict(for_target("linux_arm64"), **_HOST_HYBRID_SETTING),
+)
+host_hybrid_mode_alias_test = analysistest.make(_host_hybrid_mode_alias_test_impl)
+
+# The tools of a JVM target, asked for in the configuration of the test, and those of a
+# kt_android_local_test, asked for through _in_host_hybrid_mode.
+host_plugin_test = analysistest.make(_host_plugin_test_impl, extra_target_under_test_aspects = [_platform_type_aspect])
+host_plugin_cfg_test = analysistest.make(_host_plugin_cfg_test_impl, extra_target_under_test_aspects = [_platform_type_aspect])
+host_processor_test = analysistest.make(_host_processor_test_impl, extra_target_under_test_aspects = [_platform_type_aspect])
+
 def platform_type_test_suite(name):
     """Declares an alias of a klib and a JVM library, its consumers and the tests of what they get.
 
@@ -230,13 +423,29 @@ def platform_type_test_suite(name):
         tags = ["manual"],
     )
 
-    # The aliases of a library resolved for the JVM and linux_arm64, as kmp_maven declares them.
+    java_library(
+        name = "pt_lib_android",
+        srcs = ["testdata/PlatformTypeAndroidLib.java"],
+        tags = ["manual"],
+    )
+    native.alias(
+        name = "pt_lib_jvm",
+        actual = ":pt_jvm_lib",
+        tags = ["manual"],
+    )
+    native.platform(
+        name = _ANDROID_PLATFORM.name,
+        constraint_values = [
+            "@platforms//cpu:arm64",
+            "@platforms//os:android",
+        ],
+    )
+
+    # The aliases of a library resolved for the JVM, Android and linux_arm64, as kmp_maven declares
+    # them, with the conditions of the alias of a kt_multiplatform_library of these platforms.
     native.alias(
         name = "pt_lib",
-        actual = select({
-            str(Label("//kotlin/native/platforms:native")): ":pt_lib_native",
-            "//conditions:default": ":pt_jvm_lib",
-        }),
+        actual = select(alias_branches("pt_lib", {"android": ["android"], "jvm": ["jvm"], "native": ["linux_arm64"]})),
         tags = ["manual"],
     )
     native.alias(
@@ -333,6 +542,93 @@ def platform_type_test_suite(name):
         tags = ["manual"],
     )
 
+    # The consumers of the Android library: a local test, whose rule turns the host hybrid mode on, and
+    # a JVM library asked for with the mode on or for an Android platform, each with the tools above.
+    kt_android_local_test(
+        name = "pt_android_local_test",
+        srcs = ["testdata/Platform.jvm.kt"],
+        custom_package = "kmp.test",
+        manifest = "testdata/AndroidManifest.xml",
+        plugins = _TOOLS,
+        tags = ["manual"],
+        test_class = "kmp.test.PlatformTest",
+        deps = [":pt_lib"],
+    )
+    kt_jvm_library(
+        name = "pt_jvm_consumer_with_tools",
+        srcs = ["testdata/Platform.jvm.kt"],
+        plugins = _TOOLS,
+        tags = ["manual"],
+        deps = [":pt_lib"],
+    )
+
+    # The Android SDK of the workspace is not known to resolve on Windows.
+    android_local_test_consumer_test(
+        name = "platform_type_android_local_test_consumer_test",
+        target_under_test = ":pt_android_local_test",
+        tools = True,
+        target_compatible_with = not_on_windows(),
+    )
+    android_setting_consumer_test(
+        name = "platform_type_android_setting_consumer_test",
+        target_under_test = ":pt_jvm_consumer_with_tools",
+        tools = True,
+        target_compatible_with = not_on_windows(),
+    )
+    android_platform_consumer_test(
+        name = "platform_type_android_platform_consumer_test",
+        target_under_test = ":pt_jvm_consumer",
+        target_compatible_with = not_on_windows(),
+    )
+    android_setting_native_consumer_test(
+        name = "platform_type_android_setting_native_consumer_test",
+        target_under_test = ":pt_native_consumer",
+        target_compatible_with = not_on_windows(),
+    )
+
+    # The alias and the tools, asked for with the host hybrid mode on.
+    for target in ["pt_lib", "pt_plugin", "pt_plugin_cfg", "pt_processor"]:
+        _in_host_hybrid_mode(
+            name = target + "_in_host_hybrid_mode",
+            tags = ["manual"],
+            target = ":" + target,
+        )
+    host_hybrid_mode_alias_test(
+        name = "platform_type_host_hybrid_mode_alias_test",
+        target_under_test = ":pt_lib_in_host_hybrid_mode",
+        target_compatible_with = not_on_windows(),
+    )
+    host_plugin_test(
+        name = "platform_type_host_hybrid_mode_plugin_test",
+        target_under_test = ":pt_plugin_in_host_hybrid_mode",
+        target_compatible_with = not_on_windows(),
+    )
+    host_plugin_cfg_test(
+        name = "platform_type_host_hybrid_mode_plugin_cfg_test",
+        target_under_test = ":pt_plugin_cfg_in_host_hybrid_mode",
+        target_compatible_with = not_on_windows(),
+    )
+    host_processor_test(
+        name = "platform_type_host_hybrid_mode_processor_test",
+        target_under_test = ":pt_processor_in_host_hybrid_mode",
+        target_compatible_with = not_on_windows(),
+    )
+    host_plugin_test(
+        name = "platform_type_host_plugin_test",
+        target_under_test = ":pt_plugin",
+        target_compatible_with = not_on_windows(),
+    )
+    host_plugin_cfg_test(
+        name = "platform_type_host_plugin_cfg_test",
+        target_under_test = ":pt_plugin_cfg",
+        target_compatible_with = not_on_windows(),
+    )
+    host_processor_test(
+        name = "platform_type_host_processor_test",
+        target_under_test = ":pt_processor",
+        target_compatible_with = not_on_windows(),
+    )
+
     native_plugin_test(
         name = "platform_type_native_plugin_test",
         target_under_test = ":pt_native_with_plugin",
@@ -392,6 +688,17 @@ def platform_type_test_suite(name):
     native.test_suite(
         name = name,
         tests = [
+            ":platform_type_android_local_test_consumer_test",
+            ":platform_type_android_platform_consumer_test",
+            ":platform_type_android_setting_consumer_test",
+            ":platform_type_android_setting_native_consumer_test",
+            ":platform_type_host_hybrid_mode_alias_test",
+            ":platform_type_host_hybrid_mode_plugin_cfg_test",
+            ":platform_type_host_hybrid_mode_plugin_test",
+            ":platform_type_host_hybrid_mode_processor_test",
+            ":platform_type_host_plugin_cfg_test",
+            ":platform_type_host_plugin_test",
+            ":platform_type_host_processor_test",
             ":platform_type_jvm_consumer_test",
             ":platform_type_jvm_multiplatform_test",
             ":platform_type_jvm_without_sources_test",

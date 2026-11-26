@@ -4,7 +4,10 @@ load("//src/main/starlark/release:packager.bzl", "release_archive")
 
 release_archive(
     name = "pkg",
-    srcs = glob(["*.bzl"]),
+    srcs = glob(["*.bzl"]) + [
+        "XCTestLauncher.kt",
+        "XCTestShim.m",
+    ],
     src_map = {
         "BUILD.release.bazel": "BUILD.bazel",
     },
@@ -25,6 +28,9 @@ bzl_library(
         "@bazel_skylib//rules/directory:providers",
         "@build_bazel_apple_support//lib:apple_support",
         "@build_bazel_apple_support//xcode:providers",
+        "@rules_cc//cc:action_names_bzl",
+        "@rules_cc//cc:find_cc_toolchain_bzl",
+        "@rules_cc//cc/common",
     ],
 )
 
@@ -34,7 +40,10 @@ toolchain_type(
 )
 
 exports_files(
-    glob(["*.bzl"]),
+    glob(["*.bzl"]) + [
+        "XCTestLauncher.kt",
+        "XCTestShim.m",
+    ],
     visibility = ["//visibility:public"],
 )
 

@@ -8,26 +8,39 @@ load("@rules_shell//shell:sh_test.bzl", "sh_test")
 # The alias of kotlinx.coroutines, which the common code of //shared uses and the tests call.
 COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
 
+# kotlin.test on the JVM and on Android, with JUnit 4; the Kotlin/Native distribution has its own.
+KOTLIN_TEST_JUNIT = [
+    "@maven_rules_kotlin_example//:junit_junit",
+    "@rules_kotlin//kotlin/compiler:kotlin-test",
+    "@rules_kotlin//kotlin/compiler:kotlin-test-junit",
+]
+
 # --- every platform: common tests, declared as the sources of //shared are ---
-# Gradle's commonTest, jvmTest and nativeTest: the common test runs on the JVM and on the konan
-# target of the host, with the `actual` helper of each, as a friend of the library of the platform,
-# whose `internal` declarations it calls. shared_test runs the tests of the platforms the host is
-# compatible with: shared_test_jvm and shared_test_native.
+# Gradle's commonTest, jvmTest, androidUnitTest and nativeTest: the common test runs on the JVM, as
+# an Android local test and on the konan target of the host, with the `actual` helper of each, as a
+# friend of the library of the platform, whose `internal` declarations it calls. shared_test runs
+# the tests of the platforms the host is compatible with, with no platform flag: shared_test_jvm,
+# shared_test_android and shared_test_native.
+#
+# The local test runs on the JVM of the host, where //shared and the aliases of @kmp_maven select
+# their Android variants for it (see @rules_kotlin//kotlin/settings:android): its common test gets
+# the platformName() of shared/android. It runs against the android.jar of the SDK, whose methods
+# are stubs: a test that calls into the Android framework adds Robolectric, which this one does not
+# need.
 
 kt_multiplatform_test(
     name = "shared_test",
     srcs = ["common/SharedTest.kt"],
-    deps_jvm = [
-        "@maven_rules_kotlin_example//:junit_junit",
-        "@rules_kotlin//kotlin/compiler:kotlin-test",
-        "@rules_kotlin//kotlin/compiler:kotlin-test-junit",
-    ],
+    deps_android = KOTLIN_TEST_JUNIT,
+    deps_jvm = KOTLIN_TEST_JUNIT,
     library = "//shared",
     platforms = [
         "jvm",
+        "android",
         "linux_x64",
         "macos_arm64",
     ],
+    srcs_android = ["android/PlatformOfTheTest.android.kt"],
     srcs_jvm = ["jvm/PlatformOfTheTest.jvm.kt"],
     srcs_native = ["native/PlatformOfTheTest.native.kt"],
 )

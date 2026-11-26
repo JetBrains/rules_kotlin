@@ -78,13 +78,15 @@ def link_native(
         friends = [],
         export_klibs = depset(),
         extra_args = [],
+        extra_outputs = [],
         fragments = None):
     """Registers the actions of a linking rule: the compilation of its srcs, if any, and the link.
 
     Args:
       ctx: the context of a rule with LINK_ATTRS, using the Kotlin/Native toolchain type.
-      produce: the konanc output kind of the link: program or framework.
-      output: the File the link produces: an executable, or the directory of a framework.
+      produce: the konanc output kind of the link: program, framework or static.
+      output: the File the link produces: an executable, the directory of a framework, or a static
+        library.
       progress_message: the progress message of the link.
       extra_deps: more targets providing KtKlibInfo that the srcs compile against and the link
         links, e.g. the exports of a framework.
@@ -92,6 +94,7 @@ def link_native(
         srcs see.
       export_klibs: a depset of klib Files of the deps that a framework exports.
       extra_args: the konanc options of the rule for the link.
+      extra_outputs: the Files the link writes next to `output` (see kt_native_link).
       fragments: the K2 fragments the srcs refine, from collect_fragments of
         //kotlin/internal/kmp:fragments.bzl, or None. Their sources compile into the private klib
         with the srcs, which may then be empty.
@@ -130,6 +133,7 @@ def link_native(
         main_klib = main_klib,
         export_klibs = export_klibs,
         extra_args = extra_args,
+        extra_outputs = extra_outputs,
         opts = ctx.attr.link_opts,
         progress_message = progress_message,
     )

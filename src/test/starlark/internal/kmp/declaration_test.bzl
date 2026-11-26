@@ -5,6 +5,7 @@ load("@bazel_skylib//lib:unittest.bzl", "asserts", "unittest")
 # buildifier: disable=bzl-visibility
 load(
     "//kotlin/internal/kmp:declaration.bzl",
+    "TEST_NODES",
     "TEST_QUALIFIED_ATTRS",
     "parse_declaration",
     "platform_list",
@@ -58,6 +59,7 @@ def _parse_test(platforms = _IOS_APP, common = {}, settings = {}, aliases = None
         aliases = aliases,
         normalize = _relative,
         attrs = TEST_QUALIFIED_ATTRS,
+        nodes = TEST_NODES,
         kind = "test",
     )
 
@@ -615,13 +617,21 @@ def _custom_hierarchy_test(ctx):
     return unittest.end(env)
 
 def _test_declaration_test(ctx):
-    """The declaration of a test has the srcs, deps and plugins of a library, no exports, and messages that call its targets tests."""
+    """The declaration of a test has the srcs, deps and plugins of a library, no exports, a dict of attributes of the iOS test, and messages that call its targets tests."""
     env = unittest.begin(ctx)
 
     declaration = _parse_test(
         aliases = {"count": ["jvm", "ios_arm64"]},
         common = {"deps": [":kotlin_test"], "srcs": ["commonTest/GreetingTest.kt"]},
-        settings = {"jvm": dict(jvm_flags = ["-Xmx1g"])},
+        settings = {
+            # The attributes of the iOS test are those of a rule of another ruleset, which the
+            # test macro checks: its deps are no list of a qualifier.
+            "ios": dict(
+                minimum_os_version = "15.0",
+                deps = [":bundled"],
+            ),
+            "jvm": dict(jvm_flags = ["-Xmx1g"]),
+        },
         deps_jvm = [":junit"],
         env_inherit = ["HOME"],
         plugins_native = [":plugin"],
@@ -645,7 +655,21 @@ def _test_declaration_test(ctx):
         },
         declaration.lists,
     )
-    asserts.equals(env, {"android": {}, "jvm": {"jvm_flags": ["-Xmx1g"]}, "native": {}}, declaration.settings)
+    asserts.equals(
+        env,
+        {
+            "android": {},
+            "ios": {"deps": [":bundled"], "minimum_os_version": "15.0"},
+            "jvm": {"jvm_flags": ["-Xmx1g"]},
+            "native": {},
+        },
+        declaration.settings,
+    )
+    asserts.equals(env, ["ios_arm64", "ios_simulator_arm64"], declaration.targeted["ios"])
+
+    # Without iOS targets, the test macro may still get an empty dict for them.
+    for ios in [None, {}]:
+        asserts.equals(env, {}, _parse_test(platforms = ["jvm", "linux_x64"], settings = {"ios": ios}).settings["ios"])
 
     # The attributes of every test that end with the name of an alias are not lists of the alias.
     asserts.equals(env, {"env_inherit": ["HOME"], "shard_count": 2, "size": "small"}, declaration.rule_attrs)
@@ -671,14 +695,25 @@ def _test_declaration_test(ctx):
             {},
         ),
         ("native sets kmp_fragments, which the macro derives from the sources", ["linux_x64"], {"native": dict(kmp_fragments = [])}, {}),
-        ("ios: only jvm, android and native take a dict of attributes of their test", _IOS_APP, {}, {"ios": dict(opts = [])}),
+        ("apple: only jvm, android, native and ios take a dict of attributes of their test", _IOS_APP, {}, {"apple": dict(opts = [])}),
+        ("ios must be a dict of attributes of the iOS test, not a string", _IOS_APP, {"ios": "15.0"}, {}),
+    ] + [
+        # Whatever the attributes, as the macro checks them once it declares the iOS test.
+        (
+            "ios sets attributes of the iOS test, but platforms lists no ios platform: add ios_arm64 or ios_simulator_arm64, or remove ios",
+            ["jvm", "macos_arm64"],
+            {"ios": ios},
+            {},
+        )
+        for ios in [dict(minimum_os_version = "15.0"), dict(deps = [":bundled"])]
+    ] + [
         ("opts_ios: only srcs, deps and plugins take a group or a platform", _IOS_APP, {}, {"opts_ios": []}),
         ("srcs_jvm lists sources, but platforms does not list jvm", ["linux_x64"], {}, {"srcs_jvm": ["a.kt"]}),
     ]:
         asserts.equals(
             env,
             message,
-            parse_declaration(platforms, {}, settings, kwargs, normalize = _relative, attrs = TEST_QUALIFIED_ATTRS, kind = "test").error,
+            _parse_test(platforms = platforms, settings = settings, **kwargs).error,
         )
     asserts.equals(
         env,

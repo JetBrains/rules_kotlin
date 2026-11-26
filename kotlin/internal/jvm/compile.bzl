@@ -1012,7 +1012,11 @@ def _kt_jvm_produce_output_jar_actions(
         generated_class_jar = generated_class_jar,
     )
 
-    instrumented_files = coverage_common.instrumented_files_info(
+    # kt_android_local_test returns the InstrumentedFilesInfo of rules_android, which knows no
+    # kmp_fragments. Bazel 8 registers the baseline coverage action of the target in every call of
+    # instrumented_files_info: one more here, over the sources of the fragments too, is a conflict
+    # of two actions with the same output.
+    instrumented_files = None if rule_kind == "kt_android_local_test" else coverage_common.instrumented_files_info(
         ctx,
         source_attributes = ["srcs"],
         dependency_attributes = ["associates", "deps", "exports", "runtime_deps", "data", "kmp_fragments"],

@@ -310,7 +310,10 @@ def _alias_branches_test(ctx):
     # also one of a konan target the library does not list, for which the native library is
     # incompatible; it is never a JVM library, which no Kotlin/Native rule can depend on.
     native = str(Label("//kotlin/native/platforms:native"))
-    android = str(Label("@platforms//os:android"))
+
+    # An Android consumer is a JVM or Android rule on an Android platform or below an Android local
+    # test, which builds for the host platform: the alias selects on the setting of both.
+    android = str(Label("//kotlin/settings:android"))
     asserts.equals(
         env,
         {android: ":lib_android", native: ":lib_native", "//conditions:default": ":lib_jvm"},

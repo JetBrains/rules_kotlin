@@ -18,9 +18,11 @@ as a K2 fragment (see derive.bzl). With the name `shared`, the macro declares:
 - shared_srcs: a filegroup of the sources of every platform;
 - shared.fragments: an executable target printing the derived fragment graph;
 - shared: an alias of shared_native for a Kotlin/Native consumer, of shared_android for an Android
-  platform, and otherwise of shared_jvm, or of the only library declared.
+  one, and otherwise of shared_jvm, or of the only library declared.
 
-The alias selects on //kotlin/native/platforms:native, which only matches below the Kotlin/Native
+The alias selects on //kotlin/settings:android, which matches the JVM and Android rules on an
+Android platform and below an Android local test, which builds for the host platform, and on
+//kotlin/native/platforms:native, which only matches below the Kotlin/Native
 rules (see //kotlin/internal/native:transition.bzl). A Kotlin/Native consumer building for a konan
 target that `platforms` does not list gets shared_native too, which is incompatible with that
 target, and so is the consumer: a build of every target skips it. The lists of shared_native and its
@@ -46,6 +48,9 @@ def _is_konan_target(konan_target):
 
 # Matches the Kotlin/Native rules and their deps, whatever their konan target.
 _NATIVE = str(Label("//kotlin/native/platforms:native"))
+
+# Matches the JVM and Android rules on an Android platform and below an Android local test.
+_ANDROID = str(Label("//kotlin/settings:android"))
 
 def konan_targets_compatibility(konan_targets):
     """The branches of the target_compatible_with of a target for some konan targets: it is compatible with their platforms alone.
@@ -116,12 +121,13 @@ def alias_branches(name, targeted):
         them, e.g. `jvm` and `native`.
 
     Returns:
-      The dict of a select(): `<name>_native` below the Kotlin/Native rules, `<name>_android` for an
-      Android platform, and by default `<name>_jvm`, or the library of the only node there is.
+      The dict of a select(): `<name>_native` below the Kotlin/Native rules, `<name>_android` on
+      an Android platform and below an Android local test (`//kotlin/settings:android`), and by
+      default `<name>_jvm`, or the library of the only node there is.
     """
     actual = {}
     if "android" in targeted:
-        actual[str(Label("@platforms//os:android"))] = ":%s_android" % name
+        actual[_ANDROID] = ":%s_android" % name
     if "native" in targeted:
         actual[_NATIVE] = ":%s_native" % name
     if "jvm" in targeted:
@@ -271,7 +277,11 @@ def kt_multiplatform_library(
     name, neither above the other.
 
     Args:
-      name: the name of the alias, and the prefix of the names of the other targets.
+      name: the name of the alias, and the prefix of the names of the other targets. The alias is
+        `<name>_native` for a Kotlin/Native consumer, `<name>_android` for a JVM or Android rule on
+        an Android platform or below an Android local test
+        (`@rules_kotlin//kotlin/settings:android`), and `<name>_jvm` otherwise; or the only library
+        declared.
       platforms: the platforms to build for, in any order, e.g.
         `["jvm", "android", "ios_arm64", "ios_simulator_arm64"]`: `jvm`, `android`, and the konan
         targets `ios_arm64`, `ios_simulator_arm64`, `macos_arm64`, `linux_x64` and `linux_arm64`.

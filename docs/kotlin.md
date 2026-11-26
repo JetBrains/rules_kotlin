@@ -674,6 +674,8 @@ Experimental:
 - kt_native_binary: link .kt sources + klib deps into a native executable (`bazel run`).
 - kt_native_test: link .kt tests + klib deps into a test runner, which `bazel test` runs on a host
   of its konan target.
+- kt_native_xctest_library: link .kt tests + klib deps into a static library with an XCTest case,
+  which rules_apple's ios_unit_test takes in `deps` and runs in the iOS simulator.
 - kt_native_framework: link .kt sources + klib deps into a static Apple framework. Its output
   group `framework_files` holds the files of the framework, which rules_apple's
   apple_static_framework_import imports.
@@ -882,6 +884,76 @@ test to skip it for the platforms it does not run on.
 | <a id="kt_native_test-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation of the srcs. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
 
 
+<a id="kt_native_xctest_library"></a>
+
+## kt_native_xctest_library
+
+<pre>
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_xctest_library")
+
+kt_native_xctest_library(<a href="#kt_native_xctest_library-name">name</a>, <a href="#kt_native_xctest_library-deps">deps</a>, <a href="#kt_native_xctest_library-srcs">srcs</a>, <a href="#kt_native_xctest_library-associates">associates</a>, <a href="#kt_native_xctest_library-kmp_fragments">kmp_fragments</a>, <a href="#kt_native_xctest_library-link_opts">link_opts</a>, <a href="#kt_native_xctest_library-module_name">module_name</a>, <a href="#kt_native_xctest_library-opts">opts</a>,
+                         <a href="#kt_native_xctest_library-plugins">plugins</a>)
+</pre>
+
+Links the tests of the srcs into a static library that the test bundle of an Apple platform runs.
+
+Experimental. The tests use kotlin.test, e.g. `@kotlin.test.Test`, like those of `kt_native_test`, which runs the
+tests of the exec host; this rule is for the tests of a platform a test bundle runs on, e.g. the iOS simulator. It
+provides a `CcInfo` with the tests, the klibs of the deps, the Kotlin/Native runtime and an XCTest case,
+`KotlinNativeTests_<package>_<name>`, whose one test method runs the Kotlin tests in the process of the test and
+fails when one of them fails; the output of the Kotlin test runner, with the name and the result of every test, is
+in the test log. rules_apple's `ios_unit_test` takes it in `deps` and builds it for the platform of the test
+(`--ios_multi_cpus`; by default, on an arm64 Mac, the iOS simulator), so the test needs no `--platforms`:
+
+```bzl
+load("@rules_apple//apple:ios.bzl", "ios_unit_test")
+load("@rules_kotlin//kotlin:native.bzl", "kt_native_xctest_library")
+
+kt_native_xctest_library(
+    name = "greeter_test_lib",
+    testonly = True,
+    srcs = ["GreeterTest.kt"],
+    associates = [":greeter"],
+    # A build of //... for the host skips it; the test builds it for iOS.
+    target_compatible_with = ["@platforms//os:ios"],
+)
+
+ios_unit_test(
+    name = "greeter_test",
+    minimum_os_version = "15.0",
+    deps = [":greeter_test_lib"],
+)
+```
+
+The link dependencies of the target must be staged: see kotlin_native.targets(...). A test bundle takes several
+of these libraries, also ones of the same name in different packages: the test case and the other symbols a
+library exports are named after its package and name, with `_` for every character that is not a letter or a
+digit, so only two libraries whose labels differ in such characters alone, e.g. `//a:b_c` and `//a/b:c`, fail to
+link in one bundle, with duplicate symbols. Each links its own copy of the Kotlin/Native runtime and of the klibs
+of its deps, so they share no Kotlin state. XCTest sees the one test case of a library, not the Kotlin tests, and
+the Kotlin test runner gets no options, e.g. no `--ktest_filter`: it runs every test. Kotlin/Native compiles for
+the iOS version `minVersion.ios` of its `konan.properties`; with a lower `minimum_os_version`, the test bundle
+links with the warning that an object file was built for a newer version. Kotlin/Native code is not
+instrumented: in a build of `bazel coverage`, the test of a bundle with Kotlin tests alone sets
+`collect_code_coverage = False`, or the build `--experimental_use_llvm_covmap`, as the runner of rules_apple
+fails a test whose process wrote no profile.
+
+**ATTRIBUTES**
+
+
+| Name  | Description | Type | Mandatory | Default |
+| :------------- | :------------- | :------------- | :------------- | :------------- |
+| <a id="kt_native_xctest_library-name"></a>name |  A unique name for this target.   | <a href="https://bazel.build/concepts/labels#target-names">Name</a> | required |  |
+| <a id="kt_native_xctest_library-deps"></a>deps |  The klibs to link, e.g. kt_native_library targets, which the srcs compile against. They are for the same konan target.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_xctest_library-srcs"></a>srcs |  Kotlin sources with the tests.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_xctest_library-associates"></a>associates |  kt_native_library targets whose internal declarations the srcs see. They are deps of the library too. The srcs compile against their header klibs when they write one (see the build setting experimental_native_header_klibs): a header klib keeps internal declarations.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_xctest_library-kmp_fragments"></a>kmp_fragments |  The K2 fragments of a `kt_multiplatform_test` that the srcs refine, as for `kt_native_test`: `kt_multiplatform_test` sets it, it is not set by hand. The test bundle runs the tests of the fragments too.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+| <a id="kt_native_xctest_library-link_opts"></a>link_opts |  More konanc options of the link, e.g. `-opt`. They follow the options of the rule. An argument of the linker itself is the value of the konanc option `-linker-option`: `["-linker-option", "-dead_strip"]`.   | List of strings | optional |  `[]`  |
+| <a id="kt_native_xctest_library-module_name"></a>module_name |  The Kotlin module name of the srcs, the unique_name of the klib they compile into. By default it is derived from the label, as for the JVM rules.   | String | optional |  `""`  |
+| <a id="kt_native_xctest_library-opts"></a>opts |  More konanc options of the compilation of the srcs, e.g. `-opt-in=kotlin.ExperimentalStdlibApi`.   | List of strings | optional |  `[]`  |
+| <a id="kt_native_xctest_library-plugins"></a>plugins |  Kotlin compiler plugins (kt_compiler_plugin) to run during the compilation of the srcs. The Kotlin/Native compiler loads them in the embeddable compiler dialect.   | <a href="https://bazel.build/concepts/labels">List of labels</a> | optional |  `[]`  |
+
+
 <a id="KtKlibInfo"></a>
 
 ## KtKlibInfo
@@ -922,8 +994,10 @@ Experimental:
   action whose generated Kotlin files the library of the platform compiles.
 
 kt_multiplatform_library declares a kt_android_library when it has an `android` platform, and
-kt_multiplatform_test a kt_android_local_test, so this file loads the Android rules. See
-examples/kmp and examples/kmp_app for usage, and docs/kmp.md for the guide.
+kt_multiplatform_test a kt_android_local_test, so this file loads the Android rules. It does not
+load rules_apple: the tests of the iOS targets run through its `ios_unit_test`, which the caller
+passes to kt_multiplatform_test as `ios_test_rule`. See examples/kmp and examples/kmp_app for usage,
+and docs/kmp.md for the guide.
 
 <a id="kt_jvm_ksp_sources"></a>
 
@@ -1054,7 +1128,7 @@ name, neither above the other.
 
 | Name  | Description | Default Value |
 | :------------- | :------------- | :------------- |
-| <a id="kt_multiplatform_library-name"></a>name |  the name of the alias, and the prefix of the names of the other targets.   |  none |
+| <a id="kt_multiplatform_library-name"></a>name |  the name of the alias, and the prefix of the names of the other targets. The alias is `<name>_native` for a Kotlin/Native consumer, `<name>_android` for a JVM or Android rule on an Android platform or below an Android local test (`@rules_kotlin//kotlin/settings:android`), and `<name>_jvm` otherwise; or the only library declared.   |  none |
 | <a id="kt_multiplatform_library-platforms"></a>platforms |  the platforms to build for, in any order, e.g. `["jvm", "android", "ios_arm64", "ios_simulator_arm64"]`: `jvm`, `android`, and the konan targets `ios_arm64`, `ios_simulator_arm64`, `macos_arm64`, `linux_x64` and `linux_arm64`. A group, e.g. `ios`, is not a platform. The macro declares `<name>_jvm` for `jvm`, `<name>_android` for `android` and `<name>_native` for the konan targets.   |  `None` |
 | <a id="kt_multiplatform_library-aliases"></a>aliases |  the sets of platforms that the hierarchy has no group for, a dict of the name of each to its platforms, e.g. `{"non_android": ["jvm", "ios_arm64", "ios_simulator_arm64"]}`. A name is made of lowercase letters, digits and `_`, and is not the name of a group or a platform. The platforms are two or more of `platforms`, and not those of a group or of another alias.   |  `{}` |
 | <a id="kt_multiplatform_library-srcs"></a>srcs |  the sources of every platform, a list of labels, e.g. those of Gradle's `commonMain`. Those of only some platforms are the srcs of a group, a platform or an alias, e.g. `srcs_ios` for `iosMain`, or `srcs_non_android` for a `nonAndroidMain`.   |  `[]` |
@@ -1078,7 +1152,7 @@ name, neither above the other.
 load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_test")
 
 kt_multiplatform_test(<a href="#kt_multiplatform_test-name">name</a>, <a href="#kt_multiplatform_test-library">library</a>, <a href="#kt_multiplatform_test-platforms">platforms</a>, <a href="#kt_multiplatform_test-aliases">aliases</a>, <a href="#kt_multiplatform_test-srcs">srcs</a>, <a href="#kt_multiplatform_test-deps">deps</a>, <a href="#kt_multiplatform_test-plugins">plugins</a>, <a href="#kt_multiplatform_test-jvm">jvm</a>, <a href="#kt_multiplatform_test-android">android</a>, <a href="#kt_multiplatform_test-native">native</a>,
-                      <a href="#kt_multiplatform_test-visibility">visibility</a>, <a href="#kt_multiplatform_test-tags">tags</a>, <a href="#kt_multiplatform_test-kwargs">**kwargs</a>)
+                      <a href="#kt_multiplatform_test-ios">ios</a>, <a href="#kt_multiplatform_test-ios_test_rule">ios_test_rule</a>, <a href="#kt_multiplatform_test-visibility">visibility</a>, <a href="#kt_multiplatform_test-tags">tags</a>, <a href="#kt_multiplatform_test-kwargs">**kwargs</a>)
 </pre>
 
 Declares the tests of a Kotlin Multiplatform library: a test per platform, the test fragments they share, `<name>.fragments` and a test_suite.
@@ -1101,17 +1175,53 @@ own lists: a test does not inherit the deps of the library that the library does
 A platform of the test that the library does not list is a missing `<library>_<platform>`
 target, or, for a konan target, a native test that is skipped as incompatible.
 
+The iOS targets have a test of their own, as a `kt_native_test` runs on the exec host: the
+macro links their tests into `<name>_ios_lib`, a `kt_native_xctest_library` whose `associates`
+are `<library>_native`, and declares `<name>_ios` with `ios_test_rule`, which takes the library
+in `deps`, bundles it and runs it, e.g. in the iOS simulator. rules_kotlin does not depend on
+rules_apple, so the caller loads its `ios_unit_test` and passes it:
+
+```bzl
+load("@rules_apple//apple:ios.bzl", "ios_unit_test")
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_test")
+
+kt_multiplatform_test(
+    name = "shared_test",
+    srcs = ["commonTest/GreetingTest.kt"],
+    ios = dict(minimum_os_version = "15.0"),
+    ios_test_rule = ios_unit_test,
+    library = ":shared",
+    platforms = ["jvm", "ios_simulator_arm64"],
+    deps_jvm = [...],
+)
+```
+
 The tests of the JVM and of Android use JUnit 4, e.g. through `kotlin-test-junit`, and run
 every public class of their own jar that has a method annotated with `@Test` (or is annotated
 with `@RunWith`); a jar without any fails the test. Setting `test_class` in `jvm` or `android`,
 or a `main_class` other than the test runner of Bazel, runs that instead. The native test runs
 like any `kt_native_test`: `bazel test` runs it for the konan target of the exec host, and it
-is incompatible with the platforms of the konan targets that `platforms` does not list.
-`bazel test <name>` runs the tests of every platform that the build's platform is compatible
-with.
+is incompatible with the platforms of the konan targets that `platforms` does not list. The
+test bundle of the iOS test builds for the iOS platform its rule picks, whatever the platform
+of the build: with rules_apple, the first of `--ios_multi_cpus`, by default the arm64
+simulator on an arm64 Mac and the x86_64 simulator elsewhere. `<name>_ios_lib` is incompatible
+with the platforms of the iOS targets that `platforms` does not list, and the test with it:
+the test is skipped where the rule picks the x86_64 simulator, which is no konan target, and
+with `ios_arm64` alone, which is the device, in a default build. The test itself is a target
+of the platform of the build, and is skipped on a host that does not build its iOS targets,
+e.g. Linux. `bazel test <name>` runs, with no platform flag, the tests of every platform that
+the host can run.
 
 The macro checks the declaration when it is called and fails with what to change, as
-`kt_multiplatform_library` does, and also for a platform that no list gives test sources.
+`kt_multiplatform_library` does, and also for a platform that no list gives test sources. For
+the iOS targets it fails, in this order: when `platforms` lists none and `ios` sets attributes;
+when it lists some and `ios_test_rule` is not set, as the macro then has no rule to run their
+tests with; when `ios` does not set `minimum_os_version`, which the macro has no default for;
+and when `ios` sets `deps` or `associates`, which the macro sets. An `ios_test_rule` without
+iOS targets is allowed, so a wrapper of the macro can always pass it. With iOS targets as the
+only konan targets, the macro declares no native test, and fails when `native` sets an
+attribute other than `opts`, `link_opts` and `module_name`, e.g. `data` or `args`, which
+nothing would take.
 
 
 **PARAMETERS**
@@ -1121,14 +1231,16 @@ The macro checks the declaration when it is called and fails with what to change
 | :------------- | :------------- | :------------- |
 | <a id="kt_multiplatform_test-name"></a>name |  the name of the test_suite, and the prefix of the names of the other targets.   |  none |
 | <a id="kt_multiplatform_test-library"></a>library |  the label of the `kt_multiplatform_library` under test, the one of its alias.   |  none |
-| <a id="kt_multiplatform_test-platforms"></a>platforms |  the platforms to test, in any order, among those of the library, e.g. `["jvm", "macos_arm64", "linux_x64"]`. The macro declares `<name>_jvm` for `jvm`, `<name>_android` for `android` and `<name>_native` for the konan targets.   |  `None` |
+| <a id="kt_multiplatform_test-platforms"></a>platforms |  the platforms to test, in any order, among those of the library, e.g. `["jvm", "macos_arm64", "linux_x64"]`. The macro declares `<name>_jvm` for `jvm`, `<name>_android` for `android`, `<name>_ios` and `<name>_ios_lib` for the iOS targets and `<name>_native` for the other konan targets.   |  `None` |
 | <a id="kt_multiplatform_test-aliases"></a>aliases |  the sets of platforms that the hierarchy has no group for, a dict of the name of each to its platforms, as in `kt_multiplatform_library`.   |  `{}` |
 | <a id="kt_multiplatform_test-srcs"></a>srcs |  the test sources of every platform, a list of labels, e.g. those of Gradle's `commonTest`. Those of only some platforms are the srcs of a group, a platform or an alias, e.g. `srcs_jvm` for `jvmTest`.   |  `[]` |
 | <a id="kt_multiplatform_test-deps"></a>deps |  the deps of the test of every platform, a list of labels, each of which resolves for every platform. Those of only some platforms are the deps of a group, a platform or an alias, e.g. `deps_jvm` for `kotlin-test-junit`.   |  `[]` |
 | <a id="kt_multiplatform_test-plugins"></a>plugins |  the Kotlin compiler plugins of every platform, a list of kt_compiler_plugin targets.   |  `[]` |
 | <a id="kt_multiplatform_test-jvm"></a>jvm |  the other attributes of the kt_jvm_test `<name>_jvm`, e.g. `dict(jvm_flags = [...])`; its srcs, deps and plugins are `srcs_jvm`, `deps_jvm` and `plugins_jvm`.   |  `None` |
 | <a id="kt_multiplatform_test-android"></a>android |  the other attributes of the kt_android_local_test `<name>_android`, e.g. `dict(manifest = "AndroidManifest.xml")`.   |  `None` |
-| <a id="kt_multiplatform_test-native"></a>native |  the other attributes of the kt_native_test `<name>_native`, e.g. `dict(opts = ["-opt-in=kotlin.ExperimentalStdlibApi"])`, for each of its konan targets.   |  `None` |
+| <a id="kt_multiplatform_test-native"></a>native |  the other attributes of the kt_native_test `<name>_native`, e.g. `dict(opts = ["-opt-in=kotlin.ExperimentalStdlibApi"])`, for each of its konan targets. Those of the compilation and of the link, `opts`, `link_opts` and `module_name`, are also attributes of `<name>_ios_lib`; the others, e.g. `data` or `args`, are of the native test alone, and an error when `platforms` lists no konan target other than those of iOS.   |  `None` |
+| <a id="kt_multiplatform_test-ios"></a>ios |  the other attributes of the test `<name>_ios`, those of `ios_test_rule`, e.g. `dict(minimum_os_version = "15.0", runner = ...)`. `minimum_os_version` is required with iOS targets; the `deps` of the test are `<name>_ios_lib`, and the deps of the Kotlin tests are `deps_ios`. The macro sets `collect_code_coverage` to False unless `ios` sets it: Kotlin/Native code is not instrumented, and the runner of rules_apple fails a test of `bazel coverage` whose process wrote no profile.   |  `None` |
+| <a id="kt_multiplatform_test-ios_test_rule"></a>ios_test_rule |  the rule that bundles and runs the tests of the iOS targets: the `ios_unit_test` of rules_apple, loaded from `@rules_apple//apple:ios.bzl`, or a macro that takes its `name`, `deps`, `minimum_os_version`, `collect_code_coverage` and the attributes of a test. It is required with iOS targets, and unused without.   |  `None` |
 | <a id="kt_multiplatform_test-visibility"></a>visibility |  the visibility of the tests, of `<name>.fragments` and of the test_suite; the fragments are private.   |  `None` |
 | <a id="kt_multiplatform_test-tags"></a>tags |  the tags of the targets.   |  `[]` |
 | <a id="kt_multiplatform_test-kwargs"></a>kwargs |  the lists of the groups, the platforms and the aliases, `<attr>_<qualifier>`: `<attr>` is `srcs`, `deps` or `plugins`. Each is a list of labels; the deps and plugins of `jvm` and `android` may also be or end with a select(). The other keyword arguments are attributes of every test, e.g. `size`, `timeout` or `target_compatible_with`.   |  none |

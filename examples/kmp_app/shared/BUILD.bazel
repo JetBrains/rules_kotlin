@@ -1,5 +1,5 @@
-load("@rules_kotlin//kotlin:jvm.bzl", "kt_jvm_test")
-load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library")
+load("@rules_apple//apple:ios.bzl", "ios_unit_test")
+load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_library", "kt_multiplatform_test")
 
 # The alias of kotlinx.coroutines (see MODULE.bazel), which selects its variant like //shared does.
 COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
@@ -11,7 +11,7 @@ COMMON = glob(["src/commonMain/kotlin/**/*.kt"])
 # iosSimulatorArm64 and jvm targets, the platforms of the macro. The sources of src/commonMain are
 # its srcs, and those of src/<group or platform>Main the srcs of that group or platform. The alias
 # shared selects the library of its consumer: shared_native for the framework of //iosApp,
-# shared_android for the deps of //androidApp, and shared_jvm otherwise, such as GreetingTest.
+# shared_android for the deps of //androidApp, and shared_jvm otherwise.
 kt_multiplatform_library(
     name = "shared",
     srcs = COMMON,
@@ -32,17 +32,34 @@ kt_multiplatform_library(
     deps = [COROUTINES],
 )
 
-# The common tests, on the JVM of the host: the JVM variant of the common code and of
-# kotlinx.coroutines, on any host. The test compiles its own sources only, against shared_jvm.
-kt_jvm_test(
-    name = "GreetingTest",
+# The tests of src/commonTest, Gradle's allTests: every platform compiles them against its library
+# of //shared and the variant of kotlinx.coroutines the alias selects for it. shared_test runs, with
+# no platform flag:
+#   shared_test_jvm      on the JVM of the host;
+#   shared_test_android  as a local test, on the JVM of the host, with the Android `actual`;
+#   shared_test_ios      in the iOS simulator, in the test bundle of ios_unit_test, on an arm64 Mac:
+#                        elsewhere it is skipped, as incompatible.
+# The device target ios_arm64 of //shared is not listed: its tests would need a signed bundle.
+
+# kotlin.test on the JVM and on Android, with JUnit 4; the Kotlin/Native distribution has its own.
+KOTLIN_TEST_JUNIT = [
+    "@maven_rules_kotlin_example//:junit_junit",
+    "@rules_kotlin//kotlin/compiler:kotlin-test",
+    "@rules_kotlin//kotlin/compiler:kotlin-test-junit",
+]
+
+kt_multiplatform_test(
+    name = "shared_test",
     srcs = glob(["src/commonTest/kotlin/**/*.kt"]),
-    test_class = "org.example.kmpapp.GreetingTest",
-    deps = [
-        COROUTINES,
-        ":shared",
-        "@maven_rules_kotlin_example//:junit_junit",
-        "@rules_kotlin//kotlin/compiler:kotlin-test",
-        "@rules_kotlin//kotlin/compiler:kotlin-test-junit",
+    deps_android = KOTLIN_TEST_JUNIT,
+    deps_jvm = KOTLIN_TEST_JUNIT,
+    ios = dict(minimum_os_version = "15.0"),
+    ios_test_rule = ios_unit_test,
+    library = ":shared",
+    platforms = [
+        "jvm",
+        "android",
+        "ios_simulator_arm64",
     ],
+    deps = [COROUTINES],
 )

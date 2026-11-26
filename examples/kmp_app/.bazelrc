@@ -23,15 +23,18 @@ build --skip_incompatible_explicit_targets
 # canonical: on Bazel 9, rules_android aliases the flag to its own and reads its labels there.
 build --android_platforms=@@//:android_arm64
 
-# ios_application builds its deps for the iOS simulator of an arm64 Mac, which needs no signing:
-# the framework of //shared is then linked for ios_simulator_arm64. --ios_multi_cpus=arm64 builds
-# for a device, which needs a provisioning profile.
-build --ios_multi_cpus=sim_arm64
-
 # bazel coverage instruments the Kotlin code of //shared and //androidApp. The Swift code of the iOS
 # app is left out: ios_application does not link the profile runtime that instrumented Swift needs.
 coverage --instrumentation_filter=^//shared[/:],^//androidApp[/:]
 
-# iOS needs Xcode: a Linux host builds the Android app and the JVM test only.
 common --enable_platform_specific_config
+
+# ios_application and the test bundle of //shared:shared_test_ios build their deps for the iOS
+# simulator of an arm64 Mac, which needs no signing: the framework and the tests of //shared are
+# then linked for ios_simulator_arm64. --ios_multi_cpus=arm64 builds for a device, which needs a
+# provisioning profile. On macOS only: rules_apple has no iOS platform to build for elsewhere.
+build:macos --ios_multi_cpus=sim_arm64
+
+# iOS needs Xcode: a Linux host builds the Android app and runs the JVM and Android tests only. It
+# skips //shared:shared_test_ios, which is incompatible with it.
 common:linux --deleted_packages=iosApp

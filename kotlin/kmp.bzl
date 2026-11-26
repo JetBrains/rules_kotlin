@@ -11,8 +11,10 @@ Experimental:
   action whose generated Kotlin files the library of the platform compiles.
 
 kt_multiplatform_library declares a kt_android_library when it has an `android` platform, and
-kt_multiplatform_test a kt_android_local_test, so this file loads the Android rules. See
-examples/kmp and examples/kmp_app for usage, and docs/kmp.md for the guide.
+kt_multiplatform_test a kt_android_local_test, so this file loads the Android rules. It does not
+load rules_apple: the tests of the iOS targets run through its `ios_unit_test`, which the caller
+passes to kt_multiplatform_test as `ios_test_rule`. See examples/kmp and examples/kmp_app for usage,
+and docs/kmp.md for the guide.
 """
 
 load(
