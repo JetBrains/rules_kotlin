@@ -104,9 +104,10 @@ def _fake_ios_unit_test_impl(ctx):
     return [DefaultInfo(executable = executable)]
 
 # What the macro needs of rules_apple's ios_unit_test: a test that takes the library of the Kotlin
-# tests in its deps, a deployment target, and whether its runner collects coverage, which it does
-# by default. Like it, the rule has no transition; unlike it, it builds its deps for its own
-# platform, which an analysis test sets to that of the iOS simulator.
+# tests and the other libraries of its bundle in its deps, a deployment target, and whether its
+# runner collects coverage, which it does by default. Like it, the rule has no transition; unlike
+# it, it builds its deps for its own platform, which an analysis test sets to that of the iOS
+# simulator.
 _fake_ios_unit_test = rule(
     implementation = _fake_ios_unit_test_impl,
     attrs = {
@@ -116,6 +117,12 @@ _fake_ios_unit_test = rule(
     },
     test = True,
 )
+
+def _fake_objc_library_impl(_ctx):
+    return [CcInfo()]
+
+# What the `deps` of `ios` are, in the place of an objc_library: a library that a test bundle links.
+_fake_objc_library = rule(implementation = _fake_objc_library_impl)
 
 def _recording_ios_test_rule(calls):
     """An `ios_test_rule` that declares the fake test and adds the arguments of each call to `calls`, by name."""
@@ -217,10 +224,10 @@ def _native_test_impl(ctx):
 def _ios_test_impl(ctx):
     env = analysistest.begin(ctx)
 
-    # The iOS test is the rule the macro is given, with the library of the Kotlin tests as its
-    # deps, the attributes of `ios` and those of every test.
+    # The iOS test is the rule the macro is given, with the library of the Kotlin tests and then
+    # the deps of `ios` as its deps, the other attributes of `ios` and those of every test.
     info = analysistest.target_under_test(env)[_TestAttrsInfo]
-    asserts.equals(env, [_label(ctx.attr.library)], info.deps)
+    asserts.equals(env, [_label(dep) for dep in ctx.attr.deps], info.deps)
     asserts.equals(env, ctx.attr.minimum_os_version, info.minimum_os_version)
     asserts.equals(env, ctx.attr.test_size, info.size)
     asserts.equals(env, ["manual"], info.tags)
@@ -279,7 +286,7 @@ native_ios_simulator_arm64_test = analysistest.make(
 ios_test = analysistest.make(
     _ios_test_impl,
     attrs = {
-        "library": attr.string(doc = "the name of the expected dep, in the package"),
+        "deps": attr.string_list(doc = "the names of the expected deps, in the package, in order"),
         "minimum_os_version": attr.string(doc = "the expected minimum_os_version"),
         "test_size": attr.string(doc = "the expected size of the test"),
     },
@@ -449,18 +456,27 @@ def _ios_tests_error_test(ctx):
             _ios_tests_error(simulator, ios),
         )
 
-    # Then what the macro sets: the deps of the test are the library of the Kotlin tests, whose
-    # associate is the native library.
-    asserts.equals(
-        env,
-        "ios sets associates, which the macro sets to the library of the platform",
-        _ios_tests_error(simulator, dict(version, associates = [":lib"], deps = [":bundled"])),
-    )
-    asserts.equals(
-        env,
-        "ios sets deps, which the macro sets to the library of the Kotlin tests: pass the deps of the tests as deps_ios to the macro",
-        _ios_tests_error(simulator, dict(version, deps = [":bundled"])),
-    )
+    # Then what the macro sets, the associate of the library of the Kotlin tests, which is the
+    # native library, before the deps.
+    for deps in [[":bundled"], ":bundled"]:
+        asserts.equals(
+            env,
+            "ios sets associates, which the macro sets to the library of the platform",
+            _ios_tests_error(simulator, dict(version, associates = [":lib"], deps = deps)),
+        )
+
+    # The deps of `ios` are the other libraries of the test bundle, which the macro lists after
+    # the library of the Kotlin tests: a list or a select, and nothing else.
+    bundled = select({"//conditions:default": [":bundled"]})
+    for deps in [[], [":bundled"], bundled, [":other"] + bundled]:
+        asserts.equals(env, None, _ios_tests_error(simulator, dict(version, deps = deps)))
+    for deps, kind in [(":bundled", "string"), ({":bundled": True}, "dict"), (None, "NoneType")]:
+        asserts.equals(
+            env,
+            "the deps of ios must be a list of labels, not a %s: they are the other libraries that the test bundle " % kind +
+            "links, e.g. an objc_library; the deps of the Kotlin tests are deps_ios of the macro",
+            _ios_tests_error(simulator, dict(version, deps = deps)),
+        )
 
     # With the rule and the deployment target, the macro declares the iOS test, of any other
     # attribute of its rule.
@@ -589,9 +605,17 @@ def test_macro_test_suite(name):
     ios_tests = {}
     ios_test_rule = _recording_ios_test_rule(ios_tests)
 
+    # A library of the test bundles, next to the Kotlin tests.
+    _fake_objc_library(
+        name = "tm_bundled",
+        tags = ["manual"],
+        testonly = True,
+    )
+
     # The JVM and the Linux target compile the test sources of an alias; the konan targets those of
     # native, and the iOS simulator has no test source of its own. The arguments of the native test
-    # are no attribute of the library of the iOS tests, which the opt-in is.
+    # are no attribute of the library of the iOS tests, which the opt-in is. The test bundle links
+    # the deps of `ios` too.
     kt_multiplatform_test(
         name = "mpp_test",
         size = "small",
@@ -599,7 +623,10 @@ def test_macro_test_suite(name):
             "jvm",
             "linux_arm64",
         ]},
-        ios = dict(minimum_os_version = _IOS_VERSION),
+        ios = dict(
+            minimum_os_version = _IOS_VERSION,
+            deps = [":tm_bundled"],
+        ),
         ios_test_rule = ios_test_rule,
         library = ":mpp",
         platforms = [
@@ -626,7 +653,7 @@ def test_macro_test_suite(name):
     # The tests of the iOS targets alone: the macro declares no native test, and the iOS test has
     # the constraints of the macro and of `ios` after its own, and collects coverage, as `ios` asks.
     # The library of the iOS tests, which builds for another platform, has none of the constraints,
-    # and has the options of `native`.
+    # and has the options of `native`. The deps of `ios` are a select.
     kt_multiplatform_test(
         name = "mpp_ios_test",
         srcs = ["testdata/test/GreetingTest.kt"],
@@ -634,6 +661,7 @@ def test_macro_test_suite(name):
             collect_code_coverage = True,
             minimum_os_version = _IOS_VERSION,
             target_compatible_with = [":ios_constraint"],
+            deps = select({"//conditions:default": [":tm_bundled"]}),
         ),
         ios_test_rule = ios_test_rule,
         library = ":mpp",
@@ -824,7 +852,10 @@ def test_macro_test_suite(name):
     ios_test(
         name = "test_macro_ios_test",
         target_under_test = ":mpp_test_ios",
-        library = "mpp_test_ios_lib",
+        deps = [
+            "mpp_test_ios_lib",
+            "tm_bundled",
+        ],
         minimum_os_version = _IOS_VERSION,
         target_compatible_with = not_on_windows(),
         test_size = "small",
@@ -878,9 +909,10 @@ def test_macro_test_suite(name):
         ],
     )
 
-    # The macro calls the rule of the iOS tests once per test, with the library as deps and the
-    # attributes of `ios`. The test collects no coverage unless `ios` asks for it: its bundle links
-    # no instrumented code, and the runner of rules_apple fails a test that wrote no profile.
+    # The macro calls the rule of the iOS tests once per test, with the library and then the deps
+    # of `ios`, a list or a select, as deps, and the other attributes of `ios`. The test collects
+    # no coverage unless `ios` asks for it: the Kotlin tests are not instrumented, and the runner
+    # of rules_apple fails a test that wrote no profile.
     declared_test(
         name = "test_macro_ios_test_rule_test",
         actual = [
@@ -888,10 +920,11 @@ def test_macro_test_suite(name):
             for test, kwargs in ios_tests.items()
         ],
         expected = [
-            "mpp_test_ios: collect_code_coverage = False, deps = [\":mpp_test_ios_lib\"], minimum_os_version = \"15.0\", " +
-            "size = \"small\", tags = [\"manual\"], visibility = None",
-            "mpp_ios_test_ios: collect_code_coverage = True, deps = [\":mpp_ios_test_ios_lib\"], " +
-            "minimum_os_version = \"15.0\", tags = [\"manual\"], visibility = None",
+            "mpp_test_ios: collect_code_coverage = False, deps = [\":mpp_test_ios_lib\", \":tm_bundled\"], " +
+            "minimum_os_version = \"15.0\", size = \"small\", tags = [\"manual\"], visibility = None",
+            "mpp_ios_test_ios: collect_code_coverage = True, deps = [\":mpp_ios_test_ios_lib\"] + " +
+            "select({\"//conditions:default\": [\":tm_bundled\"]}), minimum_os_version = \"15.0\", tags = [\"manual\"], " +
+            "visibility = None",
         ],
     )
 

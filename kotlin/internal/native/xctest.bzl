@@ -8,6 +8,12 @@ launcher, with the Objective-C compiler of the C++ toolchain, and provides both 
 rules_apple's ios_unit_test links its `deps` into the test bundle, where XCTest finds the test case
 and the Kotlin tests run in the process of the test.
 
+Only the test case is alwayslink. The static library links as konanc links a binary, an object file
+when something refers to it: konanc puts the static libraries that the klibs embed into it, e.g.
+those of Skia in a klib of Compose Multiplatform, some of them several times, and loading every
+object file of it gives duplicate symbols. The Kotlin code is one object file of the library, with
+the launcher, so the call of the test case loads the tests.
+
 One test bundle links several of these libraries, so every global symbol of a library has the
 package and the name of its target (see _identifier): both sources are templates, for the names of
 the launcher and of the test case, and the static library is named with them, as konanc names the
@@ -132,8 +138,10 @@ def _kt_native_xctest_library_impl(ctx):
     )
     test_case = _compile_test_case(ctx, cc_toolchain, feature_configuration)
 
-    # alwayslink: nothing refers to the XCTestCase class, which XCTest finds at run time, and the
-    # Kotlin tests register themselves from initializers.
+    # alwayslink: nothing refers to the XCTestCase class, which XCTest finds at run time. The static
+    # library is not: the launcher that the test case calls is in the one object file of the Kotlin
+    # code, with the tests and their initializers, and the other object files are of the static
+    # libraries the klibs embed, which repeat symbols and only link when one refers to them.
     test_case_linking_context, _ = cc_common.create_linking_context_from_compilation_outputs(
         name = ctx.label.name,
         actions = ctx.actions,
@@ -154,7 +162,6 @@ def _kt_native_xctest_library_impl(ctx):
                 feature_configuration = feature_configuration,
                 cc_toolchain = cc_toolchain,
                 static_library = library,
-                alwayslink = True,
             )]),
             user_link_flags = link_flags,
         )]),
@@ -202,13 +209,16 @@ kt_native_xctest_library = rule(
     library exports are named after its package and name, with `_` for every character that is not a letter or a
     digit, so only two libraries whose labels differ in such characters alone, e.g. `//a:b_c` and `//a/b:c`, fail to
     link in one bundle, with duplicate symbols. Each links its own copy of the Kotlin/Native runtime and of the klibs
-    of its deps, so they share no Kotlin state. XCTest sees the one test case of a library, not the Kotlin tests, and
-    the Kotlin test runner gets no options, e.g. no `--ktest_filter`: it runs every test. Kotlin/Native compiles for
-    the iOS version `minVersion.ios` of its `konan.properties`; with a lower `minimum_os_version`, the test bundle
-    links with the warning that an object file was built for a newer version. Kotlin/Native code is not
-    instrumented: in a build of `bazel coverage`, the test of a bundle with Kotlin tests alone sets
-    `collect_code_coverage = False`, or the build `--experimental_use_llvm_covmap`, as the runner of rules_apple
-    fails a test whose process wrote no profile.""",
+    of its deps, so they share no Kotlin state. The test bundle links the static library like any other one, the
+    object files that something refers to, and only the XCTest case whole; a native library that a klib refers to,
+    e.g. an Objective-C or Swift SDK, is a dep of the test next to this library, `ios_unit_test(deps = [...])`, with
+    `linkopts = ["-ObjC"]` when the Objective-C categories of a static library have to load. XCTest sees the one
+    test case of a library, not the Kotlin tests, and the Kotlin test runner gets no options, e.g. no
+    `--ktest_filter`: it runs every test. Kotlin/Native compiles for the iOS version `minVersion.ios` of its
+    `konan.properties`; with a lower `minimum_os_version`, the test bundle links with the warning that an object file
+    was built for a newer version. Kotlin/Native code is not instrumented: in a build of `bazel coverage`, the test
+    of a bundle with Kotlin tests alone sets `collect_code_coverage = False`, or the build
+    `--experimental_use_llvm_covmap`, as the runner of rules_apple fails a test whose process wrote no profile.""",
     implementation = _kt_native_xctest_library_impl,
     attrs = dict(LINK_ATTRS, **{
         "associates": attr.label_list(

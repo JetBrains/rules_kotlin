@@ -930,13 +930,16 @@ of these libraries, also ones of the same name in different packages: the test c
 library exports are named after its package and name, with `_` for every character that is not a letter or a
 digit, so only two libraries whose labels differ in such characters alone, e.g. `//a:b_c` and `//a/b:c`, fail to
 link in one bundle, with duplicate symbols. Each links its own copy of the Kotlin/Native runtime and of the klibs
-of its deps, so they share no Kotlin state. XCTest sees the one test case of a library, not the Kotlin tests, and
-the Kotlin test runner gets no options, e.g. no `--ktest_filter`: it runs every test. Kotlin/Native compiles for
-the iOS version `minVersion.ios` of its `konan.properties`; with a lower `minimum_os_version`, the test bundle
-links with the warning that an object file was built for a newer version. Kotlin/Native code is not
-instrumented: in a build of `bazel coverage`, the test of a bundle with Kotlin tests alone sets
-`collect_code_coverage = False`, or the build `--experimental_use_llvm_covmap`, as the runner of rules_apple
-fails a test whose process wrote no profile.
+of its deps, so they share no Kotlin state. The test bundle links the static library like any other one, the
+object files that something refers to, and only the XCTest case whole; a native library that a klib refers to,
+e.g. an Objective-C or Swift SDK, is a dep of the test next to this library, `ios_unit_test(deps = [...])`, with
+`linkopts = ["-ObjC"]` when the Objective-C categories of a static library have to load. XCTest sees the one
+test case of a library, not the Kotlin tests, and the Kotlin test runner gets no options, e.g. no
+`--ktest_filter`: it runs every test. Kotlin/Native compiles for the iOS version `minVersion.ios` of its
+`konan.properties`; with a lower `minimum_os_version`, the test bundle links with the warning that an object file
+was built for a newer version. Kotlin/Native code is not instrumented: in a build of `bazel coverage`, the test
+of a bundle with Kotlin tests alone sets `collect_code_coverage = False`, or the build
+`--experimental_use_llvm_covmap`, as the runner of rules_apple fails a test whose process wrote no profile.
 
 **ATTRIBUTES**
 
@@ -1178,8 +1181,11 @@ target, or, for a konan target, a native test that is skipped as incompatible.
 The iOS targets have a test of their own, as a `kt_native_test` runs on the exec host: the
 macro links their tests into `<name>_ios_lib`, a `kt_native_xctest_library` whose `associates`
 are `<library>_native`, and declares `<name>_ios` with `ios_test_rule`, which takes the library
-in `deps`, bundles it and runs it, e.g. in the iOS simulator. rules_kotlin does not depend on
-rules_apple, so the caller loads its `ios_unit_test` and passes it:
+in `deps`, bundles it and runs it, e.g. in the iOS simulator. The `deps` of `ios` follow the
+library in the `deps` of the test: they are the other libraries the test bundle links, e.g.
+the `objc_library` or the Swift package of an SDK that a klib of the tests refers to, as
+`ios = dict(minimum_os_version = "15.0", deps = [...], linkopts = ["-ObjC"])`. rules_kotlin
+does not depend on rules_apple, so the caller loads its `ios_unit_test` and passes it:
 
 ```bzl
 load("@rules_apple//apple:ios.bzl", "ios_unit_test")
@@ -1217,11 +1223,11 @@ The macro checks the declaration when it is called and fails with what to change
 the iOS targets it fails, in this order: when `platforms` lists none and `ios` sets attributes;
 when it lists some and `ios_test_rule` is not set, as the macro then has no rule to run their
 tests with; when `ios` does not set `minimum_os_version`, which the macro has no default for;
-and when `ios` sets `deps` or `associates`, which the macro sets. An `ios_test_rule` without
-iOS targets is allowed, so a wrapper of the macro can always pass it. With iOS targets as the
-only konan targets, the macro declares no native test, and fails when `native` sets an
-attribute other than `opts`, `link_opts` and `module_name`, e.g. `data` or `args`, which
-nothing would take.
+when `ios` sets `associates`, which the macro sets; and when the `deps` of `ios` are neither
+a list of labels nor a select(). An `ios_test_rule` without iOS targets is allowed, so a
+wrapper of the macro can always pass it. With iOS targets as the only konan targets, the macro
+declares no native test, and fails when `native` sets an attribute other than `opts`,
+`link_opts` and `module_name`, e.g. `data` or `args`, which nothing would take.
 
 
 **PARAMETERS**
@@ -1239,8 +1245,8 @@ nothing would take.
 | <a id="kt_multiplatform_test-jvm"></a>jvm |  the other attributes of the kt_jvm_test `<name>_jvm`, e.g. `dict(jvm_flags = [...])`; its srcs, deps and plugins are `srcs_jvm`, `deps_jvm` and `plugins_jvm`.   |  `None` |
 | <a id="kt_multiplatform_test-android"></a>android |  the other attributes of the kt_android_local_test `<name>_android`, e.g. `dict(manifest = "AndroidManifest.xml")`.   |  `None` |
 | <a id="kt_multiplatform_test-native"></a>native |  the other attributes of the kt_native_test `<name>_native`, e.g. `dict(opts = ["-opt-in=kotlin.ExperimentalStdlibApi"])`, for each of its konan targets. Those of the compilation and of the link, `opts`, `link_opts` and `module_name`, are also attributes of `<name>_ios_lib`; the others, e.g. `data` or `args`, are of the native test alone, and an error when `platforms` lists no konan target other than those of iOS.   |  `None` |
-| <a id="kt_multiplatform_test-ios"></a>ios |  the other attributes of the test `<name>_ios`, those of `ios_test_rule`, e.g. `dict(minimum_os_version = "15.0", runner = ...)`. `minimum_os_version` is required with iOS targets; the `deps` of the test are `<name>_ios_lib`, and the deps of the Kotlin tests are `deps_ios`. The macro sets `collect_code_coverage` to False unless `ios` sets it: Kotlin/Native code is not instrumented, and the runner of rules_apple fails a test of `bazel coverage` whose process wrote no profile.   |  `None` |
-| <a id="kt_multiplatform_test-ios_test_rule"></a>ios_test_rule |  the rule that bundles and runs the tests of the iOS targets: the `ios_unit_test` of rules_apple, loaded from `@rules_apple//apple:ios.bzl`, or a macro that takes its `name`, `deps`, `minimum_os_version`, `collect_code_coverage` and the attributes of a test. It is required with iOS targets, and unused without.   |  `None` |
+| <a id="kt_multiplatform_test-ios"></a>ios |  the other attributes of the test `<name>_ios`, those of `ios_test_rule`, e.g. `dict(minimum_os_version = "15.0", runner = ...)`. `minimum_os_version` is required with iOS targets. Its `deps` are the other libraries that the test bundle links, after `<name>_ios_lib`: targets with a `CcInfo`, e.g. an `objc_library` or a `swift_library`, a list of labels that may be or end with a select(); the deps of the Kotlin tests are `deps_ios`. The macro sets `collect_code_coverage` to False unless `ios` sets it: Kotlin/Native code is not instrumented, and the runner of rules_apple fails a test of `bazel coverage` whose process wrote no profile. A test with `deps` to cover sets it to True, in a build with `--experimental_use_llvm_covmap`: without that flag, a coverage build compiles the Objective-C sources of any target for the gcov format, whose runtime a test bundle does not link.   |  `None` |
+| <a id="kt_multiplatform_test-ios_test_rule"></a>ios_test_rule |  the rule that bundles and runs the tests of the iOS targets: the `ios_unit_test` of rules_apple, loaded from `@rules_apple//apple:ios.bzl`, or a macro that takes its `name`, `deps`, `minimum_os_version`, `collect_code_coverage` and the attributes of a test. Its `deps` are `<name>_ios_lib` and then the `deps` of `ios`. It is required with iOS targets, and unused without.   |  `None` |
 | <a id="kt_multiplatform_test-visibility"></a>visibility |  the visibility of the tests, of `<name>.fragments` and of the test_suite; the fragments are private.   |  `None` |
 | <a id="kt_multiplatform_test-tags"></a>tags |  the tags of the targets.   |  `[]` |
 | <a id="kt_multiplatform_test-kwargs"></a>kwargs |  the lists of the groups, the platforms and the aliases, `<attr>_<qualifier>`: `<attr>` is `srcs`, `deps` or `plugins`. Each is a list of labels; the deps and plugins of `jvm` and `android` may also be or end with a select(). The other keyword arguments are attributes of every test, e.g. `size`, `timeout` or `target_compatible_with`.   |  none |

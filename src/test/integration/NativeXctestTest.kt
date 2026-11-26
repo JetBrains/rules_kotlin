@@ -17,10 +17,13 @@ import kotlin.io.path.writeText
  * packages: the test case of the one passes and that of the other fails.
  *
  * A `kt_multiplatform_test` of the JVM and of the iOS simulator, with `ios_unit_test` as its
- * `ios_test_rule`, runs both tests through its `test_suite`, with no platform flag. With
- * `--ios_multi_cpus=x86_64`, the simulator rules_apple picks on a Linux or an Intel host, which is
- * no konan target, the iOS test is skipped and the suite still passes. `bazel coverage` of the
- * suite, which instruments the package of the tests, links the test bundle and passes both tests.
+ * `ios_test_rule`, runs both tests through its `test_suite`, with no platform flag. Its `ios` has
+ * an `objc_library` as `deps`: the test bundle links it next to the Kotlin tests, and runs its
+ * XCTest case too. With `--ios_multi_cpus=x86_64`, the simulator rules_apple picks on a Linux or
+ * an Intel host, which is no konan target, the iOS test is skipped and the suite still passes.
+ * `bazel coverage` of the suite, which instruments the package of the tests, links the test bundle
+ * and passes both tests; the `objc_library` is not compiled for the gcov format, which no test
+ * bundle links.
  */
 class NativeXctestTest : BazelIntegrationTestBase() {
   @Test
@@ -36,6 +39,7 @@ class NativeXctestTest : BazelIntegrationTestBase() {
       module(name = "native_xctest")
       bazel_dep(name = "rules_kotlin", version = "2.2.0")
       bazel_dep(name = "rules_apple", version = "5.4.0")
+      bazel_dep(name = "rules_cc", version = "0.2.25")
       bazel_dep(name = "platforms", version = "1.0.0")
       kotlin_native = use_extension("@rules_kotlin//src/main/starlark/core/repositories:native.bzl", "kotlin_native")
       kotlin_native.targets(targets = ["ios_simulator_arm64"])
@@ -92,6 +96,42 @@ class NativeXctestTest : BazelIntegrationTestBase() {
         """.trimIndent(),
       )
     }
+    // An XCTest case in Objective-C, which the iOS test of the macro bundles with the Kotlin tests.
+    // A coverage build compiles the Objective-C sources of any target for the gcov format, also
+    // those of a package it does not instrument, and a test bundle does not link the runtime of
+    // that format: the library disables the feature, as the XCTest case of the rules does.
+    val bundled = workspace.resolve("bundled").createDirectories()
+    bundled.resolve("BUILD.bazel").writeText(
+      """
+      load("@rules_cc//cc:objc_library.bzl", "objc_library")
+
+      objc_library(
+          name = "bundled",
+          testonly = True,
+          srcs = ["BundledTest.m"],
+          features = ["-gcc_coverage_map_format"],
+          visibility = ["//shared:__pkg__"],
+          alwayslink = True,
+      )
+      """.trimIndent(),
+    )
+    bundled.resolve("BundledTest.m").writeText(
+      """
+      #import <XCTest/XCTest.h>
+
+      @interface BundledTest : XCTestCase
+      @end
+
+      @implementation BundledTest
+
+      - (void)testBundled {
+          XCTAssertEqual(2, 1 + 1);
+      }
+
+      @end
+      """.trimIndent(),
+    )
+
     // The common test calls an internal declaration of the library, on the JVM and on iOS. The
     // JVM test compiles against the JUnit 4 of the test runner of Bazel, which it runs with.
     val shared = workspace.resolve("shared").createDirectories()
@@ -121,7 +161,10 @@ class NativeXctestTest : BazelIntegrationTestBase() {
       kt_multiplatform_test(
           name = "shared_test",
           srcs = ["GreetingTest.kt"],
-          ios = dict(minimum_os_version = "15.0"),
+          ios = dict(
+              minimum_os_version = "15.0",
+              deps = ["//bundled"],
+          ),
           ios_test_rule = ios_unit_test,
           library = ":shared",
           platforms = [
@@ -283,7 +326,8 @@ class NativeXctestTest : BazelIntegrationTestBase() {
     assertLogs("//:both", failureOf("//:both"), passed)
 
     // The test_suite of the macro runs the JVM test and, in the simulator, the iOS test, whose
-    // test case is named after the library of the Kotlin tests the macro declares.
+    // test case is named after the library of the Kotlin tests the macro declares. Its bundle
+    // runs the test case of the deps of `ios` too.
     fun suite(
       vararg flags: String,
       command: String = "test",
@@ -304,8 +348,10 @@ class NativeXctestTest : BazelIntegrationTestBase() {
     assertLogs(
       "//shared:shared_test",
       ran,
-      listOf("Test Case '-[KotlinNativeTests_shared_shared_test_ios_lib testKotlin]' passed (") +
-        listOf("greets", "decorates").map { "[       OK ] shared.GreetingTest.$it" },
+      listOf(
+        "Test Case '-[KotlinNativeTests_shared_shared_test_ios_lib testKotlin]' passed (",
+        "Test Case '-[BundledTest testBundled]' passed (",
+      ) + listOf("greets", "decorates").map { "[       OK ] shared.GreetingTest.$it" },
     )
     assertResult(ran, "//shared:shared_test_ios", "PASSED")
     assertResult(ran, "//shared:shared_test_jvm", "PASSED")

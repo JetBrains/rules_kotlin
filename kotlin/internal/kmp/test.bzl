@@ -19,7 +19,7 @@ the name `shared_test` and the library `//shared`, the macro declares:
 - shared_test_ios_lib and shared_test_ios: when `platforms` lists iOS targets, a
   kt_native_xctest_library whose associate is //shared:shared_native, which is incompatible with
   other platforms, and the test of `ios_test_rule` and of the attributes of `ios` that takes it
-  in `deps`;
+  in `deps`, before the `deps` of `ios`, the other libraries of the test bundle;
 - shared_test.fragments: an executable target printing the derived test fragment graph;
 - shared_test: a test_suite of the tests above.
 
@@ -87,9 +87,9 @@ _IOS_LIBRARY_SETTINGS = sorted([attr for attr in _IOS_LIBRARY_ATTRS if attr not 
 # What the iOS test must set: the macro cannot know the deployment target of the tests.
 _MINIMUM_OS_VERSION = "minimum_os_version"
 
-# What the macro sets on the iOS test unless `ios` does. The test bundle links the Kotlin tests
-# alone, which Kotlin/Native does not instrument: in a coverage build, the runner of rules_apple
-# fails a test that passed when its process wrote no profile.
+# What the macro sets on the iOS test unless `ios` does. Kotlin/Native does not instrument the
+# Kotlin tests, and a test bundle links them alone unless `ios` has `deps`: in a coverage build,
+# the runner of rules_apple fails a test that passed when its process wrote no profile.
 _IOS_TEST_DEFAULTS = {"collect_code_coverage": False}
 
 # The main class of kt_jvm_test and kt_android_local_test, which runs the class of `test_class`.
@@ -181,9 +181,11 @@ def _ios_error(declaration, ios_test_rule):
                 "pass it as ios = dict(%s = ...), e.g. \"15.0\"") % (listed, _MINIMUM_OS_VERSION)
     if _ASSOCIATES in ios:
         return "ios sets %s, which the macro sets to the library of the platform" % _ASSOCIATES
-    if "deps" in ios:
-        return ("ios sets deps, which the macro sets to the library of the Kotlin tests: " +
-                "pass the deps of the tests as deps_ios to the macro")
+
+    # The macro puts the library of the Kotlin tests before them, when it is called.
+    if type(ios.get("deps", [])) not in ["list", "select"]:
+        return ("the deps of ios must be a list of labels, not a %s: they are the other libraries that the test " +
+                "bundle links, e.g. an objc_library; the deps of the Kotlin tests are deps_ios of the macro") % type(ios["deps"])
     return None
 
 def _native_test_attrs_error(declaration):
@@ -220,11 +222,12 @@ def tests_error(declaration, derived, ios_test_rule = None):
     Returns:
       The message for the first of `jvm`, `android` and `native` that sets `associates`, which
       the macro sets. Otherwise, with iOS targets, the first of: no `ios_test_rule`, no
-      `minimum_os_version` in `ios`, and `associates` or `deps` in `ios`, which the macro sets.
-      Then, with iOS targets and no other konan target, the message for the attributes of
-      `native` that are those of the native test alone, which the macro then does not declare.
-      Otherwise the message for the first listed platform that compiles no source, whose test
-      would run nothing. None without any.
+      `minimum_os_version` in `ios`, `associates` in `ios`, which the macro sets, and `deps` in
+      `ios` that are neither a list nor a select, as the macro adds the library of the Kotlin
+      tests to them. Then, with iOS targets and no other konan target, the message for the
+      attributes of `native` that are those of the native test alone, which the macro then does
+      not declare. Otherwise the message for the first listed platform that compiles no source,
+      whose test would run nothing. None without any.
     """
     for node in LIBRARY_NODES:
         if _ASSOCIATES in declaration.settings[node]:
@@ -286,8 +289,11 @@ def kt_multiplatform_test(
     The iOS targets have a test of their own, as a `kt_native_test` runs on the exec host: the
     macro links their tests into `<name>_ios_lib`, a `kt_native_xctest_library` whose `associates`
     are `<library>_native`, and declares `<name>_ios` with `ios_test_rule`, which takes the library
-    in `deps`, bundles it and runs it, e.g. in the iOS simulator. rules_kotlin does not depend on
-    rules_apple, so the caller loads its `ios_unit_test` and passes it:
+    in `deps`, bundles it and runs it, e.g. in the iOS simulator. The `deps` of `ios` follow the
+    library in the `deps` of the test: they are the other libraries the test bundle links, e.g.
+    the `objc_library` or the Swift package of an SDK that a klib of the tests refers to, as
+    `ios = dict(minimum_os_version = "15.0", deps = [...], linkopts = ["-ObjC"])`. rules_kotlin
+    does not depend on rules_apple, so the caller loads its `ios_unit_test` and passes it:
 
     ```bzl
     load("@rules_apple//apple:ios.bzl", "ios_unit_test")
@@ -325,11 +331,11 @@ def kt_multiplatform_test(
     the iOS targets it fails, in this order: when `platforms` lists none and `ios` sets attributes;
     when it lists some and `ios_test_rule` is not set, as the macro then has no rule to run their
     tests with; when `ios` does not set `minimum_os_version`, which the macro has no default for;
-    and when `ios` sets `deps` or `associates`, which the macro sets. An `ios_test_rule` without
-    iOS targets is allowed, so a wrapper of the macro can always pass it. With iOS targets as the
-    only konan targets, the macro declares no native test, and fails when `native` sets an
-    attribute other than `opts`, `link_opts` and `module_name`, e.g. `data` or `args`, which
-    nothing would take.
+    when `ios` sets `associates`, which the macro sets; and when the `deps` of `ios` are neither
+    a list of labels nor a select(). An `ios_test_rule` without iOS targets is allowed, so a
+    wrapper of the macro can always pass it. With iOS targets as the only konan targets, the macro
+    declares no native test, and fails when `native` sets an attribute other than `opts`,
+    `link_opts` and `module_name`, e.g. `data` or `args`, which nothing would take.
 
     Args:
       name: the name of the test_suite, and the prefix of the names of the other targets.
@@ -358,14 +364,20 @@ def kt_multiplatform_test(
         alone, and an error when `platforms` lists no konan target other than those of iOS.
       ios: the other attributes of the test `<name>_ios`, those of `ios_test_rule`, e.g.
         `dict(minimum_os_version = "15.0", runner = ...)`. `minimum_os_version` is required with
-        iOS targets; the `deps` of the test are `<name>_ios_lib`, and the deps of the Kotlin tests
-        are `deps_ios`. The macro sets `collect_code_coverage` to False unless `ios` sets it:
+        iOS targets. Its `deps` are the other libraries that the test bundle links, after
+        `<name>_ios_lib`: targets with a `CcInfo`, e.g. an `objc_library` or a `swift_library`, a
+        list of labels that may be or end with a select(); the deps of the Kotlin tests are
+        `deps_ios`. The macro sets `collect_code_coverage` to False unless `ios` sets it:
         Kotlin/Native code is not instrumented, and the runner of rules_apple fails a test of
-        `bazel coverage` whose process wrote no profile.
+        `bazel coverage` whose process wrote no profile. A test with `deps` to cover sets it to
+        True, in a build with `--experimental_use_llvm_covmap`: without that flag, a coverage
+        build compiles the Objective-C sources of any target for the gcov format, whose runtime
+        a test bundle does not link.
       ios_test_rule: the rule that bundles and runs the tests of the iOS targets: the
         `ios_unit_test` of rules_apple, loaded from `@rules_apple//apple:ios.bzl`, or a macro that
         takes its `name`, `deps`, `minimum_os_version`, `collect_code_coverage` and the attributes
-        of a test. It is required with iOS targets, and unused without.
+        of a test. Its `deps` are `<name>_ios_lib` and then the `deps` of `ios`. It is required
+        with iOS targets, and unused without.
       visibility: the visibility of the tests, of `<name>.fragments` and of the test_suite; the
         fragments are private.
       tags: the tags of the targets.
@@ -472,12 +484,9 @@ def kt_multiplatform_test(
             ios_test_konan_targets(ios_targets),
             [test_attrs, ios_attrs],
         )
+        attrs["deps"] = [":%s_ios_lib" % name] + ios_attrs.get("deps", [])
         tests.append(name + "_ios")
-        ios_test_rule(
-            name = name + "_ios",
-            deps = [":%s_ios_lib" % name],
-            **attrs
-        )
+        ios_test_rule(name = name + "_ios", **attrs)
 
     kt_kmp_fragments_graph(
         name = name + ".fragments",

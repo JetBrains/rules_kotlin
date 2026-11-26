@@ -379,6 +379,17 @@ the iOS targets of a multiplatform library.
   labels differ in nothing but such characters, e.g. `//app:shared_tests` and `//app/shared:tests`,
   build on their own and in separate bundles, and fail to link only when one bundle takes both,
   with duplicate symbols.
+- **Linking.** Only the XCTest case is linked whole (`alwayslink`), as XCTest finds its class at
+  run time. The static library links like any other one, as konanc links a binary: the linker
+  takes the object files that something refers to. The Kotlin code of the library is one object
+  file, with the function the XCTest case calls, so every test is in the bundle. The other object
+  files are those of the static libraries that the klibs embed, e.g. Skia in a klib of Compose
+  Multiplatform, which konanc copies into the library, some of them more than once: loading all
+  of them (`-force_load`) fails with duplicate symbols. A native library that a klib refers to
+  without embedding it, e.g. an Objective-C or Swift SDK behind a cinterop klib, is a dep of the
+  test, next to the library: `ios_unit_test(deps = [":greeter_test_lib", "//sdk"])`. A static
+  library whose Objective-C categories have to load needs `linkopts = ["-ObjC"]` on the test, as
+  in an app.
 - **No options of the test runner.** The Kotlin test runner gets none, e.g. no `--ktest_filter`: it
   runs every test of the library.
 - **Deployment target.** Kotlin/Native compiles for the iOS version its `konan.properties` gives as
@@ -803,7 +814,7 @@ With the name `shared_test`, the macro declares:
 | `shared_test_android`             | `kt_android_local_test`             | When `platforms` lists `android`: the attributes of `android`, e.g. its `manifest`, the test fragments of Android and its leaf, with `<library>_android` as associate.               |
 | `shared_test_native`              | `kt_native_test`                    | When `platforms` lists konan targets other than those of iOS: for the konan target of the build's platform, its test fragments and its leaf, with `<library>_native` as associate. It is incompatible with the other platforms. |
 | `shared_test_ios_lib`             | `kt_native_xctest_library`          | When `platforms` lists iOS targets: for the iOS target of the test bundle, its test fragments and its leaf, with `<library>_native` as associate, and the `opts`, `link_opts` and `module_name` of `native`. It is incompatible with the other platforms. |
-| `shared_test_ios`                 | `ios_test_rule`                     | When `platforms` lists iOS targets: the test of the rule the macro is given, with `shared_test_ios_lib` as its `deps` and the attributes of `ios`. See [iOS tests](#ios-tests).   |
+| `shared_test_ios`                 | `ios_test_rule`                     | When `platforms` lists iOS targets: the test of the rule the macro is given, with `shared_test_ios_lib` and then the `deps` of `ios` as its `deps`, and the other attributes of `ios`. See [iOS tests](#ios-tests). |
 | `shared_test.fragments`           | `kt_kmp_fragments_graph` (internal) | An executable target that prints the derived test fragments.                                                                                                                         |
 | `shared_test`                     | `test_suite`                        | The tests above.                                                                                                                                                                     |
 
@@ -849,16 +860,34 @@ kt_multiplatform_test(
 
 The macro links the test fragments of the iOS targets into `shared_test_ios_lib`, with
 `<library>_native` as associate and the lists of the qualifiers covering each target (`srcs_ios`,
-`deps_apple`), and calls `ios_test_rule(name = "shared_test_ios", deps = [":shared_test_ios_lib"],
-...)` with the attributes of `ios` and those of every test. The test is one of the `test_suite`.
-The XCTest case is `KotlinNativeTests_<package>_shared_test_ios_lib`, and the test log has the
-names and the results of the Kotlin tests.
+`deps_apple`), and calls `ios_test_rule(name = "shared_test_ios", deps = [":shared_test_ios_lib"] +
+<the deps of ios>, ...)` with the other attributes of `ios` and those of every test. The test is
+one of the `test_suite`. The XCTest case is `KotlinNativeTests_<package>_shared_test_ios_lib`, and
+the test log has the names and the results of the Kotlin tests.
 
-- **`ios`.** The attributes of `ios_test_rule` other than `name` and `deps`: `minimum_os_version`,
-  which is required, and e.g. `runner` or `env`. The deps of the Kotlin tests are `deps_ios` (or
-  those of another qualifier), not `deps` of `ios`. The macro sets `collect_code_coverage` to
-  `False` unless `ios` sets it: the bundle has Kotlin tests alone, so `bazel coverage` passes the
-  test in either coverage format (see [Coverage](#tests-in-the-ios-simulator)).
+- **`ios`.** The attributes of `ios_test_rule` other than `name`: `minimum_os_version`, which is
+  required, and e.g. `runner`, `env` or `linkopts`. Its `deps` are the other libraries the test
+  bundle links, after the library of the Kotlin tests: targets with a `CcInfo`, e.g. the
+  `objc_library` or the Swift package of an SDK that a klib of the tests refers to (see
+  [Linking](#tests-in-the-ios-simulator)), as a list of labels that may be or end with a
+  `select()`:
+
+  ```starlark
+  ios = dict(
+      minimum_os_version = "16.0",
+      linkopts = ["-ObjC"],  # the Objective-C categories of the SDK
+      deps = ["@swiftpkg_firebase_ios_sdk//:FirebaseMessaging"],
+  ),
+  ```
+
+  The deps of the Kotlin tests are `deps_ios` (or those of another qualifier), not `deps` of
+  `ios`: a Kotlin library there is not a dep of their compilation. The macro sets
+  `collect_code_coverage` to `False` unless `ios` sets it: the Kotlin tests are not instrumented,
+  so `bazel coverage` passes a test of them alone in either coverage format (see
+  [Coverage](#tests-in-the-ios-simulator)). A coverage build in the default format, gcov, fails
+  to link a bundle with an `objc_library`, whatever the test collects: the library disables the
+  feature `gcc_coverage_map_format`, or the build sets `--experimental_use_llvm_covmap`, with
+  which a test that covers its `deps` sets `collect_code_coverage = True`.
 - **`native`.** Its `opts`, `link_opts` and `module_name` are those of the compilation and the link
   of `shared_test_ios_lib` too; its other attributes, e.g. `data`, `args` or
   `target_compatible_with`, are of the `kt_native_test` alone, as the iOS test is no
@@ -867,8 +896,9 @@ names and the results of the Kotlin tests.
   attributes of the iOS test are those of `ios`.
 - **`ios_test_rule`.** rules_apple's `ios_unit_test`, or a macro that takes its `name`, `deps`,
   `minimum_os_version`, `collect_code_coverage` and the attributes of a test, e.g. one of the
-  repository that sets a `runner`. Without iOS targets it is unused, so a wrapper of
-  `kt_multiplatform_test` can always pass it.
+  repository that sets a `runner`. The libraries of the bundle need no such macro: they are the
+  `deps` of `ios`. Without iOS targets it is unused, so a wrapper of `kt_multiplatform_test` can
+  always pass it.
 
 The macro fails for the iOS tests when it is called, with the first of:
 
@@ -878,7 +908,7 @@ The macro fails for the iOS tests when it is called, with the first of:
 | `platforms` lists iOS targets, without `ios_test_rule`                 | `platforms lists ios_simulator_arm64, whose tests need ios_test_rule: pass the ios_unit_test of rules_apple, loaded from @rules_apple//apple:ios.bzl, or remove ios_simulator_arm64 from platforms` |
 | `ios` is not set, or sets no `minimum_os_version`                      | `platforms lists ios_simulator_arm64, whose test needs a deployment target, which the macro has no default for: pass it as ios = dict(minimum_os_version = ...), e.g. "15.0"` |
 | `ios` sets `associates`                                                | `ios sets associates, which the macro sets to the library of the platform`                                                                                           |
-| `ios` sets `deps`                                                      | `ios sets deps, which the macro sets to the library of the Kotlin tests: pass the deps of the tests as deps_ios to the macro`                                        |
+| The `deps` of `ios` are neither a list nor a `select()`                | `the deps of ios must be a list of labels, not a string: they are the other libraries that the test bundle links, e.g. an objc_library; the deps of the Kotlin tests are deps_ios of the macro` |
 | `native` sets an attribute other than `opts`, `link_opts` and `module_name`, and the only konan targets of `platforms` are iOS targets | `native sets data, an attribute of the native test, but platforms lists no konan target other than those of iOS, whose tests take only the link_opts, module_name and opts of native: remove data from native, or add a konan target that has a native test, e.g. macos_arm64; the attributes of the iOS test are those of ios` |
 
 **Platforms and flags.** Each test of the macro picks its platform itself, so `bazel test` needs no

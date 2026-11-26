@@ -142,14 +142,14 @@ def _xctest_cc_info_test_impl(ctx):
     library = single_action(env, "KotlinNativeLink").outputs.to_list()[0]
     _test_case_compile(env)
 
-    # The CcInfo links the Kotlin tests and the test case, both whole: nothing refers to them.
+    # The CcInfo links the test case whole, as nothing refers to it, and the Kotlin tests as a
+    # static library: its object files of the libraries that klibs embed do not link whole.
     linker_inputs = analysistest.target_under_test(env)[CcInfo].linking_context.linker_inputs.to_list()
     linked = [lib for linker_input in linker_inputs for lib in linker_input.libraries]
     asserts.equals(env, 2, len(linked), str(linked))
-    for lib in linked:
-        asserts.true(env, lib.alwayslink, "%s should be alwayslink" % lib)
-    statics = [lib.static_library or lib.pic_static_library for lib in linked]
-    asserts.true(env, library in statics, "%s should be in %s" % (library, statics))
+    alwayslink = {(lib.static_library or lib.pic_static_library): lib.alwayslink for lib in linked}
+    asserts.equals(env, False, alwayslink.get(library), "alwayslink of %s in %s" % (library, alwayslink))
+    asserts.equals(env, [True], [whole for static, whole in alwayslink.items() if static != library], str(alwayslink))
 
     # The flags konanc links an iOS binary with travel with the library.
     flags = [flag for linker_input in linker_inputs for flag in linker_input.user_link_flags]
