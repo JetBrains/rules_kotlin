@@ -1,7 +1,7 @@
 # Branch map: Kotlin/Native and Kotlin Multiplatform in rules_kotlin
 
-Snapshot: `a926cb0e` (2026-11-25). It covers 31 commits, from `09145518` to `a926cb0e`, on top of upstream master `239007ef`
-("Add Kover code coverage support (#1831)"). Together they touch 275 files: 225 added and 50 upstream files modified.
+Snapshot: `499989e0` (2026-11-26). It covers 34 commits, from `09145518` to `499989e0`, on top of upstream master `239007ef`
+("Add Kover code coverage support (#1831)"). Together they touch 283 files: 233 added and 50 upstream files modified.
 `scripts/scope.sh` marks with `*` every commit of the range that this map does not list yet. Facts
 below are as of the snapshot, and commit messages can be stale. Check a detail against the code before relying on it.
 
@@ -157,11 +157,37 @@ upgrade script.
       of `android_local_test` public, for the docs.
     - `examples/kmp` has `//tests:shared_test`, and `greetingFrom` of `//shared` is `internal`. It is the second step of
       porting Kotlin Toolchain features.
+32. `4837d476` Record kt_multiplatform_test and the two commits before it in the branch map of the scope skill
+    - This map up to `a926cb0e`. An update of the map is a commit of its own since `42b1225c` tracks the skill.
+33. `e616b3ba` Run Android local tests and iOS simulator tests from kt_multiplatform_test
+    - `//kotlin/settings:android`, a public `config_setting_group`: `kotlin_platform_type = jvm` with an Android platform
+      or with `android_host_hybrid_mode` of rules_android, which `android_local_test` sets. The alias of the library and
+      the `kmp_maven` aliases select on it, so a `kt_android_local_test` gets the Android variants on the host.
+      `kt_jvm_tool_transition` resets the hybrid mode too.
+    - `compile.bzl` does not call `coverage_common.instrumented_files_info` for a `kt_android_local_test`: on Bazel 8 it
+      conflicted with the baseline coverage action of rules_android.
+    - `kt_native_xctest_library` (`xctest.bzl`, `XCTestLauncher.kt`, `XCTestShim.m`): the tests link into a static
+      library, `_kt_native/<name>/lib<id>.a`, which a `CcInfo` provides with an XCTest case compiled by `cc_common`.
+      rules_apple's `ios_unit_test` bundles it and runs the Kotlin tests in the process of the test. The symbols are
+      named after the package and the name of the target, so one bundle takes several libraries.
+    - `kt_multiplatform_test(ios = ..., ios_test_rule = ...)`: the iOS targets leave `<name>_native` for `<name>_ios_lib`
+      and `<name>_ios`, the test of the rule the caller passes. rules_kotlin does not depend on rules_apple; `rules_cc`
+      is a `bazel_dep`.
+    - `examples/kmp` runs an Android test, and `examples/kmp_app` tests `//shared` with the macro on the JVM, Android and
+      the iOS simulator. `NativeXctestTest.kt` and `AndroidLocalTestCoverageTest.kt` in `src/test/integration`.
+34. `499989e0` Link the archive of kt_native_xctest_library lazily and take deps in ios of kt_multiplatform_test
+    - Revises `e616b3ba`. Only the XCTest case of a `kt_native_xctest_library` is `alwayslink`: the archive holds the
+      static libraries that the klibs embed, with repeated members (Skia in a Compose Multiplatform module), and all
+      Kotlin code is one object file with the launcher that the XCTest case calls.
+    - `ios = dict(deps = [...])` of `kt_multiplatform_test`: the other libraries of the test bundle, after
+      `<name>_ios_lib`, a list or a `select()`. Any other type fails when the macro is called.
+    - The reason was the migration of kotlinconf-app, which needed a rule that rewrote the `CcInfo` and a wrapper of
+      `ios_unit_test` for FirebaseMessaging.
 
 ## Current public surface
 
-- `//kotlin:native.bzl`: `kt_native_library`, `kt_native_binary`, `kt_native_test`, `kt_native_framework`, `kt_klib_import`,
-  `KtKlibInfo`.
+- `//kotlin:native.bzl`: `kt_native_library`, `kt_native_binary`, `kt_native_test`, `kt_native_xctest_library`,
+  `kt_native_framework`, `kt_klib_import`, `KtKlibInfo`.
 - `//kotlin:kmp.bzl` (excluded from the release `kotlin` filegroup, as it loads the Android rules): `kt_multiplatform_library`,
   `kt_multiplatform_test`, `kt_jvm_ksp_sources`, `kt_native_ksp_sources`.
 - Module extensions:
@@ -176,10 +202,15 @@ upgrade script.
   `<name>_native` (each when its own `platforms` lists the platform), whose `associates` are `<library>_jvm`,
   `<library>_android` and `<library>_native`. It also declares the private `<name>_fragment_<f>` and `<name>.fragments`.
   It takes `srcs`, `deps` and `plugins` per qualifier, and no `exports`. Its JVM and Android tests run
-  `//src/main/kotlin:kmp_test_suite` unless they name a `test_class`.
+  `//src/main/kotlin:kmp_test_suite` unless they name a `test_class`. `<name>_native` is for the konan targets other
+  than those of iOS. For the iOS targets it declares `<name>_ios_lib` (a `kt_native_xctest_library`) and `<name>_ios`,
+  the test of `ios_test_rule` (rules_apple's `ios_unit_test`, which the caller loads) with the attributes of `ios`:
+  `minimum_os_version` is required, and its `deps` are the other libraries of the test bundle.
 - `kmp_fragments`: an attribute that the macros set, of `kt_jvm_library`, `kt_android_library` and `kt_native_library`, and
-  of `kt_jvm_test`, `kt_android_local_test` and `kt_native_test`.
+  of `kt_jvm_test`, `kt_android_local_test`, `kt_native_test` and `kt_native_xctest_library`.
 - Platforms: `//kotlin/native/platforms:<konan target>`, plus the config_settings `is_<t>`, `native` and `native_<t>`.
+- `//kotlin/settings:android`: the config_setting of an Android variant, on an Android platform or below an Android
+  local test on the host.
 - Build settings in `//kotlin/settings`:
   - `kotlin_platform_type` (`jvm`|`native`, scope `target`)
   - `experimental_native_header_klibs` (off)
@@ -201,14 +232,14 @@ upgrade script.
 
 | Area | Files |
 |---|---|
-| Native rules | `kotlin/internal/native/`: `library.bzl`, `binary.bzl`, `test.bzl`, `framework.bzl`, `import.bzl`, `link.bzl`, `klib.bzl` (compile and link actions), `providers.bzl`, `toolchains.bzl`, `targets.bzl`, `transition.bzl` |
+| Native rules | `kotlin/internal/native/`: `library.bzl`, `binary.bzl`, `test.bzl`, `xctest.bzl` (with `XCTestLauncher.kt` and `XCTestShim.m`), `framework.bzl`, `import.bzl`, `link.bzl`, `klib.bzl` (compile and link actions), `providers.bzl`, `toolchains.bzl`, `targets.bzl`, `transition.bzl` |
 | KMP | `kotlin/internal/kmp/`: `multiplatform.bzl` (library macro), `test.bzl` (test macro), `declaration.bzl`, `hierarchy.bzl`, `qualifiers.bzl`, `derive.bzl`, `fragment.bzl`, `fragments.bzl`, `ksp.bzl`, `ksp_run.sh` |
 | Public entry points | `kotlin/native.bzl`, `kotlin/kmp.bzl`, `kotlin/native/platforms/` |
 | Repositories | `src/main/starlark/core/repositories/`: `native.bzl` (extension), `native_compiler.bzl` (pins, bundle, cross-check), `kmp_maven.bzl`, `kmp_maven_impl.bzl`, `language_level.bzl` |
 | Launcher | `src/main/kotlin/io/bazel/kotlin/native/`: `KonanLauncher.kt`, `BtapiKlibCompiler.kt` |
 | Test suite | `src/main/kotlin/io/bazel/kotlin/kmp/`: `MultiplatformTestSuite.kt` |
 | Upgrade tool | `src/main/kotlin/io/bazel/kotlin/upgrade/`, `scripts/upgrade_kotlin.sh` |
-| Tests | `src/test/starlark/internal/{native,kmp}/`, `src/test/starlark/internal/jvm/{kmp_fragments_test,toolchain_language_level_test}.bzl`, `src/test/starlark/{native_repositories_test,native_konan_properties,kmp_maven_test,kmp_maven_manifest}.bzl`, `src/test/starlark/rules/import_exports_tests.bzl`, `src/test/kotlin/io/bazel/kotlin/{native,upgrade,kmp}/`, `src/test/kotlin/io/bazel/kotlin/builder/tasks/AbsoluteFragmentSourcesTest.kt`, `src/test/integration/{CompileAvoidanceTest,NativeCompilationModesTest}.kt` |
+| Tests | `src/test/starlark/internal/{native,kmp}/`, `src/test/starlark/internal/jvm/{kmp_fragments_test,toolchain_language_level_test}.bzl`, `src/test/starlark/{native_repositories_test,native_konan_properties,kmp_maven_test,kmp_maven_manifest}.bzl`, `src/test/starlark/rules/import_exports_tests.bzl`, `src/test/kotlin/io/bazel/kotlin/{native,upgrade,kmp}/`, `src/test/kotlin/io/bazel/kotlin/builder/tasks/AbsoluteFragmentSourcesTest.kt`, `src/test/integration/{CompileAvoidanceTest,NativeCompilationModesTest,NativeXctestTest,AndroidLocalTestCoverageTest}.kt` |
 | Examples | `examples/native`, `examples/kmp`, `examples/kmp_app` |
 | Other | `docs/kmp.md`, `docs/kmp_dependencies.md`, `docs/upgrading_kotlin.md`, `third_party/rules_android_bzl_library_visibility.patch`, `.agents/skills/kmp-branch-scope/` (this skill) |
 
@@ -219,7 +250,8 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
 - **JVM and Android rules**: `kotlin/internal/jvm/`
   - `attrs.bzl`: `kmp_fragments` of the libraries, and `test_kmp_fragments_attr`, that of the two test rules.
   - `compile.bzl`: fragment flags through `--kotlin_passthrough_flags`, and srcjar/kapt/KSP rejected with fragments. The
-    leaf of a `kt_android_library` or a `kt_android_local_test` is `android`.
+    leaf of a `kt_android_library` or a `kt_android_local_test` is `android`. No `instrumented_files_info` of its own
+    for a `kt_android_local_test` (`e616b3ba`).
   - `kt_jvm_library.bzl`: a library of fragments only still makes a jar.
   - `kt_jvm_test.bzl`, `kt_android_local_test.bzl`: `kmp_fragments`, one line each.
   - `kt_android_library_impl.bzl`: fragments and the coverage fix.
@@ -237,7 +269,7 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
   - `KotlinAbstractTestBuilder.java`, `KotlinJvmTestBuilder.java`: 2.0 becomes 2.2.
   - Root `BUILD`: the ktlint fix target of the upgrade tool.
   - `examples/{android/bzl,dagger,deps/bzl}`: language level 2.3.
-- **Settings**: `kotlin/settings/BUILD.bazel` and `BUILD.release.bazel` declare the three settings.
+- **Settings**: `kotlin/settings/BUILD.bazel` and `BUILD.release.bazel` declare the three settings and `:android`.
 - **Packaging**:
   - `kotlin/BUILD`, `kotlin/BUILD.release.bazel` (keeps `kmp.bzl` out of the release filegroup).
   - `kotlin/internal/BUILD` and `BUILD.release.bazel`.
@@ -245,7 +277,8 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
     `MultiplatformTestSuite` (`kmp_test_suite`, a `java_import` in the release).
   - `src/main/starlark/core/repositories/BUILD`.
   - `MODULE.bazel` and `MODULE.release.bazel`: the `kotlin_native` extension and its repositories, the 7 native
-    toolchains and apple_support. The release also adds rules_shell, which the root module already had.
+    toolchains, apple_support and rules_cc (`cc_common` for the XCTest case). The release also adds rules_shell, which
+    the root module already had.
   - `MODULE.bazel` alone also uses `kotlin_native_build_tools_api`, the API jar the launcher bundles. It also has the
     rules_android `single_version_override` with its patch, for the docs: the `bzl_library` targets of `android_library`
     and `android_local_test` are public.
@@ -281,6 +314,10 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
   `fragment_name` and the `owners` of a derived fragment. Declare an alias instead (`262e0f73`).
 - The fallback for Bazel without `native.package_relative_label`, and diagnostics or migration tables for macro shapes that
   were never released.
+- The iOS targets of a `kt_multiplatform_test` in `<name>_native`, a `kt_native_test` that nothing runs. They are
+  `<name>_ios_lib` and `<name>_ios` (`e616b3ba`).
+- `alwayslink` on the Kotlin/Native archive of `kt_native_xctest_library`, and `deps` in `ios` of `kt_multiplatform_test`
+  as an error, which left the libraries of the test bundle to a wrapper of `ios_test_rule` (`499989e0`).
 
 ## Decisions kept on purpose (212eac0a and earlier)
 
@@ -304,6 +341,14 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
   - The suite ships with the rules and compiles against the test runner jar of Bazel, so the release has no JUnit
     dependency. A test that finds no test class fails.
   - The `test_suite` stays: Bazel skips an incompatible test that it reaches through a suite.
+- iOS tests (`e616b3ba`, `499989e0`):
+  - The Kotlin tests run in the process of an XCTest case, in the bundle of `ios_unit_test`: not `simctl spawn`, and not
+    `konanc -produce test_bundle`, whose launcher no Kotlin/Native distribution ships.
+  - `ios_test_rule` is passed by the caller: rules_kotlin has no `bazel_dep` on rules_apple.
+  - `kt_native_xctest_library` has no `alwayslink` attribute: it runs the tests of its own sources, which are in the
+    one object file that the XCTest case refers to.
+  - A native library that a klib refers to is a dep of the test (`ios_unit_test(deps = ...)`, `ios = dict(deps = ...)`):
+    no `cc_deps` on the library, and no `CcInfo` through the klibs.
 
 ## Open ends at the snapshot
 
@@ -317,16 +362,21 @@ Keep every hunk in these files traceable to one of these reasons. `scope.sh file
 - `bazel run //:buildifier.check` already exited 1 at `074283b0`, with 22 warnings in 16 files, none in the files of the
   latest commits. Check the files you change instead.
 - Header klib limits: sealed hierarchies, inline functions.
-- `kt_multiplatform_test` (`a926cb0e`):
-  - Its Android test is analysed, not run: no example has one, so the suite never ran under the launcher of
-    `android_local_test`.
+- `kt_multiplatform_test` (`a926cb0e`, `e616b3ba`):
   - It ran on a macOS arm64 host only. The `linux_x64` native test of `examples/kmp` and the Windows launcher of a JVM
     test were not tried.
   - The macro did not run on Bazel 7: the root workspace does not load there, and `examples/kmp` excludes 7.x.
-  - A native test runs for the konan target of the exec host only: nothing runs it in the iOS simulator.
+  - A native test runs for the konan target of the exec host only. The iOS targets run in the simulator of an arm64 Mac
+    through `<name>_ios`; Linux and Intel macOS hosts, where it is skipped, were not run. No devices, no test host app,
+    one XCTest case per library and no test filter, and no `macos_unit_test`, tvOS or watchOS.
   - A test lists its own deps: it does not inherit those of the library. No KSP of test sources, and no `kmp_fragments`
     on `kt_jvm_binary`, `kt_native_binary` or `kt_native_framework`.
-  - `examples/kmp_app` and the tests of one platform of `examples/kmp` are not converted.
+  - The tests of one platform of `examples/kmp` are not converted.
+- `kt_native_xctest_library` (`499989e0`):
+  - No test of the rules links an archive with repeated members: it needs a klib that embeds static libraries, and the
+    rules have no cinterop. kotlinconf-app was the evidence; it still has its wrapper until it moves to `499989e0`.
+  - A coverage build in the gcov format fails to link a test bundle with an `objc_library`, unless the library disables
+    `gcc_coverage_map_format` or the build sets `--experimental_use_llvm_covmap` (`docs/kmp.md`).
 - Left for later steps of the Kotlin Toolchain port (`.junie/plans/kotlin-toolchain-features-porting.md`): `opts` and
   `resources` per qualifier, dropping a fragment that only one other refines, `.java` in a fragment of the JVM and
   Android, and deps per fragment.
