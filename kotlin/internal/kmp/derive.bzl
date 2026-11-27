@@ -15,12 +15,23 @@ fragments. The compilation of a platform gets every fragment its platform compil
 first, each after those it refines, and then its leaf (see fragments.bzl). A source is in one
 fragment, and sources are told apart by label: a file that two labels name is in two fragments,
 which the analysis of the compilation reports.
+
+A library of one platform whose sources are all those of one group has no fragment: they are the
+sources of the leaf of the platform, which is then compiled as a single-platform target.
 """
 
 load(":qualifiers.bzl", "direct")
 
 def _most_shared_first(fragment):
     return (-len(fragment.platforms), fragment.rank, fragment.name)
+
+def _only_shared(qualifier_srcs, qualifiers, shared):
+    """The group whose sources the only platform compiles alone, or None."""
+    if len(qualifiers.leaves) != 1 or len(shared) != 1:
+        return None
+    if qualifier_srcs.get(qualifiers.leaves[0]):
+        return None
+    return list(shared)[0]
 
 def derive_fragments(qualifier_srcs, qualifiers):
     """The fragments of a kt_multiplatform_library, from the sources of its groups, aliases and platforms.
@@ -42,12 +53,25 @@ def derive_fragments(qualifier_srcs, qualifiers):
       - `leaf_srcs`: a dict of each listed platform to the labels of its sources, in their order;
       - `leaf_refines`: a dict of each listed platform to the names of the fragments directly
         above it, which its leaf refines, in the order of `fragments`.
+
+      When a single platform is listed, it has no sources of its own and one group alone has
+      sources, there is no fragment: `fragments` is empty, `leaf_srcs` maps the platform to the
+      sources of that group and `leaf_refines` maps it to nothing.
     """
     shared = {
         qualifier: True
         for qualifier in qualifiers.names
         if qualifier not in qualifiers.leaves and qualifier_srcs.get(qualifier)
     }
+
+    only = _only_shared(qualifier_srcs, qualifiers, shared)
+    if only != None:
+        platform = qualifiers.leaves[0]
+        return struct(
+            fragments = [],
+            leaf_srcs = {platform: list(qualifier_srcs[only])},
+            leaf_refines = {platform: []},
+        )
 
     def _directly_above(qualifier):
         return direct(qualifiers, [above for above in qualifiers.above[qualifier] if above in shared])

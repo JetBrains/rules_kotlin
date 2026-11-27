@@ -1083,10 +1083,16 @@ the libraries of a `kt_multiplatform_library`, and no generated `.srcjar` is sup
   they share gets both: the `jvm` leaf refines both. An `expect` declaration above them with an
   `actual` in each gives the JVM two `actual`s, which the compiler rejects. The same holds for an
   alias and a group that share a platform.
-- A library of a single platform compiles its `srcs` as the fragment `common` too, so the
-  restrictions of the libraries with fragments apply to it: no `.srcjar` sources, no kapt and no KSP
-  compiler plugin (see [Limitations](#limitations)). Sources in the list of the platform alone, e.g.
-  `srcs_jvm`, are its leaf and compile without fragments.
+- A library or a test of a single platform whose sources are all in one list, e.g. `srcs`,
+  `srcs_native` or `srcs_jvm`, compiles them as the sources of that platform, without fragments:
+  `<name>.fragments` prints its leaf alone. The restrictions of the libraries with fragments do not
+  apply to it, so on the JVM and Android it can have `.srcjar` sources, kapt and the KSP compiler
+  plugin (see [Limitations](#limitations)). Its sources cannot declare `expect` or `actual`, which
+  the compiler reports as `'expect' and 'actual' declarations can be used only in multiplatform
+  projects`. Sources in a second list, e.g. `srcs` and `srcs_jvm`, or a second platform make the
+  lists fragments again, and bring the restrictions back: a target with a `.srcjar`, kapt or the KSP
+  compiler plugin then fails with `kmp_fragments cannot be combined with ...`. The platforms of a
+  test are its own, not those of its library.
 - The lists of sources are plain lists: the macro derives the fragments when it is called, before any
   `select()` is resolved, and fails on a `select()` there. A source of some konan targets only goes
   in the srcs of their group or platform, e.g. `srcs_linux` or `srcs_ios_arm64`.
@@ -1330,7 +1336,9 @@ that library: its dependents compile against its klib.
   instrumented Swift code, so `examples/kmp_app` leaves its Swift app out of
   `--instrumentation_filter`.
 - The JVM and Android libraries of a `kt_multiplatform_library`, and the JVM and Android tests of a
-  `kt_multiplatform_test`, cannot have `.srcjar` sources, kapt or the KSP compiler plugin;
+  `kt_multiplatform_test`, that compile fragments cannot have `.srcjar` sources, kapt or the KSP
+  compiler plugin. Those of a single platform with sources in one list compile no fragment and can
+  (see [Limitations of the fragments](#limitations-of-the-fragments)).
   [KSP for a multiplatform library](#ksp-for-a-multiplatform-library) is a separate action with
   declared plain `.kt` outputs, which the libraries compile. KSP of a native target is that action
   too; there is no inline KSP plugin for Kotlin/Native. Generated Java sources, classes and

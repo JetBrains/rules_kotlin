@@ -1117,8 +1117,9 @@ of a group, an alias or a platform below it are in one module, even when both co
 platforms (see derive.bzl). Running `<name>.fragments` prints the derived fragments, their
 `refines` edges, their platforms and their sources. A fragment has no deps: each platform
 compiles it against its own deps. A source is in one fragment, so one list names it, by one
-label. A library of a single platform compiles its `srcs` as the fragment `common` too, with
-the restrictions of `kmp_fragments`.
+label. A library of a single platform whose sources are all in one list, e.g. `srcs`, compiles
+them as the sources of that platform, without fragments and so without the restrictions of
+`kmp_fragments`: `expect` and `actual` declarations need sources in a second list.
 
 The macro checks the declaration when it is called and fails with what to change, e.g. for
 sources of a group none of whose platforms `platforms` lists, a list given as a select() it
@@ -1168,7 +1169,10 @@ groups and aliases above it and its own. The test sources of a group or an alias
 fragment of the tests of its platforms, named after it, so a common test can use an `expect`
 helper that each platform implements with `actual`. Running `<name>.fragments` prints the
 derived test fragments. The platforms and the aliases are those of the test, not of the
-library: they may be fewer, and the test may declare aliases of its own.
+library: they may be fewer, and the test may declare aliases of its own. A test of a single
+platform whose sources are all in one list, e.g. `srcs`, compiles them as the sources of that
+platform, without fragments and so without the restrictions of `kmp_fragments`, whatever the
+platforms of the library: `expect` and `actual` declarations need sources in a second list.
 
 The test of a platform is a `kt_jvm_test`, a `kt_android_local_test` or a `kt_native_test`
 whose `associates` are the library of that platform, `<library>_jvm`, `<library>_android` or

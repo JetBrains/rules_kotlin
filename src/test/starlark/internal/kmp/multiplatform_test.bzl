@@ -6,7 +6,9 @@ to native: the tests of the alias alone set it as such a consumer does.
 """
 
 load("@bazel_skylib//lib:unittest.bzl", "analysistest", "asserts", "unittest")
-load("@rules_java//java:defs.bzl", "JavaInfo")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_java//java:defs.bzl", "JavaInfo", "java_library", "java_plugin")
+load("//kotlin:core.bzl", "kt_ksp_plugin")
 load("//kotlin:kmp.bzl", "kt_multiplatform_library")
 load("//kotlin:native.bzl", "KtKlibInfo")
 
@@ -82,6 +84,13 @@ def _jvm_test_impl(ctx):
     env = analysistest.begin(ctx)
 
     _assert_fragments(env, single_action(env, "KotlinCompile").argv, ctx.attr)
+
+    return analysistest.end(env)
+
+def _jvm_library_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    asserts.true(env, JavaInfo in analysistest.target_under_test(env), "the target should be a JVM library")
 
     return analysistest.end(env)
 
@@ -186,6 +195,7 @@ native_ios_simulator_arm64_test = analysistest.make(
     config_settings = for_target("ios_simulator_arm64"),
 )
 jvm_test = analysistest.make(_jvm_test_impl, attrs = _FRAGMENT_FLAGS_ATTRS)
+jvm_library_test = analysistest.make(_jvm_library_test_impl)
 alias_native_test = analysistest.make(
     _alias_native_test_impl,
     config_settings = _native_consumer_of("linux_arm64"),
@@ -477,6 +487,77 @@ def multiplatform_test_suite(name):
         tags = ["manual"],
     )
 
+    # A single platform whose sources are those of one list compiles them as its own, without a
+    # fragment, whichever the list.
+    kt_multiplatform_library(
+        name = "mpp_pruned",
+        platforms = ["jvm"],
+        srcs = ["testdata/Standalone.kt"],
+        tags = ["manual"],
+    )
+    kt_multiplatform_library(
+        name = "mpp_pruned_native",
+        platforms = ["linux_arm64"],
+        srcs_native = ["testdata/Standalone.kt"],
+        tags = ["manual"],
+    )
+
+    # Without a fragment, the JVM library takes what kmp_fragments cannot be combined with: a
+    # .srcjar, an annotation processor of kapt and one of KSP.
+    for generated, out, content in [
+        ("mpp_processor_java", "Processor.java", ["package kmp.test;", "", "public class Processor {}"]),
+        ("mpp_srcjar", "Gen.srcjar", [""]),
+    ]:
+        write_file(
+            name = generated,
+            out = "mpp_pruned/" + out,
+            content = content,
+            tags = ["manual"],
+        )
+    java_plugin(
+        name = "mpp_kapt_processor",
+        srcs = [":mpp_processor_java"],
+        processor_class = "kmp.test.Processor",
+        tags = ["manual"],
+    )
+    java_library(
+        name = "mpp_ksp_processor_lib",
+        srcs = [":mpp_processor_java"],
+        tags = ["manual"],
+    )
+    kt_ksp_plugin(
+        name = "mpp_ksp_processor",
+        processor_class = "kmp.test.Processor",
+        tags = ["manual"],
+        deps = [":mpp_ksp_processor_lib"],
+    )
+    kt_multiplatform_library(
+        name = "mpp_pruned_processors",
+        platforms = ["jvm"],
+        srcs = [
+            "testdata/Standalone.kt",
+            ":mpp_srcjar",
+        ],
+        plugins_jvm = [
+            ":mpp_kapt_processor",
+            ":mpp_ksp_processor",
+        ],
+        tags = ["manual"],
+    )
+
+    # A second platform keeps the fragment of the only list with sources, and so the JVM library
+    # takes no annotation processor of kapt.
+    kt_multiplatform_library(
+        name = "mpp_unpruned_kapt",
+        platforms = [
+            "jvm",
+            "linux_arm64",
+        ],
+        srcs = ["testdata/Standalone.kt"],
+        plugins_jvm = [":mpp_kapt_processor"],
+        tags = ["manual"],
+    )
+
     # A file of every platform that the JVM lists again through a filegroup: the label of every
     # platform is in a fragment, the filegroup in the JVM leaf.
     native.filegroup(
@@ -738,6 +819,25 @@ def multiplatform_test_suite(name):
             "jvm:Platform.jvm.kt",
         ],
     )
+    jvm_test(
+        name = "multiplatform_pruned_jvm_test",
+        target_under_test = ":mpp_pruned_jvm",
+    )
+    native_linux_arm64_test(
+        name = "multiplatform_pruned_native_test",
+        target_under_test = ":mpp_pruned_native_native",
+        srcs = ["Standalone.kt"],
+        target_compatible_with = not_on_windows(),
+    )
+    jvm_library_test(
+        name = "multiplatform_pruned_processors_test",
+        target_under_test = ":mpp_pruned_processors_jvm",
+    )
+    failure_test(
+        name = "multiplatform_unpruned_kapt_fails_test",
+        target_under_test = ":mpp_unpruned_kapt_jvm",
+        message = "kmp_fragments cannot be combined with kapt",
+    )
     failure_test(
         name = "multiplatform_file_in_two_fragments_fails_test",
         target_under_test = ":mpp_two_labels_jvm",
@@ -915,6 +1015,17 @@ leaf jvm
         launcher = "mpp_single.fragments.sh",
     )
     fragments_graph_unix_test(
+        name = "multiplatform_pruned_fragments_graph_test",
+        target_under_test = ":mpp_pruned.fragments",
+        graph = """\
+leaf jvm
+  srcs:
+    testdata/Standalone.kt
+""",
+        header = "#!/usr/bin/env sh\n",
+        launcher = "mpp_pruned.fragments.sh",
+    )
+    fragments_graph_unix_test(
         name = "multiplatform_ios_only_fragments_graph_test",
         target_under_test = ":mpp_ios_only.fragments",
         graph = """\
@@ -980,9 +1091,14 @@ leaf ios_simulator_arm64
             ":multiplatform_native_ios_chain_test",
             ":multiplatform_native_ios_only_test",
             ":multiplatform_native_linux_test",
+            ":multiplatform_pruned_fragments_graph_test",
+            ":multiplatform_pruned_jvm_test",
+            ":multiplatform_pruned_native_test",
+            ":multiplatform_pruned_processors_test",
             ":multiplatform_single_fragments_graph_test",
             ":multiplatform_single_platform_test",
             ":multiplatform_srcs_test",
+            ":multiplatform_unpruned_kapt_fails_test",
             ":multiplatform_windows_fragments_graph_test",
         ],
     )

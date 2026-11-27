@@ -152,9 +152,10 @@ def _fragment_sources(args):
     ]
 
 def _assert_fragments(env, args, attr):
-    asserts.equals(env, [",".join(attr.fragments)], prefixed(args, "-Xfragments="))
+    asserts.equals(env, [",".join(attr.fragments)] if attr.fragments else [], prefixed(args, "-Xfragments="))
     asserts.equals(env, attr.sources, _fragment_sources(args))
     asserts.equals(env, attr.refines, prefixed(args, "-Xfragment-refines="))
+    asserts.equals(env, bool(attr.fragments), "-Xmulti-platform" in args, str(args))
 
 def _jvm_test_impl(ctx):
     env = analysistest.begin(ctx)
@@ -243,7 +244,7 @@ def _declared_test(ctx):
 
 _FRAGMENT_FLAGS_ATTRS = {
     "associate": attr.string(doc = "the name of the expected associate, in the package"),
-    "fragments": attr.string_list(doc = "the expected -Xfragments, in order"),
+    "fragments": attr.string_list(doc = "the expected -Xfragments, in order; none for no fragment flags"),
     "kmp_fragments": attr.string_list(doc = "the names of the expected kmp_fragments, in the package, in order"),
     "refines": attr.string_list(doc = "the expected -Xfragment-refines, `<fragment>:<refined>`, in order"),
     "sources": attr.string_list(doc = "the expected -Xfragment-sources, `<fragment>:<basename>`, in order"),
@@ -691,6 +692,16 @@ def test_macro_test_suite(name):
         tags = ["manual"],
     )
 
+    # A test of one platform whose sources are those of one list compiles them as its own, without
+    # a fragment, although its library has several platforms.
+    kt_multiplatform_test(
+        name = "mpp_pruned_test",
+        srcs = ["testdata/test/GreetingTest.kt"],
+        library = ":mpp",
+        platforms = ["jvm"],
+        tags = ["manual"],
+    )
+
     # The test of Android is a kt_android_local_test of the Android library.
     kt_multiplatform_library(
         name = "tm_android",
@@ -757,6 +768,16 @@ def test_macro_test_suite(name):
         ],
         suite = False,
         test_class = "kmp.test.GreetingTest",
+        test_size = "medium",
+    )
+
+    jvm_test(
+        name = "test_macro_pruned_test",
+        target_under_test = ":mpp_pruned_test_jvm",
+        associate = "mpp_jvm",
+        friend_jar = "mpp_jvm.abi.jar",
+        suite = True,
+        test_class = _SUITE_CLASS,
         test_size = "medium",
     )
 
@@ -874,6 +895,9 @@ def test_macro_test_suite(name):
         "mpp_ios_test_ios",
         "mpp_ios_test_ios_lib",
         "mpp_ios_test_native",
+        "mpp_pruned_test",
+        "mpp_pruned_test_fragment_common",
+        "mpp_pruned_test_jvm",
         "mpp_test",
         "mpp_test_ios",
         "mpp_test_ios_lib",
@@ -889,6 +913,8 @@ def test_macro_test_suite(name):
             "mpp_ios_test",
             "mpp_ios_test_ios",
             "mpp_ios_test_ios_lib",
+            "mpp_pruned_test",
+            "mpp_pruned_test_jvm",
             "mpp_test",
             "mpp_test_ios",
             "mpp_test_ios_lib",
@@ -1034,6 +1060,7 @@ leaf linux_arm64
             ":test_macro_jvm_test",
             ":test_macro_native_attrs_test",
             ":test_macro_native_linux_test",
+            ":test_macro_pruned_test",
             ":test_macro_test_suite_test",
         ],
     )

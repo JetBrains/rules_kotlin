@@ -268,8 +268,9 @@ def kt_multiplatform_library(
     platforms (see derive.bzl). Running `<name>.fragments` prints the derived fragments, their
     `refines` edges, their platforms and their sources. A fragment has no deps: each platform
     compiles it against its own deps. A source is in one fragment, so one list names it, by one
-    label. A library of a single platform compiles its `srcs` as the fragment `common` too, with
-    the restrictions of `kmp_fragments`.
+    label. A library of a single platform whose sources are all in one list, e.g. `srcs`, compiles
+    them as the sources of that platform, without fragments and so without the restrictions of
+    `kmp_fragments`: `expect` and `actual` declarations need sources in a second list.
 
     The macro checks the declaration when it is called and fails with what to change, e.g. for
     sources of a group none of whose platforms `platforms` lists, a list given as a select() it

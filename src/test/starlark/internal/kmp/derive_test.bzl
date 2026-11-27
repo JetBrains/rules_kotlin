@@ -109,7 +109,7 @@ def _same_platforms_test(ctx):
     return unittest.end(env)
 
 def _single_platform_test(ctx):
-    """A single platform compiles the srcs of the macro as the fragment common, which its leaf refines."""
+    """A single platform has fragments when two of its lists have sources, and otherwise compiles the only one as its leaf."""
     env = unittest.begin(ctx)
 
     derived = _derive(["jvm"], {"common": COMMON, "jvm": JVM})
@@ -122,6 +122,47 @@ def _single_platform_test(ctx):
     asserts.equals(env, [], own.fragments)
     asserts.equals(env, {"jvm": JVM}, own.leaf_srcs)
     asserts.equals(env, {"jvm": []}, own.leaf_refines)
+
+    # The sources of one group alone are the leaf of the platform: there is no fragment.
+    pruned = _derive(["jvm"], {"common": COMMON})
+    asserts.equals(env, [], pruned.fragments)
+    asserts.equals(env, {"jvm": COMMON}, pruned.leaf_srcs)
+    asserts.equals(env, {"jvm": []}, pruned.leaf_refines)
+    asserts.equals(
+        env,
+        """\
+leaf jvm
+  srcs:
+    common/Platform.kt
+    common/Greeting.kt
+""",
+        format_fragments(pruned),
+    )
+
+    # So are those of a group below common.
+    pruned_apple = _derive(["ios_arm64"], {"apple": APPLE})
+    asserts.equals(env, [], pruned_apple.fragments)
+    asserts.equals(env, {"ios_arm64": APPLE}, pruned_apple.leaf_srcs)
+    asserts.equals(env, {"ios_arm64": []}, pruned_apple.leaf_refines)
+
+    # Two groups with sources stay two fragments, although the platform has no sources of its own.
+    two_groups = _derive(["ios_arm64"], {"apple": APPLE, "common": COMMON})
+    asserts.equals(
+        env,
+        [
+            ("common", ["ios_arm64"], 0, COMMON, []),
+            ("apple", ["ios_arm64"], 1, APPLE, ["common"]),
+        ],
+        _fragments(two_groups),
+    )
+    asserts.equals(env, {"ios_arm64": []}, two_groups.leaf_srcs)
+    asserts.equals(env, {"ios_arm64": ["apple"]}, two_groups.leaf_refines)
+
+    # Two platforms keep the fragment of the only group with sources.
+    two_platforms = _derive(["jvm", "android"], {"common": COMMON})
+    asserts.equals(env, [("common", ["jvm", "android"], 0, COMMON, [])], _fragments(two_platforms))
+    asserts.equals(env, {"android": [], "jvm": []}, two_platforms.leaf_srcs)
+    asserts.equals(env, {"android": ["common"], "jvm": ["common"]}, two_platforms.leaf_refines)
 
     return unittest.end(env)
 

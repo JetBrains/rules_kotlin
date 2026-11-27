@@ -276,7 +276,10 @@ def kt_multiplatform_test(
     fragment of the tests of its platforms, named after it, so a common test can use an `expect`
     helper that each platform implements with `actual`. Running `<name>.fragments` prints the
     derived test fragments. The platforms and the aliases are those of the test, not of the
-    library: they may be fewer, and the test may declare aliases of its own.
+    library: they may be fewer, and the test may declare aliases of its own. A test of a single
+    platform whose sources are all in one list, e.g. `srcs`, compiles them as the sources of that
+    platform, without fragments and so without the restrictions of `kmp_fragments`, whatever the
+    platforms of the library: `expect` and `actual` declarations need sources in a second list.
 
     The test of a platform is a `kt_jvm_test`, a `kt_android_local_test` or a `kt_native_test`
     whose `associates` are the library of that platform, `<library>_jvm`, `<library>_android` or
