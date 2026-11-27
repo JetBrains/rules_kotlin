@@ -5,6 +5,7 @@ load("//src/main/starlark/release:packager.bzl", "release_archive")
 release_archive(
     name = "pkg",
     srcs = glob(["*.bzl"]) + [
+        "TestLauncher.kt",
         "XCTestLauncher.kt",
         "XCTestShim.m",
     ],
@@ -41,6 +42,7 @@ toolchain_type(
 
 exports_files(
     glob(["*.bzl"]) + [
+        "TestLauncher.kt",
         "XCTestLauncher.kt",
         "XCTestShim.m",
     ],

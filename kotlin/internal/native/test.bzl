@@ -19,6 +19,9 @@ load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 load(":transition.bzl", "kt_native_transition")
 
+# The main function of TestLauncher.kt, the entry point of the test runner.
+_LAUNCHER_MAIN = "io.bazel.kotlin.native.test.main"
+
 def _expand_env(ctx):
     # As expand_env of //kotlin/internal/jvm:common.bzl does for kt_jvm_test.
     return {
@@ -28,8 +31,9 @@ def _expand_env(ctx):
 
 def _kt_native_test_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
-    fragments = collect_fragments(ctx, ctx.attr.kmp_fragments, tc.konan_target, ctx.files.srcs)
-    if not fragments.srcs:
+    launcher = ctx.file._launcher
+    fragments = collect_fragments(ctx, ctx.attr.kmp_fragments, tc.konan_target, ctx.files.srcs + [launcher])
+    if fragments.srcs == [launcher]:
         fail("%s: kt_native_test has no sources, in its srcs or its kmp_fragments; its test runner only runs the tests of its own sources" % ctx.label)
 
     binary = ctx.actions.declare_file(ctx.label.name + ".kexe")
@@ -39,7 +43,7 @@ def _kt_native_test_impl(ctx):
         output = binary,
         extra_deps = ctx.attr.associates,
         friends = [associate[KtKlibInfo].compile_klib for associate in ctx.attr.associates],
-        extra_args = ["-generate-test-runner"],
+        extra_args = ["-generate-test-runner", "-e", _LAUNCHER_MAIN],
         fragments = fragments,
         progress_message = "Linking Kotlin/Native test %{label} (" + tc.konan_target + ")",
     )
@@ -84,6 +88,10 @@ kt_native_test = rule(
         "srcs": attr.label_list(
             doc = "Kotlin sources with the tests.",
             allow_files = [".kt"],
+        ),
+        "_launcher": attr.label(
+            default = "//kotlin/internal/native:TestLauncher.kt",
+            allow_single_file = True,
         ),
     })),
     cfg = kt_native_transition,

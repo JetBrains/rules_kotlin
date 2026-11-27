@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Runs the test runner of failing_test (a kt_native_test) without the filter of its args: it must
 # exit with 1, which fails `bazel test`, because FailingTest.fails fails. With a filter leaving that
-# test out, it must exit with 0. Usage: expect_test_failure.sh <test runner>
+# test out, its own or that of `bazel test --test_filter`, it must exit with 0.
+# Usage: expect_test_failure.sh <test runner>
 set -uo pipefail
 
 bin="$1"
 [[ -x "$bin" ]] || { echo "FAIL: test runner not found: $bin"; exit 1; }
+
+# The filter `bazel test` set for this test is not for the test runner.
+unset TESTBRIDGE_TEST_ONLY
 
 echo "--- $bin ---"
 out="$("$bin" 2>&1)"
@@ -19,5 +23,12 @@ out="$("$bin" --ktest_filter='*.passes' 2>&1)"
 code=$?
 echo "$out"
 [[ $code -eq 0 ]] || { echo "FAIL: expected exit code 0, got $code"; exit 1; }
+
+echo "--- TESTBRIDGE_TEST_ONLY=FailingTest#passes $bin ---"
+out="$(TESTBRIDGE_TEST_ONLY='FailingTest#passes' "$bin" 2>&1)"
+code=$?
+echo "$out"
+[[ $code -eq 0 ]] || { echo "FAIL: expected exit code 0, got $code"; exit 1; }
+grep -q "FailingTest\.fails" <<<"$out" && { echo "FAIL: FailingTest.fails ran"; exit 1; }
 
 echo "OK: the test runner fails when a test fails"

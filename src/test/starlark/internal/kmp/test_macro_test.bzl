@@ -881,7 +881,8 @@ def test_macro_test_suite(name):
         test_size = "medium",
     )
 
-    # The leaf of the Linux target refines the fragments of the alias and of native, and is empty.
+    # The leaf of the Linux target refines the fragments of the alias and of native, and has no
+    # source but the launcher of the rules.
     native_linux_arm64_test(
         name = "test_macro_native_linux_test",
         target_under_test = ":mpp_test_native",
@@ -907,11 +908,13 @@ def test_macro_test_suite(name):
             "common:GreetingTest.kt",
             "jvm_linux:JvmLinuxTest.kt",
             "native:Expected.native.kt",
+            "linux_arm64:TestLauncher.kt",
         ],
         srcs = [
             "GreetingTest.kt",
             "JvmLinuxTest.kt",
             "Expected.native.kt",
+            "TestLauncher.kt",
         ],
         target_compatible_with = not_on_windows(),
         test_size = "small",

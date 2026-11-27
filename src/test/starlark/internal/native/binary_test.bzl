@@ -33,6 +33,10 @@ load(
     "with_header_klibs",
 )
 
+# The launcher of kt_native_test, a source of its compilation, and its main function.
+_TEST_LAUNCHER = "kotlin/internal/native/TestLauncher.kt"
+_TEST_LAUNCHER_MAIN = "io.bazel.kotlin.native.test.main"
+
 def _basenames(paths):
     return sorted([path.rpartition("/")[2] for path in paths])
 
@@ -175,7 +179,8 @@ def _test_link_test_impl(ctx):
     env = analysistest.begin(ctx)
 
     header_klibs = ctx.attr.header_klibs
-    compile_tool = tool_arguments(single_action(env, "KotlinNativeKlibCompile").argv)
+    compile = single_action(env, "KotlinNativeKlibCompile")
+    compile_tool = tool_arguments(compile.argv)
     link = single_action(env, "KotlinNativeLink")
     link_tool = tool_arguments(link.argv)
 
@@ -194,9 +199,15 @@ def _test_link_test_impl(ctx):
     asserts.equals(env, associate, [argument_after(compile_tool, "-friend-modules")])
     asserts.false(env, "-friend-modules" in link_tool, str(link_tool))
 
-    # The link generates the test runner, which is the executable of the rule.
+    # The link generates the test runner, which is the executable of the rule. Its entry point is
+    # the launcher of the rules, which reads the shard and the filter of `bazel test`: a source of
+    # the compilation, after the srcs.
     asserts.true(env, "-generate-test-runner" in link_tool, str(link_tool))
     asserts.false(env, "-generate-test-runner" in compile_tool, str(compile_tool))
+    asserts.equals(env, _TEST_LAUNCHER_MAIN, argument_after(link_tool, "-e"))
+    asserts.false(env, "-e" in compile_tool, str(compile_tool))
+    asserts.equals(env, [PACKAGE + "/testdata/greeter.kt", _TEST_LAUNCHER], launcher_values(compile.argv, "--source"))
+    asserts.true(env, _TEST_LAUNCHER in [f.path for f in compile.inputs.to_list()], "the launcher should be an input")
     binary = link.outputs.to_list()[0]
     asserts.equals(env, "app_test_linux_arm64.kexe", binary.basename)
     asserts.equals(env, binary, analysistest.target_under_test(env)[DefaultInfo].files_to_run.executable)
@@ -212,14 +223,14 @@ def _test_fragments_test_impl(ctx):
 
     # The sources of the fragments compile into the private klib with the srcs, the leaf, named
     # after the konan target, which may be empty: the fragments, each after those it refines, the
-    # leaf last.
+    # leaf last. The launcher of the rules is the last source of the leaf.
     compile = single_action(env, "KotlinNativeKlibCompile")
     compile_tool = tool_arguments(compile.argv)
     fragment_sources = [
         (fragment, PACKAGE + "/testdata/" + source)
         for fragment in ctx.attr.fragments
         for source in ctx.attr.fragment_sources.get(fragment, [])
-    ]
+    ] + [(ctx.attr.fragments[-1], _TEST_LAUNCHER)]
     asserts.equals(env, [source for _, source in fragment_sources], launcher_values(compile.argv, "--source"))
     asserts.true(env, "-Xmulti-platform" in compile_tool, str(compile_tool))
     asserts.equals(env, [",".join(ctx.attr.fragments)], prefixed(compile_tool, "-Xfragments="))
@@ -243,6 +254,7 @@ def _test_fragments_test_impl(ctx):
     link_tool = tool_arguments(single_action(env, "KotlinNativeLink").argv)
     asserts.equals(env, ["__EXECROOT__/" + main_klib.path], prefixed(link_tool, "-Xinclude="))
     asserts.true(env, "-generate-test-runner" in link_tool, str(link_tool))
+    asserts.equals(env, _TEST_LAUNCHER_MAIN, argument_after(link_tool, "-e"))
     asserts.false(env, "-Xmulti-platform" in link_tool, str(link_tool))
     asserts.equals(env, [], prefixed(link_tool, "-Xfragment"))
 

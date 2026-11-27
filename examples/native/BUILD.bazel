@@ -184,7 +184,7 @@ kt_native_test(
 
 # FailingTest has a passing and a failing test. failing_test passes, as the test runner's own
 # filter in its args leaves the failing one out; failing_test_exit_code_test runs the test runner
-# without the filter and expects it to fail.
+# without the filter and expects it to fail, and with the filter of `bazel test --test_filter`.
 kt_native_test(
     name = "failing_test",
     srcs = ["FailingTest.kt"],
@@ -214,6 +214,34 @@ kt_native_test(
         "GREETING": "hello, env",
         "GREETING_FILE": "$(rootpath greeting.txt)",
     },
+)
+
+# The test runner reads what `bazel test` sets for a shard and for --test_filter, a regular
+# expression searched in <suite name>#<test name>: sharded_test runs the three tests of
+# SelectionTest.kt in two shards, and test_selection_test runs its test runner with the variables
+# of a shard and of a filter.
+kt_native_test(
+    name = "sharded_test",
+    srcs = ["SelectionTest.kt"],
+    shard_count = 2,
+)
+
+sh_test(
+    name = "test_selection_test",
+    srcs = ["check_test_selection.sh"],
+    args = ["$(rootpath :sharded_test)"],
+    data = [":sharded_test"],
+)
+
+# strict_test compiles with warnings as errors and in explicit API mode, as the source of the
+# test runner that the rule adds to its srcs must.
+kt_native_test(
+    name = "strict_test",
+    srcs = ["SelectionTest.kt"],
+    opts = [
+        "-Werror",
+        "-Xexplicit-api=strict",
+    ],
 )
 
 # --- cross-link: the same executable for each Linux target, a native or a cross link ---
