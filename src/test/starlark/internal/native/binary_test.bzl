@@ -279,6 +279,17 @@ def _data_test_impl(ctx):
 
     return analysistest.end(env)
 
+def _test_env_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # Bazel convention for tests: the env is the environment of the test, with the locations of
+    # the data and the Make variables expanded, and env_inherit names what it inherits.
+    info = analysistest.target_under_test(env)[RunEnvironmentInfo]
+    asserts.equals(env, ctx.attr.environment, info.environment)
+    asserts.equals(env, ctx.attr.inherited_environment, info.inherited_environment)
+
+    return analysistest.end(env)
+
 def _test_without_srcs_test_impl(ctx):
     env = analysistest.begin(ctx)
 
@@ -322,6 +333,14 @@ test_for_another_target_test = analysistest.make(
     config_settings = for_target("ios_simulator_arm64"),
 )
 data_test = analysistest.make(_data_test_impl, config_settings = for_target("linux_arm64"))
+test_env_test = analysistest.make(
+    _test_env_test_impl,
+    attrs = {
+        "environment": attr.string_dict(doc = "the expected environment of the test"),
+        "inherited_environment": attr.string_list(doc = "the variables the test should inherit"),
+    },
+    config_settings = for_target("linux_arm64"),
+)
 test_without_srcs_test = analysistest.make(
     _test_without_srcs_test_impl,
     config_settings = for_target("linux_arm64"),
@@ -421,6 +440,21 @@ def native_binary_test_suite(name):
         name = "data_test_linux_arm64",
         srcs = ["testdata/greeter.kt"],
         data = [":data_with_runfiles"],
+        tags = ["manual"],
+    )
+
+    # A test with an env: a plain value, the location of a file of its data, an escaped dollar
+    # sign, and a variable it inherits.
+    kt_native_test(
+        name = "env_test_linux_arm64",
+        srcs = ["testdata/greeter.kt"],
+        data = ["testdata/main.kt"],
+        env = {
+            "GREETING": "hello",
+            "GREETING_FILE": "$(location testdata/main.kt)",
+            "GREETING_HOME": "$$HOME",
+        },
+        env_inherit = ["HOME"],
         tags = ["manual"],
     )
     kt_native_test(
@@ -534,6 +568,22 @@ def native_binary_test_suite(name):
         target_under_test = ":data_test_linux_arm64",
         target_compatible_with = not_on_windows(),
     )
+    test_env_test(
+        name = "test_env_test",
+        target_under_test = ":env_test_linux_arm64",
+        environment = {
+            "GREETING": "hello",
+            "GREETING_FILE": PACKAGE + "/testdata/main.kt",
+            "GREETING_HOME": "$HOME",
+        },
+        inherited_environment = ["HOME"],
+        target_compatible_with = not_on_windows(),
+    )
+    test_env_test(
+        name = "test_without_env_test",
+        target_under_test = ":data_test_linux_arm64",
+        target_compatible_with = not_on_windows(),
+    )
     test_without_srcs_test(
         name = "test_without_srcs_fails_test",
         target_under_test = ":no_srcs_test_linux_arm64",
@@ -587,10 +637,12 @@ def native_binary_test_suite(name):
             ":link_inputs_test",
             ":test_link_header_klibs_test",
             ":test_data_test",
+            ":test_env_test",
             ":test_for_another_target_links_test",
             ":test_fragments_only_test",
             ":test_fragments_test",
             ":test_link_test",
+            ":test_without_env_test",
             ":test_without_fragment_sources_fails_test",
             ":test_without_srcs_fails_test",
             ":unstaged_link_fails_test",

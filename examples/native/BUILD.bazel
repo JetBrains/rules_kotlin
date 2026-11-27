@@ -205,6 +205,17 @@ kt_native_test(
     data = ["greeting.txt"],
 )
 
+# env_test reads its env, which names greeting.txt by its path in the runfiles.
+kt_native_test(
+    name = "env_test",
+    srcs = ["EnvTest.kt"],
+    data = ["greeting.txt"],
+    env = {
+        "GREETING": "hello, env",
+        "GREETING_FILE": "$(rootpath greeting.txt)",
+    },
+)
+
 # --- cross-link: the same executable for each Linux target, a native or a cross link ---
 
 # konan target: the machine of its ELF files.

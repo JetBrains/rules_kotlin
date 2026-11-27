@@ -19,6 +19,13 @@ load(":providers.bzl", "KtKlibInfo")
 load(":toolchains.bzl", "KT_NATIVE_TOOLCHAIN_TYPE")
 load(":transition.bzl", "kt_native_transition")
 
+def _expand_env(ctx):
+    # As expand_env of //kotlin/internal/jvm:common.bzl does for kt_jvm_test.
+    return {
+        key: ctx.expand_make_variables("env", ctx.expand_location(value, ctx.attr.data), {})
+        for key, value in ctx.attr.env.items()
+    }
+
 def _kt_native_test_impl(ctx):
     tc = ctx.toolchains[KT_NATIVE_TOOLCHAIN_TYPE]
     fragments = collect_fragments(ctx, ctx.attr.kmp_fragments, tc.konan_target, ctx.files.srcs)
@@ -36,7 +43,10 @@ def _kt_native_test_impl(ctx):
         fragments = fragments,
         progress_message = "Linking Kotlin/Native test %{label} (" + tc.konan_target + ")",
     )
-    return [DefaultInfo(executable = binary, files = depset([binary]), runfiles = executable_runfiles(ctx))]
+    return [
+        DefaultInfo(executable = binary, files = depset([binary]), runfiles = executable_runfiles(ctx)),
+        RunEnvironmentInfo(environment = _expand_env(ctx), inherited_environment = ctx.attr.env_inherit),
+    ]
 
 kt_native_test = rule(
     doc = """Links the tests of the srcs into a Kotlin/Native test runner, `<name>.kexe`, which `bazel test` runs.
@@ -53,6 +63,13 @@ kt_native_test = rule(
             too. The srcs compile against their header klibs when they write one (see the build setting
             experimental_native_header_klibs): a header klib keeps internal declarations.""",
             providers = [KtKlibInfo],
+        ),
+        "env": attr.string_dict(
+            doc = """Environment variables to set when the test runs. The values are subject to `$(location)`
+            expansion over the data, and to "Make variable" substitution.""",
+        ),
+        "env_inherit": attr.string_list(
+            doc = "Environment variables the test inherits from the environment `bazel test` runs in.",
         ),
         "kmp_fragments": attr.label_list(
             doc = """The K2 fragments of a `kt_multiplatform_test` that the srcs refine: the test sources of the groups above

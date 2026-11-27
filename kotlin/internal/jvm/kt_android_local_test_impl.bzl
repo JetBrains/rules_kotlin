@@ -69,6 +69,10 @@ load(
     _TOOLCHAIN_TYPE = "TOOLCHAIN_TYPE",
 )
 load(
+    "//kotlin/internal/jvm:common.bzl",
+    _expand_env = "expand_env",
+)
+load(
     "//kotlin/internal/jvm:compile.bzl",
     _compile = "compile",
 )
@@ -270,6 +274,13 @@ def _process_stub(ctx, deploy_jar_ctx, jvm_ctx, stub_preprocess_ctx, **_unused_s
         name = "stub_ctx",
         value = struct(
             stub = stub,
+            # As the upstream processor: without it, the env of the rule does not reach the test.
+            providers = [
+                testing.TestEnvironment(
+                    environment = _expand_env(ctx),
+                    inherited_environment = ctx.attr.env_inherit,
+                ),
+            ],
         ),
         runfiles = ctx.runfiles(
             files = runfiles,

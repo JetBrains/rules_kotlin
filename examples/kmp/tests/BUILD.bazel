@@ -37,6 +37,8 @@ ROBOLECTRIC_DEPS = [
 # their Android variants for it (see @rules_kotlin//kotlin/settings:android): its common test gets
 # the platformName() of shared/android, and Robolectric backs the Android framework calls of both
 # SharedDiTest (via `expect abstract class RobolectricTest`) and AndroidSharedTest.
+#
+# The env of shared_test is that of the test of each platform: SharedTest reads it.
 
 kt_multiplatform_test(
     name = "shared_test",
@@ -57,6 +59,7 @@ kt_multiplatform_test(
     ),
     deps_android = KOTLIN_TEST_JUNIT + ROBOLECTRIC_DEPS,
     deps_jvm = KOTLIN_TEST_JUNIT,
+    env = {"KMP_TEST_GREETING": "Hello from env"},
     jvm = dict(
         resources = ["fixtures/greeting.txt"],
     ),

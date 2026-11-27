@@ -235,6 +235,17 @@ def _ios_test_impl(ctx):
 
     return analysistest.end(env)
 
+def _env_test_impl(ctx):
+    env = analysistest.begin(ctx)
+
+    # The env and env_inherit of the macro are those of the test of every platform, which sets
+    # them for its process, with the locations of its data expanded.
+    info = analysistest.target_under_test(env)[RunEnvironmentInfo]
+    asserts.equals(env, ctx.attr.environment, info.environment)
+    asserts.equals(env, ctx.attr.inherited_environment, info.inherited_environment)
+
+    return analysistest.end(env)
+
 def _declared_test(ctx):
     env = unittest.begin(ctx)
 
@@ -294,6 +305,13 @@ ios_test = analysistest.make(
     config_settings = _IOS_SIMULATOR,
     extra_target_under_test_aspects = [_test_attrs_aspect],
 )
+
+_ENV_ATTRS = {
+    "environment": attr.string_dict(doc = "the expected environment of the test"),
+    "inherited_environment": attr.string_list(doc = "the variables the test should inherit"),
+}
+env_test = analysistest.make(_env_test_impl, attrs = _ENV_ATTRS)
+env_linux_arm64_test = analysistest.make(_env_test_impl, attrs = _ENV_ATTRS, config_settings = for_target("linux_arm64"))
 
 # Compares what the macro declared, read when the package is loaded: the tests of a test_suite and
 # their compatibility are those of several platforms, which no analysis test builds together.
@@ -724,6 +742,66 @@ def test_macro_test_suite(name):
         tags = ["manual"],
     )
 
+    # The env of the macro, which names a file of the data of every test, and what the tests
+    # inherit: the JVM, the native and the Android test take them.
+    env_attrs = dict(
+        data = ["testdata/Greeting.kt"],
+        env = {
+            "KMP_GREETING": "hello",
+            "KMP_GREETING_FILE": "$(location testdata/Greeting.kt)",
+        },
+        env_inherit = ["HOME"],
+    )
+    kt_multiplatform_test(
+        name = "mpp_env_test",
+        srcs = ["testdata/test/GreetingTest.kt"],
+        library = ":mpp",
+        platforms = [
+            "jvm",
+            "linux_arm64",
+        ],
+        srcs_jvm = ["testdata/test/Expected.jvm.kt"],
+        srcs_native = ["testdata/test/Expected.native.kt"],
+        tags = ["manual"],
+        **env_attrs
+    )
+    kt_multiplatform_test(
+        name = "tm_android_env_test",
+        srcs = ["testdata/test/GreetingTest.kt"],
+        android = _ANDROID,
+        library = ":tm_android",
+        platforms = ["android"],
+        srcs_android = ["testdata/test/Expected.jvm.kt"],
+        tags = ["manual"],
+        **env_attrs
+    )
+    environment = {
+        "KMP_GREETING": "hello",
+        "KMP_GREETING_FILE": _PACKAGE + "/testdata/Greeting.kt",
+    }
+    env_test(
+        name = "test_macro_jvm_env_test",
+        target_under_test = ":mpp_env_test_jvm",
+        environment = environment,
+        inherited_environment = ["HOME"],
+    )
+    env_linux_arm64_test(
+        name = "test_macro_native_env_test",
+        target_under_test = ":mpp_env_test_native",
+        environment = environment,
+        inherited_environment = ["HOME"],
+        target_compatible_with = not_on_windows(),
+    )
+
+    # The Android SDK of the workspace is not known to resolve on Windows.
+    env_test(
+        name = "test_macro_android_env_test",
+        target_under_test = ":tm_android_env_test_android",
+        environment = environment,
+        inherited_environment = ["HOME"],
+        target_compatible_with = not_on_windows(),
+    )
+
     jvm_test(
         name = "test_macro_jvm_test",
         target_under_test = ":mpp_test_jvm",
@@ -1048,6 +1126,7 @@ leaf linux_arm64
         name = name,
         tests = [
             ":test_macro_alias_fragment_test",
+            ":test_macro_android_env_test",
             ":test_macro_android_test",
             ":test_macro_compatibility_test",
             ":test_macro_declared_targets_test",
@@ -1057,8 +1136,10 @@ leaf linux_arm64
             ":test_macro_ios_library_test",
             ":test_macro_ios_test",
             ":test_macro_ios_test_rule_test",
+            ":test_macro_jvm_env_test",
             ":test_macro_jvm_test",
             ":test_macro_native_attrs_test",
+            ":test_macro_native_env_test",
             ":test_macro_native_linux_test",
             ":test_macro_pruned_test",
             ":test_macro_test_suite_test",

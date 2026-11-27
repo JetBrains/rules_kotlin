@@ -18,6 +18,9 @@ expect fun isPlatformOfTheTest(name: String): Boolean
 /** Loads the text fixture configured for the platform (`resources` on JVM/Android, `data` on native). */
 expect fun readTestFixture(): String
 
+/** The value of the environment variable [name] in the process of the test, or null. */
+expect fun testEnvironment(name: String): String?
+
 /** A common test: every platform of //tests:shared_test compiles and runs it. */
 class SharedTest {
   @Test
@@ -43,5 +46,11 @@ class SharedTest {
   @Test
   fun readsPlatformTestFixture() {
     assertEquals("Hello from fixture", readTestFixture())
+  }
+
+  @Test
+  fun readsTheEnvOfTheTest() {
+    // The env of //tests:shared_test is that of the test of every platform.
+    assertEquals("Hello from env", testEnvironment("KMP_TEST_GREETING"))
   }
 }
