@@ -11,3 +11,5 @@ actual fun isPlatformOfTheTest(name: String): Boolean =
     OsFamily.LINUX -> name == "Linux"
     else -> false
   }
+
+actual abstract class RobolectricTest actual constructor()

@@ -9,9 +9,10 @@ local_path_override(
 bazel_dep(name = "bazel_lib", version = "3.1.0")
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "rules_android", version = "0.8.0")
+bazel_dep(name = "rules_android", version = "0.8.1")
 bazel_dep(name = "rules_java", version = "9.3.0")
 bazel_dep(name = "rules_jvm_external", version = "7.1")
+bazel_dep(name = "rules_robolectric", version = "4.14.1.2", repo_name = "robolectric")
 bazel_dep(name = "rules_shell", version = "0.6.1")
 
 # The Android SDK of shared_android, as in examples/android.
@@ -71,6 +72,7 @@ maven.install(
     ],
     use_starlark_android_rules = True,
 )
+use_repo(maven, "rules_android_maven")
 
 # The native tests link for the konan target of the exec host: linux_x64 or macos_arm64. The klibs
 # compile for every target, the iOS ones included, without link dependencies.
@@ -91,6 +93,8 @@ kmp_maven.install(
     name = "kmp_maven",
     artifacts = [
         "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2",
+        # Virtual-time coroutine test scheduler (runTest) for //tests:shared_test.
+        "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2",
         # The annotations of the DI fixture, which the KSP processor reads from the klibs and jars.
         "me.tatarka.inject:kotlin-inject-runtime-kmp:0.9.0",
     ],

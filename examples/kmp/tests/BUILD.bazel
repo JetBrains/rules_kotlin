@@ -5,8 +5,10 @@ load("@rules_kotlin//kotlin:kmp.bzl", "kt_multiplatform_test")
 load("@rules_kotlin//kotlin:native.bzl", "kt_native_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
-# The alias of kotlinx.coroutines, which the common code of //shared uses and the tests call.
+# The aliases of kotlinx.coroutines and kotlinx-coroutines-test, which //shared and the tests call.
 COROUTINES = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_core"
+
+COROUTINES_TEST = "@kmp_maven//:org_jetbrains_kotlinx_kotlinx_coroutines_test"
 
 # kotlin.test on the JVM and on Android, with JUnit 4; the Kotlin/Native distribution has its own.
 KOTLIN_TEST_JUNIT = [
@@ -15,34 +17,99 @@ KOTLIN_TEST_JUNIT = [
     "@rules_kotlin//kotlin/compiler:kotlin-test-junit",
 ]
 
+# Robolectric for the Android local test, from @robolectric and the rules_android_maven install.
+ROBOLECTRIC_DEPS = [
+    "@robolectric//bazel:android-all",
+    "@rules_android_maven//:org_robolectric_annotations",
+    "@rules_android_maven//:org_robolectric_robolectric",
+    "@rules_android_maven//:org_robolectric_shadows_framework",
+]
+
 # --- every platform: common tests, declared as the sources of //shared are ---
-# Gradle's commonTest, jvmTest, androidUnitTest and nativeTest: the common test runs on the JVM, as
-# an Android local test and on the konan target of the host, with the `actual` helper of each, as a
-# friend of the library of the platform, whose `internal` declarations it calls. shared_test runs
-# the tests of the platforms the host is compatible with, with no platform flag: shared_test_jvm,
-# shared_test_android and shared_test_native.
+# Gradle's commonTest, intermediate fragments (non_android, native, apple, linux) and platform
+# leaves (jvm, android): the common and intermediate tests run on the JVM, as an Android local test
+# and on the konan target of the host, with the `actual` helpers of each, as a friend of the library
+# of the platform, whose `internal` declarations they call. shared_test runs the tests of the
+# platforms the host is compatible with, with no platform flag: shared_test_jvm, shared_test_android
+# and shared_test_native.
 #
 # The local test runs on the JVM of the host, where //shared and the aliases of @kmp_maven select
 # their Android variants for it (see @rules_kotlin//kotlin/settings:android): its common test gets
-# the platformName() of shared/android. It runs against the android.jar of the SDK, whose methods
-# are stubs: a test that calls into the Android framework adds Robolectric, which this one does not
-# need.
+# the platformName() of shared/android, and Robolectric backs the Android framework calls of both
+# SharedDiTest (via `expect abstract class RobolectricTest`) and AndroidSharedTest.
 
 kt_multiplatform_test(
     name = "shared_test",
-    srcs = ["common/SharedTest.kt"],
-    deps_android = KOTLIN_TEST_JUNIT,
+    size = "small",
+    srcs = [
+        "common/SharedDiTest.kt",
+        "common/SharedTest.kt",
+    ],
+    aliases = {"non_android": [
+        "jvm",
+        "linux_x64",
+        "macos_arm64",
+    ]},
+    android = dict(
+        custom_package = "examples.kmp.tests",
+        manifest = "android/AndroidManifest.xml",
+        resources = ["fixtures/greeting.txt"],
+    ),
+    deps_android = KOTLIN_TEST_JUNIT + ROBOLECTRIC_DEPS,
     deps_jvm = KOTLIN_TEST_JUNIT,
+    jvm = dict(
+        resources = ["fixtures/greeting.txt"],
+    ),
     library = "//shared",
+    native = dict(
+        data = ["fixtures/greeting.txt"],
+    ),
     platforms = [
         "jvm",
         "android",
         "linux_x64",
         "macos_arm64",
     ],
-    srcs_android = ["android/PlatformOfTheTest.android.kt"],
-    srcs_jvm = ["jvm/PlatformOfTheTest.jvm.kt"],
-    srcs_native = ["native/PlatformOfTheTest.native.kt"],
+    srcs_android = [
+        "android/AndroidSharedTest.kt",
+        "android/PlatformOfTheTest.android.kt",
+    ],
+    srcs_apple = ["apple/AppleSharedTest.kt"],
+    srcs_jvm = [
+        "jvm/JvmSharedTest.kt",
+        "jvm/PlatformOfTheTest.jvm.kt",
+    ],
+    srcs_linux = ["linux/LinuxSharedTest.kt"],
+    srcs_native = [
+        "native/PlatformOfTheTest.native.kt",
+        "native/TestFixture.native.kt",
+    ],
+    srcs_non_android = ["non_android/NonAndroidSharedTest.kt"],
+    deps = [
+        COROUTINES,
+        COROUTINES_TEST,
+    ],
+)
+
+# --- subset platforms with runner overrides: jvm.test_class and native --ktest_filter ---
+
+kt_multiplatform_test(
+    name = "filtered_test",
+    size = "small",
+    srcs = ["filtered/FilteredTest.kt"],
+    deps_jvm = KOTLIN_TEST_JUNIT,
+    jvm = dict(
+        test_class = "examples.kmp.tests.SelectedTest",
+    ),
+    library = "//shared",
+    native = dict(
+        args = ["--ktest_filter=examples.kmp.tests.SelectedTest.*"],
+    ),
+    platforms = [
+        "jvm",
+        "linux_x64",
+        "macos_arm64",
+    ],
 )
 
 # The tests below are of one platform each: a test compiles its own sources only, against the
@@ -126,11 +193,20 @@ build_test(
     ],
 )
 
-# --- the derived fragment graph of //shared ---
+# --- the derived fragment graphs of //shared and //tests:shared_test ---
 
 sh_test(
     name = "shared_fragments_test",
+    size = "small",
     srcs = ["shared_fragments_test.sh"],
     args = ["$(rootpath //shared:shared.fragments)"],
     data = ["//shared:shared.fragments"],
+)
+
+sh_test(
+    name = "shared_test_fragments_test",
+    size = "small",
+    srcs = ["shared_test_fragments_test.sh"],
+    args = ["$(rootpath :shared_test.fragments)"],
+    data = [":shared_test.fragments"],
 )

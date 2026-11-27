@@ -32,9 +32,10 @@ kt_multiplatform_library(
     deps = [COROUTINES],
 )
 
-# The tests of src/commonTest, Gradle's allTests: every platform compiles them against its library
-# of //shared and the variant of kotlinx.coroutines the alias selects for it. shared_test runs, with
-# no platform flag:
+# The tests of src/commonTest and the per-platform test source sets (jvmTest, androidUnitTest,
+# iosTest), Gradle's allTests: every platform compiles commonTest with its own test sources against
+# its library of //shared and the variant of kotlinx.coroutines the alias selects for it.
+# shared_test runs, with no platform flag:
 #   shared_test_jvm      on the JVM of the host;
 #   shared_test_android  as a local test, on the JVM of the host, with the Android `actual`;
 #   shared_test_ios      in the iOS simulator, in the test bundle of ios_unit_test, on an arm64 Mac:
@@ -53,13 +54,23 @@ kt_multiplatform_test(
     srcs = glob(["src/commonTest/kotlin/**/*.kt"]),
     deps_android = KOTLIN_TEST_JUNIT,
     deps_jvm = KOTLIN_TEST_JUNIT,
-    ios = dict(minimum_os_version = "15.0"),
+    env = {"KMP_APP_TEST_ENV": "kmp_app_shared_env"},
+    ios = dict(
+        minimum_os_version = "15.0",
+        resources = ["src/iosTest/resources/ios_fixture.txt"],
+    ),
     ios_test_rule = ios_unit_test,
+    jvm = dict(
+        resources = ["src/jvmTest/resources/jvm_fixture.txt"],
+    ),
     library = ":shared",
     platforms = [
         "jvm",
         "android",
         "ios_simulator_arm64",
     ],
+    srcs_android = glob(["src/androidUnitTest/kotlin/**/*.kt"]),
+    srcs_ios = glob(["src/iosTest/kotlin/**/*.kt"]),
+    srcs_jvm = glob(["src/jvmTest/kotlin/**/*.kt"]),
     deps = [COROUTINES],
 )
