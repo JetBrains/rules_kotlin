@@ -6,6 +6,14 @@ link.bzl). The runner exits with 1 when a test fails. It takes its own options, 
 test sources a kt_multiplatform_test shares compile with the srcs, as K2 fragments (see
 //kotlin/internal/kmp:fragments.bzl).
 
+The Kotlin test runner does not read the environment of a Bazel test. The entry point of the test
+is therefore the main function of TestLauncher.kt, a source of the rules that compiles with the
+srcs, as the last of them: it creates TEST_SHARD_STATUS_FILE, selects the tests of
+TESTBRIDGE_TEST_ONLY (`--test_filter`) and then those of the shard (TEST_TOTAL_SHARDS and
+TEST_SHARD_INDEX), and runs the Kotlin test runner on them, with its options. The link sets it
+with `-e`, before the `link_opts`: a test whose `link_opts` set an entry point of their own runs
+that one, and has neither shards nor the filter.
+
 The test runs on the exec host, which runs the binaries of its own konan target: the build's
 platform is the host's, as by default. A test for another konan target links like a cc_test for
 another platform, so a build of every target for that platform builds it too, but it does not
@@ -59,7 +67,22 @@ kt_native_test = rule(
     must be staged: see kotlin_native.targets(...). `bazel test` runs the test on the exec host, so the test
     is for the konan target of that host, as it is by default. For another konan target, e.g. with
     `--platforms`, the test runner links but does not run on the host: set `target_compatible_with` on a
-    test to skip it for the platforms it does not run on.""",
+    test to skip it for the platforms it does not run on.
+
+    The test takes the attributes and the flags of a Bazel test:
+    - `env` and `env_inherit` set the environment of its process;
+    - `shard_count` splits its tests among the shards in turn, in the order the test runner lists them in;
+      a shard without a test passes;
+    - `bazel test --test_filter=<filter>` runs the tests whose `<suite>#<test>` has a match of the filter,
+      a regular expression, as a `kt_jvm_test` does with `<class>#<method>`: the suite of the tests of a
+      class is its qualified name, e.g. `--test_filter=GreeterTest` or `--test_filter='GreeterTest#greets$'`.
+      A filter that matches no test of the target, or is no regular expression, fails the test. The shards
+      split the tests the filter selects.
+
+    The options of the Kotlin test runner, e.g. `--ktest_filter=<pattern>` in `args` or in
+    `bazel test --test_arg=...`, select among those tests. A test whose `link_opts` set an entry point,
+    `-e <function>`, runs it in place of the one of the rule, and has neither shards nor `--test_filter`:
+    Bazel then fails it when it has a `shard_count`.""",
     implementation = _kt_native_test_impl,
     attrs = dict(LINK_ATTRS, **dict(EXECUTABLE_ATTRS, **{
         "associates": attr.label_list(

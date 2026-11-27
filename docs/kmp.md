@@ -256,6 +256,20 @@ kt_native_test(
   with their own runfiles. They are in its runfiles tree, where `bazel run` and `bazel test` start
   it, a file of the main repository at its path from the root of the workspace: `data_test` of
   `examples/native` opens `greeting.txt` with `fopen("greeting.txt", "r")`.
+- **Environment, shards and filter of a test.** A `kt_native_test` takes what every Bazel test
+  does. `env` and `env_inherit` set the environment of its process, and the values of `env` take
+  `$(location ...)` of the `data`: `env_test` of `examples/native` reads its `env` with `getenv`.
+  `shard_count` splits its tests among the shards in turn, and a shard without a test passes.
+  `bazel test --test_filter=<filter>` runs the tests whose `<suite>#<test>` has a match of the
+  filter, a regular expression, as a `kt_jvm_test` does with `<class>#<method>`: the suite of the
+  tests of a class is its qualified name, so `--test_filter=GreeterTest` runs the tests of
+  `greeter.GreeterTest` and `--test_filter='GreeterTest#greets$'` one of them. A filter that
+  matches no test of the target fails it, with `No tests found matching the test filter`. The
+  options of the Kotlin test runner, e.g. `args = ["--ktest_filter=*.greets"]` or
+  `--test_arg=--ktest_filter=...`, select among those tests. The Kotlin test runner reads none of
+  this from the environment: the rule compiles a launcher of its own with the `srcs` and links it
+  as the entry point. A test whose `link_opts` name another one, `-e <function>`, runs that, and
+  has neither shards nor `--test_filter`.
 - **Tests for another konan target.** `bazel test` runs a `kt_native_test` on the exec host, so for
   the konan target of that host, `linux_x64` or `macos_arm64`, as by default. Built for another
   target, e.g. with `--platforms`, the runner links, like a `cc_test` for another platform, but
@@ -804,6 +818,21 @@ kt_multiplatform_test(
   `test_class` in `jvm` or `android`, or a `main_class` other than the test runner of Bazel, runs
   that instead. The native test generates its runner, as any `kt_native_test` does, and so does
   the library of the iOS tests, which an XCTest case runs.
+- **Attributes and flags of a test.** `env` and `env_inherit` of the macro set the environment of
+  every test. `shard_count` splits the JVM, the Android and the native test; the iOS test does not
+  take it from the macro and runs in one shard, as the runner of rules_apple does not tell the
+  test bundle about its shard, and `ios = dict(shard_count = ...)` is for an `ios_test_rule` whose
+  runner does. `bazel test //tests:shared_test --test_filter='\.SharedTest#'` selects the same
+  tests of the JVM, the Android and the native test, those of the class `SharedTest`: the filter
+  is a regular expression searched in `<class>#<method>`, with the qualified name of the class,
+  so `--test_filter=SharedTest` also selects those of `JvmSharedTest`. A test of which the filter
+  matches nothing fails. The iOS test gives the filter to its runner, which selects among the
+  XCTest methods of the bundle, and the Kotlin tests of the library are one of them,
+  `KotlinNativeTests_<package>_<name>_ios_lib/testKotlin`: see
+  [Tests in the iOS simulator](#tests-in-the-ios-simulator). A filter in the form of the other
+  tests matches no XCTest method and fails the iOS test with `no tests were executed`, so a build
+  with such a filter names the tests to run, e.g. `//shared:shared_test_jvm`, and not a
+  test_suite with an iOS test.
 
 With the name `shared_test`, the macro declares:
 

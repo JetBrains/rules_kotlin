@@ -92,6 +92,11 @@ _MINIMUM_OS_VERSION = "minimum_os_version"
 # the runner of rules_apple fails a test that passed when its process wrote no profile.
 _IOS_TEST_DEFAULTS = {"collect_code_coverage": False}
 
+# The attributes of every test that the iOS test does not take from the macro, only from `ios`.
+# The runner of rules_apple does not tell the test bundle about its shard and does not create
+# TEST_SHARD_STATUS_FILE, so Bazel fails a sharded iOS test: it runs in one shard.
+_NOT_IOS_TEST_ATTRS = ["shard_count"]
+
 # The main class of kt_jvm_test and kt_android_local_test, which runs the class of `test_class`.
 _TEST_RUNNER = "com.google.testing.junit.runner.BazelTestRunner"
 
@@ -329,6 +334,23 @@ def kt_multiplatform_test(
     e.g. Linux. `bazel test <name>` runs, with no platform flag, the tests of every platform that
     the host can run.
 
+    The attributes of a Bazel test are keyword arguments of the macro, and those of every test:
+    - `env` and `env_inherit` set the environment of the process of the JVM, the Android, the
+      native and the iOS test; in the first three, the values of `env` take `$(location ...)` of
+      the `data`, and the iOS test expands them as its rule does;
+    - `shard_count` splits the JVM, the Android and the native test. The iOS test does not take
+      it and runs in one shard: the runner of rules_apple does not tell the test bundle about its
+      shard, and Bazel fails a sharded test whose runner does not. `ios = dict(shard_count = ...)`
+      is still an attribute of `<name>_ios`, for an `ios_test_rule` whose runner shards;
+    - `bazel test --test_filter` is a regular expression searched in `<class>#<method>` by the
+      JVM, the Android and the native test, so one filter selects the same tests of the three,
+      and a filter that matches none of a test fails it. The iOS test gives it to its runner,
+      which selects among the XCTest methods of the bundle: the Kotlin tests of the library are
+      one of them, `KotlinNativeTests_<package>_<name>_ios_lib/testKotlin`, and are not filtered
+      one by one. A filter in the form of the other tests matches no XCTest method, and fails
+      the iOS test: with such a filter, name the tests to run, e.g. `<name>_jvm`, and not the
+      test_suite.
+
     The macro checks the declaration when it is called and fails with what to change, as
     `kt_multiplatform_library` does, and also for a platform that no list gives test sources. For
     the iOS targets it fails, in this order: when `platforms` lists none and `ios` sets attributes;
@@ -387,7 +409,8 @@ def kt_multiplatform_test(
       **kwargs: the lists of the groups, the platforms and the aliases, `<attr>_<qualifier>`:
         `<attr>` is `srcs`, `deps` or `plugins`. Each is a list of labels; the deps and plugins of
         `jvm` and `android` may also be or end with a select(). The other keyword arguments are
-        attributes of every test, e.g. `size`, `timeout` or `target_compatible_with`.
+        attributes of every test, e.g. `size`, `timeout`, `env` or `target_compatible_with`;
+        `shard_count` is not one of the iOS test.
     """
     normalize, label_of = label_formatter()
     declaration = parse_declaration(
@@ -482,7 +505,8 @@ def kt_multiplatform_test(
             visibility = visibility,
             **library_attrs
         )
-        attrs = dict(test_attrs, **dict(_IOS_TEST_DEFAULTS, **ios_attrs))
+        ios_test_attrs = {attr: value for attr, value in test_attrs.items() if attr not in _NOT_IOS_TEST_ATTRS}
+        attrs = dict(ios_test_attrs, **dict(_IOS_TEST_DEFAULTS, **ios_attrs))
         attrs["target_compatible_with"] = konan_targets_compatible_with(
             ios_test_konan_targets(ios_targets),
             [test_attrs, ios_attrs],

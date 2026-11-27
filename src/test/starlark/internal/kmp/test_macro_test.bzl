@@ -802,6 +802,69 @@ def test_macro_test_suite(name):
         target_compatible_with = not_on_windows(),
     )
 
+    # The shard_count of the macro is that of the JVM, the Android and the native test, and not of
+    # the iOS test, whose runner knows no shards; the one of `ios` is, for a runner that does.
+    # The arguments of the calls of the rule of these iOS tests are recorded apart from the others.
+    sharded_ios_tests = {}
+    sharded_ios_test_rule = _recording_ios_test_rule(sharded_ios_tests)
+    kt_multiplatform_test(
+        name = "mpp_sharded_test",
+        srcs = ["testdata/test/GreetingTest.kt"],
+        ios = dict(minimum_os_version = _IOS_VERSION),
+        ios_test_rule = sharded_ios_test_rule,
+        library = ":mpp",
+        platforms = [
+            "jvm",
+            "linux_arm64",
+            "ios_simulator_arm64",
+        ],
+        shard_count = 2,
+        srcs_jvm = ["testdata/test/Expected.jvm.kt"],
+        srcs_native = ["testdata/test/Expected.native.kt"],
+        tags = ["manual"],
+    )
+    kt_multiplatform_test(
+        name = "tm_android_sharded_test",
+        srcs = ["testdata/test/GreetingTest.kt"],
+        android = _ANDROID,
+        library = ":tm_android",
+        platforms = ["android"],
+        shard_count = 2,
+        srcs_android = ["testdata/test/Expected.jvm.kt"],
+        tags = ["manual"],
+    )
+    kt_multiplatform_test(
+        name = "mpp_ios_sharded_test",
+        srcs = ["testdata/test/GreetingTest.kt"],
+        ios = dict(
+            minimum_os_version = _IOS_VERSION,
+            shard_count = 2,
+        ),
+        ios_test_rule = sharded_ios_test_rule,
+        library = ":mpp",
+        platforms = ["ios_simulator_arm64"],
+        shard_count = 3,
+        srcs_native = ["testdata/test/Expected.native.kt"],
+        tags = ["manual"],
+    )
+    declared_test(
+        name = "test_macro_shard_count_test",
+        actual = [
+            "%s: %s" % (target, native.existing_rule(target)["shard_count"])
+            for target in ["mpp_sharded_test_jvm", "tm_android_sharded_test_android", "mpp_sharded_test_native"]
+        ] + [
+            "%s: %s" % (test, sharded_ios_tests[test].get("shard_count"))
+            for test in ["mpp_sharded_test_ios", "mpp_ios_sharded_test_ios"]
+        ],
+        expected = [
+            "mpp_sharded_test_jvm: 2",
+            "tm_android_sharded_test_android: 2",
+            "mpp_sharded_test_native: 2",
+            "mpp_sharded_test_ios: None",
+            "mpp_ios_sharded_test_ios: 2",
+        ],
+    )
+
     jvm_test(
         name = "test_macro_jvm_test",
         target_under_test = ":mpp_test_jvm",
@@ -1145,6 +1208,7 @@ leaf linux_arm64
             ":test_macro_native_env_test",
             ":test_macro_native_linux_test",
             ":test_macro_pruned_test",
+            ":test_macro_shard_count_test",
             ":test_macro_test_suite_test",
         ],
     )

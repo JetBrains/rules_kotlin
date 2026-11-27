@@ -867,6 +867,21 @@ is for the konan target of that host, as it is by default. For another konan tar
 `--platforms`, the test runner links but does not run on the host: set `target_compatible_with` on a
 test to skip it for the platforms it does not run on.
 
+The test takes the attributes and the flags of a Bazel test:
+- `env` and `env_inherit` set the environment of its process;
+- `shard_count` splits its tests among the shards in turn, in the order the test runner lists them in;
+  a shard without a test passes;
+- `bazel test --test_filter=<filter>` runs the tests whose `<suite>#<test>` has a match of the filter,
+  a regular expression, as a `kt_jvm_test` does with `<class>#<method>`: the suite of the tests of a
+  class is its qualified name, e.g. `--test_filter=GreeterTest` or `--test_filter='GreeterTest#greets$'`.
+  A filter that matches no test of the target, or is no regular expression, fails the test. The shards
+  split the tests the filter selects.
+
+The options of the Kotlin test runner, e.g. `--ktest_filter=<pattern>` in `args` or in
+`bazel test --test_arg=...`, select among those tests. A test whose `link_opts` set an entry point,
+`-e <function>`, runs it in place of the one of the rule, and has neither shards nor `--test_filter`:
+Bazel then fails it when it has a `shard_count`.
+
 **ATTRIBUTES**
 
 
@@ -1224,6 +1239,23 @@ of the platform of the build, and is skipped on a host that does not build its i
 e.g. Linux. `bazel test <name>` runs, with no platform flag, the tests of every platform that
 the host can run.
 
+The attributes of a Bazel test are keyword arguments of the macro, and those of every test:
+- `env` and `env_inherit` set the environment of the process of the JVM, the Android, the
+  native and the iOS test; in the first three, the values of `env` take `$(location ...)` of
+  the `data`, and the iOS test expands them as its rule does;
+- `shard_count` splits the JVM, the Android and the native test. The iOS test does not take
+  it and runs in one shard: the runner of rules_apple does not tell the test bundle about its
+  shard, and Bazel fails a sharded test whose runner does not. `ios = dict(shard_count = ...)`
+  is still an attribute of `<name>_ios`, for an `ios_test_rule` whose runner shards;
+- `bazel test --test_filter` is a regular expression searched in `<class>#<method>` by the
+  JVM, the Android and the native test, so one filter selects the same tests of the three,
+  and a filter that matches none of a test fails it. The iOS test gives it to its runner,
+  which selects among the XCTest methods of the bundle: the Kotlin tests of the library are
+  one of them, `KotlinNativeTests_<package>_<name>_ios_lib/testKotlin`, and are not filtered
+  one by one. A filter in the form of the other tests matches no XCTest method, and fails
+  the iOS test: with such a filter, name the tests to run, e.g. `<name>_jvm`, and not the
+  test_suite.
+
 The macro checks the declaration when it is called and fails with what to change, as
 `kt_multiplatform_library` does, and also for a platform that no list gives test sources. For
 the iOS targets it fails, in this order: when `platforms` lists none and `ios` sets attributes;
@@ -1255,6 +1287,6 @@ declares no native test, and fails when `native` sets an attribute other than `o
 | <a id="kt_multiplatform_test-ios_test_rule"></a>ios_test_rule |  the rule that bundles and runs the tests of the iOS targets: the `ios_unit_test` of rules_apple, loaded from `@rules_apple//apple:ios.bzl`, or a macro that takes its `name`, `deps`, `minimum_os_version`, `collect_code_coverage` and the attributes of a test. Its `deps` are `<name>_ios_lib` and then the `deps` of `ios`. It is required with iOS targets, and unused without.   |  `None` |
 | <a id="kt_multiplatform_test-visibility"></a>visibility |  the visibility of the tests, of `<name>.fragments` and of the test_suite; the fragments are private.   |  `None` |
 | <a id="kt_multiplatform_test-tags"></a>tags |  the tags of the targets.   |  `[]` |
-| <a id="kt_multiplatform_test-kwargs"></a>kwargs |  the lists of the groups, the platforms and the aliases, `<attr>_<qualifier>`: `<attr>` is `srcs`, `deps` or `plugins`. Each is a list of labels; the deps and plugins of `jvm` and `android` may also be or end with a select(). The other keyword arguments are attributes of every test, e.g. `size`, `timeout` or `target_compatible_with`.   |  none |
+| <a id="kt_multiplatform_test-kwargs"></a>kwargs |  the lists of the groups, the platforms and the aliases, `<attr>_<qualifier>`: `<attr>` is `srcs`, `deps` or `plugins`. Each is a list of labels; the deps and plugins of `jvm` and `android` may also be or end with a select(). The other keyword arguments are attributes of every test, e.g. `size`, `timeout`, `env` or `target_compatible_with`; `shard_count` is not one of the iOS test.   |  none |
 
 
